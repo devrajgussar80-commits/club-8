@@ -5579,7 +5579,10 @@ body[data-club-page="game"] .trend-stats,body[data-club-page="game"] .trend-row,
 }
 
 .arcade-topbar {
-  height: 72px;
+  /* min-height, not height: the safe-area rule adds top padding with
+     content-box, so a fixed height would be overridden and the bar would
+     collapse to its content. */
+  min-height: 72px;
   padding: 0 14px;
   display: flex;
   align-items: center;
@@ -5906,7 +5909,7 @@ body[data-club-page="game"] .trend-stats,body[data-club-page="game"] .trend-row,
 .aviator-player-avatar { font-size: 27px; }
 
 @media (max-width: 430px) {
-  .arcade-topbar { height: 64px; }
+  .arcade-topbar { min-height: 64px; }
   .chicken-stage { height: 500px; }
   .chicken-amount-row { grid-template-columns: 38px minmax(80px,1fr) 38px 52px 52px 42px; gap: 4px; }
 }
@@ -6243,7 +6246,7 @@ body[data-club-page="game"] .trend-stats,body[data-club-page="game"] .trend-row,
 .aviator-recent span[data-round] { cursor: pointer; }
 
 @media (max-width: 430px) {
-  .arcade-topbar { height: 56px; }
+  .arcade-topbar { min-height: 56px; }
   .arcade-wallet { min-width: 128px; height: 40px; font-size: 20px; }
   .arcade-wallet span { width: 38px; height: 38px; }
   .chicken-brandbar { padding: 0 8px; gap: 5px; }
@@ -6643,9 +6646,23 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
 }
 
 .promotion-page .agency-head,
-.club-category-tabs,
-.aviator-brandbar {
+.club-category-tabs {
   padding-top: var(--pad-top);
+}
+
+/* Arcade games (chicken road, aviator, ...) open with .arcade-topbar and the
+   mines game with .mines-head. These are the top-most element on their page
+   and sat at y=0, so the Android status bar covered the back button and the
+   wallet chip. Grow the box upward like the other heads so the content row
+   keeps its height. WinGo already cleared the bar via .top-header; this brings
+   the rest in line. .aviator-brandbar is a second bar *below* .arcade-topbar,
+   so it no longer needs its own offset -- the topbar above it already clears
+   the status bar. */
+.arcade-topbar,
+.mines-head {
+  height: auto;
+  padding-top: var(--pad-top);
+  box-sizing: content-box;
 }
 
 /* Most pages do not use .top-header -- they open with a fixed-height static
@@ -6663,6 +6680,27 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
 
 .club-page-head {
   min-height: 52px;
+}
+
+/* Platform-wide top clearance for the pages whose top element was NOT one of
+   the heads above, or whose head is overridden by a more specific page rule:
+
+   - deposit / wallet heads: ".deposit-page .club-page-head { padding: 0 12px }"
+     is more specific than the generic head rule and its shorthand zeroes the
+     top. Scoping under .mobile-frame here (and setting padding-top on its own)
+     wins on the cascade and restores the offset without touching the sides.
+   - .auth-shell / .arwallet-loader: full-screen centred pages with no head, so
+     their content could sit under the status bar.
+   - .activity-hero: opened only 18px down, less than the status bar height.
+
+   All use var(--pad-top) = max(inset, floor), the same value WinGo already
+   uses, so every screen clears the notch by the same amount. */
+.mobile-frame .deposit-page .club-page-head,
+.mobile-frame #page-wallet .club-page-head,
+.mobile-frame .auth-shell,
+.mobile-frame .arwallet-loader,
+.mobile-frame .activity-hero {
+  padding-top: var(--pad-top);
 }
 
 .nd-topbar {
