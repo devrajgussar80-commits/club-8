@@ -1,0 +1,10 @@
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pydantic>=2.0
+pyjwt>=2.7.0
+python-multipart>=0.0.6
+qrcode[pil]>=8.2
+# Postgres (Neon). psycopg-pool keeps connections warm -- Neon is serverless,
+# so a fresh connect per request pays a TLS handshake every time.
+psycopg[binary]>=3.1
+psycopg-pool>=3.2

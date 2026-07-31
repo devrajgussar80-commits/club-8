@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-geist);
+  --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-cormorant);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--background);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--secondary);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--emerald);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: var(--ruby);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--primary);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+:root {
+  color-scheme: dark;
+  --background: #090d14;
+  --foreground: #f5f7fb;
+  --card: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --primary: #16d9e3;
+  --secondary: color-mix(in srgb, var(--primary) 7%, var(--background));
+  --muted-foreground: color-mix(in srgb, var(--foreground) 58%, var(--background));
+  --emerald: #36e27f;
+  --ruby: #ff4264;
+  --border: color-mix(in srgb, var(--primary) 22%, transparent);
+  --radius: 0.75rem;
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { @apply bg-background; }
+  body { @apply bg-background text-foreground; }
+  button { touch-action: manipulation; }
+}
+
+.surface-panel {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent), 0 14px 34px color-mix(in srgb, var(--background) 78%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.brand-mark {
+  color: var(--primary);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, var(--background));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 10%, transparent), 0 8px 24px color-mix(in srgb, var(--background) 70%, transparent);
+}
+
+.wheel-stage {
+  background: color-mix(in srgb, var(--foreground) 3%, var(--background));
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent), 0 28px 60px color-mix(in srgb, var(--background) 75%, transparent);
+}
+
+.betting-deck {
+  background: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  box-shadow: inset 0 2px 8px color-mix(in srgb, var(--background) 80%, transparent), 0 16px 38px color-mix(in srgb, var(--background) 72%, transparent);
+}
+
+.number-cell { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 9%, transparent), inset 0 -2px 5px color-mix(in srgb, var(--background) 48%, transparent); }
+.selected-cell { box-shadow: inset 0 0 0 2px var(--primary), 0 0 16px color-mix(in srgb, var(--primary) 28%, transparent); transform: translateY(-1px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}

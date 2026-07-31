@@ -1,0 +1,28 @@
+.venv
+.git
+__pycache__
+# The whole API service, not just its .py files: it also holds the local
+# SQLite database and uploaded QR images, and Vercel would serve them.
+backend/
+*.py
+*.pyc
+*.db
+requirements.txt
+uploads
+admin_view_initial_*.png
+
+# Vercel serves this project as static files, so anything uploaded here is
+# reachable over the public URL. These bundle .env.local, the live SQLite
+# database and uploaded QR images.
+.env*
+*.zip
+work/
+.claude/
+render.yaml
+
+# Database credential files. neodb-url.txt holds the full Neon connection
+# string, password included. Vercel serves this repo as static files, so an
+# un-ignored copy would be downloadable at https://<site>/neodb-url.txt
+neodb-url.txt
+*neon*.txt
+*neodb*

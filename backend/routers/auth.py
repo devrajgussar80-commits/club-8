@@ -1,0 +1,116 @@
+"""Player registration, login and profile."""
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+
+import auth as auth_helpers
+import config
+from database import get_db_connection
+from deps import get_current_user
+from schemas import LoginRequest, RegisterRequest
+from settings_store import get_approved_deposit_total
+
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+SIGNUP_BONUS = 100.0
+
+
+@router.post("/register")
+def register_user(req: RegisterRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    existing = cursor.execute("SELECT id FROM users WHERE phone = ?", (req.phone,)).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Phone number is already registered!")
+
+    # COUNT(*) reuses an id after any deletion, which would hand a new account
+    # the previous holder's bets and deposits.
+    user_id = f"USR{uuid.uuid4().hex[:10].upper()}"
+    pwd_hash = auth_helpers.hash_password(req.password)
+
+    cursor.execute(
+        """
+        INSERT INTO users
+            (id, phone, username, password_hash, balance, status, referral_code, game_access_enabled)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, 0)
+        """,
+        (user_id, req.phone, req.username, pwd_hash, SIGNUP_BONUS, req.referral_code),
+    )
+
+    conn.commit()
+    conn.close()
+
+    token = auth_helpers.create_access_token({"user_id": user_id, "phone": req.phone})
+    return {
+        "status": "success",
+        "token": token,
+        "user": {
+            "id": user_id,
+            "name": req.username,
+            "phone": req.phone,
+            "balance": SIGNUP_BONUS,
+            "game_access_enabled": False,
+            "approved_deposit_total": 0.0,
+        },
+    }
+
+
+@router.post("/login")
+def login_user(req: LoginRequest):
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE phone = ?", (req.phone,)).fetchone()
+    conn.close()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid phone or password!")
+
+    user_dict = dict(user)
+    if not auth_helpers.verify_password(req.password, user_dict["password_hash"]):
+        raise HTTPException(status_code=400, detail="Invalid phone or password!")
+
+    if user_dict["status"] == "disabled":
+        raise HTTPException(status_code=403, detail="Account suspended by Admin!")
+
+    # Transparently move legacy SHA-256 records onto PBKDF2 now that we have the
+    # plaintext in hand.
+    if auth_helpers.needs_rehash(user_dict["password_hash"]):
+        conn = get_db_connection()
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (auth_helpers.hash_password(req.password), user_dict["id"]),
+        )
+        conn.commit()
+        conn.close()
+
+    token = auth_helpers.create_access_token(
+        {"user_id": user_dict["id"], "phone": user_dict["phone"]}
+    )
+    return {
+        "status": "success",
+        "token": token,
+        "user": {
+            "id": user_dict["id"],
+            "name": user_dict["username"],
+            "phone": user_dict["phone"],
+            "balance": user_dict["balance"],
+            "game_access_enabled": bool(user_dict.get("game_access_enabled", 0)),
+        },
+    }
+
+
+@router.get("/me")
+def get_profile(current_user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    approved_total = get_approved_deposit_total(conn, current_user["id"])
+    conn.close()
+
+    user_data = dict(current_user)
+    user_data.pop("password_hash", None)
+    user_data["approved_deposit_total"] = approved_total
+    user_data["has_approved_min_deposit"] = approved_total >= config.GAME_ACCESS_MIN_DEPOSIT
+    user_data["game_access_enabled"] = bool(user_data.get("game_access_enabled", 0))
+    user_data["game_access_min_deposit"] = config.GAME_ACCESS_MIN_DEPOSIT
+    return {"status": "success", "user": user_data}

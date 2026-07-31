@@ -1,0 +1,62 @@
+# Render Blueprint. Render reads this file from the REPO ROOT only, which is
+# why the new backend is configured here and not in backend/render.yaml.
+#
+# Deploys backend/ as the API. The frontend (index.html, js/, style.css) is
+# deployed separately by Vercel from the same repo; .vercelignore keeps
+# backend/ out of that build.
+#
+# Player data lives in Neon Postgres, not on this host, so a redeploy cannot
+# wipe the database. The one thing that does need local persistence is the
+# admin's uploaded QR images -- Render's filesystem is wiped on every deploy,
+# so they get a disk and UPLOAD_DIR points at it.
+#
+# Running a single instance is deliberate: the Aviator round clock lives in
+# process memory, so two instances would deal two different rounds. Scale by
+# moving that state to Postgres/Redis first, not by raising the instance count.
+services:
+  - type: web
+    name: club-8-api
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: club-8-uploads
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_ENV
+        value: production
+      # Pinned: an unpinned runtime silently moves under you on rebuild.
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      # Seeds the Aviator provably-fair chain. It MUST be stable across
+      # restarts -- if it is regenerated, seed hashes published before the
+      # restart no longer verify against the seeds revealed after it, which
+      # is exactly the promise the feature makes to players.
+      - key: AVIATOR_CHAIN_KEY
+        generateValue: true
+      - key: SERVE_FRONTEND
+        value: "false"
+      - key: ALLOW_DEMO_USER
+        value: "false"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: PASSWORD_SALT
+        generateValue: true
+      - key: ADMIN_API_KEY
+        generateValue: true
+      # Set these three by hand in the Render dashboard:
+      #   DATABASE_URL     = Neon POOLED string (host contains "-pooler")
+      #   FRONTEND_ORIGINS = https://club-8.vercel.app   (CORS allowlist)
+      #   PUBLIC_API_URL   = https://<your-render-url>   (uploaded QR links)
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false

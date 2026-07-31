@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover is required for env(safe-area-inset-*) to report real
+       values. Without it the Android status bar and gesture bar sit on top of
+       the fixed header and bottom nav. See the safe-area block in style.css. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#ff5d64">
+  <title>Club 8 - WinGo</title>
+  
+  <!-- Modern Typography & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  
+  <!-- App Stylesheet -->
+  <link rel="stylesheet" href="style.css?v=chicken-road-1">
+</head>
+<body>
+
+  <!-- Master App Shell -->
+  <div id="app-container">
+    
+    <header id="player-header" class="top-header">
+      <button id="header-back" class="header-back" type="button" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+      <div class="brand-logo" aria-label="Club 8">
+        <span class="brand-mark">8</span><span>CLUB</span><strong>8</strong>
+      </div>
+
+      <div class="header-actions">
+        <button class="icon-btn" type="button" title="Support"><i class="bi bi-headset"></i></button>
+        <button id="toggle-sound" class="icon-btn" type="button" title="Toggle Sound FX">
+          <i class="bi bi-music-note-beamed"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- 1. NATIVE MOBILE USER APP VIEW (/game & /login) -->
+    <div id="user-app-view" class="view-viewport active">
+      <div class="mobile-frame">
+        
+        <!-- LOGIN & REGISTER SUB-PAGE (/login) -->
+        <div id="page-auth" class="sub-page auth-page">
+          <div class="auth-shell">
+            <header class="auth-hero">
+              <button type="button" class="auth-back" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+              <div class="auth-wordmark"><span>8</span> CLUB 8</div>
+              <div class="auth-lang">🇮🇳 <b>EN</b></div>
+              <h1 id="auth-heading">Log in</h1>
+              <p id="auth-subheading">Please log in with your phone number<br>If you forget your password, please contact customer service</p>
+            </header>
+
+            <div class="auth-container">
+              <div id="auth-login-methods" class="auth-method-tabs">
+                <button type="button" class="active"><i class="bi bi-phone-fill"></i><span>phone number</span></button>
+                <button type="button"><i class="bi bi-envelope-fill"></i><span>Email Login</span></button>
+              </div>
+
+              <div id="auth-register-title" class="auth-register-title" hidden>
+                <i class="bi bi-phone-fill"></i><strong>Register your phone</strong>
+                <small>New user signup bonus ₹100</small>
+              </div>
+
+              <form id="form-login" class="auth-form">
+                <label class="auth-field-label"><i class="bi bi-phone-fill"></i> Phone number</label>
+                <div class="auth-phone-row">
+                  <span>+91 <i class="bi bi-chevron-down"></i></span>
+                  <input type="tel" id="login-phone" inputmode="numeric" maxlength="10" placeholder="Please enter the phone number" required>
+                </div>
+                <label class="auth-field-label"><i class="bi bi-lock-fill"></i> Password</label>
+                <div class="auth-input-wrap">
+                  <input type="password" id="login-password" placeholder="Please enter your password" required>
+                  <button type="button" data-toggle-password="login-password" aria-label="Show password"><i class="bi bi-eye-slash"></i></button>
+                </div>
+                <label class="auth-remember"><input type="checkbox" checked><span><i class="bi bi-check-lg"></i></span> Remember password</label>
+                <button type="submit" class="auth-primary-btn">Log in</button>
+                <button type="button" class="auth-outline-btn" onclick="window.switchAuthTab('register')">Register</button>
+                <div class="auth-help-row">
+                  <button type="button"><i class="bi bi-lock-fill"></i><span>Forgot password</span></button>
+                  <button type="button"><i class="bi bi-headset"></i><span>Customer Service</span></button>
+                </div>
+              </form>
+
+              <form id="form-register" class="auth-form" style="display:none;">
+                <label class="auth-field-label"><i class="bi bi-phone-fill"></i> Phone number</label>
+                <div class="auth-phone-row">
+                  <span>+91 <i class="bi bi-chevron-down"></i></span>
+                  <input type="tel" id="reg-phone" inputmode="numeric" maxlength="10" placeholder="Please enter the phone number" required>
+                </div>
+                <label class="auth-field-label"><i class="bi bi-shield-fill-check"></i> Verification Code</label>
+                <div class="auth-code-row">
+                  <input type="text" id="reg-otp" inputmode="numeric" maxlength="6" placeholder="Please enter the confirmation code" required>
+                  <button id="send-reg-otp" type="button">Send code</button>
+                </div>
+                <small id="generated-otp-note" class="generated-otp-note" hidden></small>
+                <label class="auth-field-label"><i class="bi bi-lock-fill"></i> Set password</label>
+                <div class="auth-input-wrap">
+                  <input type="password" id="reg-password" placeholder="Set password" required minlength="6">
+                  <button type="button" data-toggle-password="reg-password" aria-label="Show password"><i class="bi bi-eye-slash"></i></button>
+                </div>
+                <label class="auth-field-label"><i class="bi bi-lock-fill"></i> Confirm password</label>
+                <div class="auth-input-wrap">
+                  <input type="password" id="reg-confirm-password" placeholder="Confirm password" required minlength="6">
+                  <button type="button" data-toggle-password="reg-confirm-password" aria-label="Show password"><i class="bi bi-eye-slash"></i></button>
+                </div>
+                <label class="auth-field-label"><i class="bi bi-ticket-fill"></i> Invite code</label>
+                <div class="auth-input-wrap"><input type="text" id="reg-referral" value="CLUB8BONUS" placeholder="Invite code"></div>
+                <input type="hidden" id="reg-name">
+                <label class="auth-remember auth-agree"><input type="checkbox" checked required><span><i class="bi bi-check-lg"></i></span> I have read and agree <b>[Privacy Agreement]</b></label>
+                <div class="signup-bonus-callout"><i class="bi bi-gift-fill"></i><span>Register now and receive <b>₹100 signup bonus</b><small>Bonus can be used in WinGo without recharge.</small></span></div>
+                <button type="submit" class="auth-primary-btn">Register</button>
+                <button type="button" class="auth-outline-btn" onclick="window.switchAuthTab('login')"><small>I have an account</small> Login</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- 91-STYLE MOBILE LOBBY -->
+        <div id="page-home" class="sub-page active club-page club-home">
+          <div class="club-home-head">
+            <div class="club-wordmark"><span class="club-pin">8</span> CLUB 8</div>
+            <button type="button" aria-label="Download"><i class="bi bi-cloud-arrow-down-fill"></i></button>
+          </div>
+
+          <div class="club-marquee">
+            <i class="bi bi-megaphone-fill"></i>
+            <span>Welcome to Club 8. Play responsibly and keep your account details secure.</span>
+            <i class="bi bi-envelope-heart-fill"></i>
+          </div>
+
+          <div id="club-hero-carousel" class="club-hero-carousel" aria-label="Promotional banners">
+            <div class="club-hero-slide active"><svg viewBox="488 187 374 170" preserveAspectRatio="xMidYMid slice"><image href="assets/home-banner-source-1.png" width="1366" height="768"></image></svg></div>
+            <div class="club-hero-slide"><svg viewBox="488 187 374 170" preserveAspectRatio="xMidYMid slice"><image href="assets/home-banner-source-2.png" width="1366" height="768"></image></svg></div>
+            <div class="club-hero-slide"><svg viewBox="488 187 374 170" preserveAspectRatio="xMidYMid slice"><image href="assets/home-banner-source-3.png" width="1366" height="768"></image></svg></div>
+            <div class="club-hero-slide"><svg viewBox="488 187 374 170" preserveAspectRatio="xMidYMid slice"><image href="assets/home-banner-source-4.png" width="1366" height="768"></image></svg></div>
+            <div class="club-hero-slide"><svg viewBox="488 187 374 170" preserveAspectRatio="xMidYMid slice"><image href="assets/home-banner-source-5.png" width="1366" height="768"></image></svg></div>
+            <div class="club-hero-slide"><svg viewBox="488 187 374 170" preserveAspectRatio="xMidYMid slice"><image href="assets/home-banner-source-6.png" width="1366" height="768"></image></svg></div>
+            <div class="club-hero-slide"><svg viewBox="488 187 374 170" preserveAspectRatio="xMidYMid slice"><image href="assets/home-banner-source-7.png" width="1366" height="768"></image></svg></div>
+            <div class="club-hero-dots" aria-hidden="true"><i class="active"></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+
+          <div class="club-wallet-row">
+            <div>
+              <small><i class="bi bi-coin"></i> Wallet balance</small>
+              <strong class="user-balance-display">₹0.00</strong>
+            </div>
+            <button type="button" class="club-withdraw home-action-art" aria-label="Withdraw" onclick="window.openClubPage('withdraw')">
+              <svg viewBox="705 466 72 43" preserveAspectRatio="none" aria-hidden="true"><image href="assets/dark-home-reference.png" width="1366" height="768"></image></svg>
+            </button>
+            <button type="button" class="club-deposit home-action-art" aria-label="Deposit" onclick="window.openClubPage('recharge')">
+              <svg viewBox="790 466 73 43" preserveAspectRatio="none" aria-hidden="true"><image href="assets/dark-home-reference.png" width="1366" height="768"></image></svg>
+            </button>
+          </div>
+
+          <div class="club-promo-pair">
+            <button type="button" class="home-promo-art" aria-label="Wheel of fortune">
+              <svg viewBox="488 129 181 53" preserveAspectRatio="none" aria-hidden="true"><image href="assets/dark-home-reference.png" width="1366" height="768"></image></svg>
+            </button>
+            <button type="button" class="home-promo-art" aria-label="VIP privileges">
+              <svg viewBox="684 129 179 53" preserveAspectRatio="none" aria-hidden="true"><image href="assets/dark-home-reference.png" width="1366" height="768"></image></svg>
+            </button>
+          </div>
+
+          <div class="club-category-tabs">
+            <button class="active"><i class="bi bi-house-fill"></i> Lobby</button>
+            <button><i class="bi bi-controller"></i> Mini game</button>
+            <button><i class="bi bi-slot-machine"></i> Slots</button>
+            <button><i class="bi bi-suit-spade-fill"></i> Card</button>
+            <button><i class="bi bi-tropical-storm"></i> Fishing</button>
+            <button><i class="bi bi-dice-5-fill"></i> Casino</button>
+            <button><i class="bi bi-trophy-fill"></i> Sports</button>
+          </div>
+
+          <section class="lobby-mini-showcase" aria-label="Mini games">
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-aviator" data-mini-game="Aviator">
+              <span class="lac-plane" aria-hidden="true">✈</span><span class="lac-title">Avia<em>tor</em></span><span class="lac-tag">CRASH · CASH OUT</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-aviator10" data-mini-game="Aviator 10 sec">
+              <span class="lac-plane" aria-hidden="true">✈</span><span class="lac-title">Aviator<em>10 sec</em></span><span class="lac-tag">TURBO ROUNDS</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-wingo-card" data-mini-game="WinGo" aria-label="Open WinGo">
+              <span class="lobby-wingo-copy"><b>WinGo</b><small>COLOR PREDICTION</small></span>
+              <span class="wingo-balls" aria-hidden="true"><i>8</i><i>3</i><i>6</i></span>
+              <em class="lobby-wingo-badge">PLAY NOW</em>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-chicken" data-mini-game="Chicken Road 2">
+              <span class="lac-icons" aria-hidden="true"><i>🐔</i><i>🚗</i></span><span class="lac-title">Chicken<em>Road 2</em></span><span class="lac-tag">CROSS &amp; CASH OUT</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-slots" data-mini-game="Lucky Reels">
+              <span class="lac-title">Lucky<em>Reels</em></span>
+              <span class="lac-icons" aria-hidden="true"><i>🍒</i><i>💎</i><i>7️⃣</i></span>
+              <span class="lac-tag">3×3 · 5 LINES</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-mega" data-mini-game="Mega Slots">
+              <span class="lac-title">Mega<em>Slots</em></span>
+              <span class="lac-icons" aria-hidden="true"><i>👑</i><i>⭐</i><i>🏆</i></span>
+              <span class="lac-tag">5×3 · 9 LINES</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-roulette" data-mini-game="Roulette">
+              <span class="lac-wheel" aria-hidden="true"></span>
+              <span class="lac-title">Rou<em>lette</em></span>
+              <span class="lac-tag">EUROPEAN</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-lottery" data-mini-game="Daily Lottery">
+              <span class="lac-title">Daily<em>Lottery</em></span>
+              <span class="lac-balls" aria-hidden="true"><i>0</i><i>7</i></span>
+              <span class="lac-tag">₹100 · WIN ₹1000</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-vortex" data-mini-game="Vortex">
+              <span class="lac-swirl" aria-hidden="true"></span><span class="lac-title">Vor<em>tex</em></span><span class="lac-tag">COMING SOON</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-ronaldinho" data-mini-game="Ronaldinho da Sorte">
+              <span class="lac-icons" aria-hidden="true"><i>⚽</i></span><span class="lac-title">Ronaldinho<em>da Sorte</em></span><span class="lac-tag">COMING SOON</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-pubg" data-mini-game="PUBG 1MIN">
+              <span class="lac-icons" aria-hidden="true"><i>🎯</i></span><span class="lac-title">PUBG<em>1 MIN</em></span><span class="lac-tag">COMING SOON</span>
+            </button>
+            <button type="button" class="lobby-mini-card mines-launch-card lobby-art-card lobby-art-mines" data-mini-game="Mines" aria-label="Open Mines" onclick="window.openClubPage('mines')">
+              <span class="lac-icons" aria-hidden="true"><i>💣</i><i>💎</i></span><span class="lac-title">Mi<em>nes</em></span><span class="lac-tag">5×5 GRID</span>
+            </button>
+            <button type="button" class="lobby-mini-card mines-launch-card lobby-art-card lobby-art-minespro" data-mini-game="Mines Pro" aria-label="Open Mines Pro" onclick="window.openClubPage('mines')">
+              <span class="lac-icons" aria-hidden="true"><i>💣</i><i>👑</i></span><span class="lac-title">Mines<em>Pro</em></span><span class="lac-tag">HIGH STAKES</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-cricket" data-mini-game="Cricket">
+              <span class="lac-icons" aria-hidden="true"><i>🏏</i></span><span class="lac-title">Cric<em>ket</em></span><span class="lac-tag">COMING SOON</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-limbo" data-mini-game="Limbo">
+              <span class="lac-icons" aria-hidden="true"><i>📈</i></span><span class="lac-title">Lim<em>bo</em></span><span class="lac-tag">COMING SOON</span>
+            </button>
+            <button type="button" class="lobby-mini-card lobby-art-card lobby-art-javelin" data-mini-game="Javelin">
+              <span class="lac-icons" aria-hidden="true"><i>🏹</i></span><span class="lac-title">Jave<em>lin</em></span><span class="lac-tag">COMING SOON</span>
+            </button>
+          </section>
+
+          <section class="club-section">
+            <div class="club-section-title recommended-title">
+              <strong><i class="bi bi-star-fill"></i> Recommended Games <small id="recommended-page-count">1/2</small></strong>
+              <span class="recommended-controls">
+                <button id="recommended-prev" type="button" aria-label="Previous games"><i class="bi bi-chevron-left"></i></button>
+                <button id="recommended-next" type="button" aria-label="Next games"><i class="bi bi-chevron-right"></i></button>
+              </span>
+            </div>
+            <div id="recommended-carousel" class="recommended-carousel">
+              <div class="recommended-track">
+                <div class="recommended-slide">
+                  <article class="game-poster-card"><svg viewBox="489 232 118 158" preserveAspectRatio="xMidYMid slice"><image href="assets/recommended-games-set-1.png" width="1366" height="768"></image></svg></article>
+                  <article class="game-poster-card"><svg viewBox="614 232 118 158" preserveAspectRatio="xMidYMid slice"><image href="assets/recommended-games-set-1.png" width="1366" height="768"></image></svg></article>
+                  <article class="game-poster-card"><svg viewBox="738 232 110 158" preserveAspectRatio="xMidYMid slice"><image href="assets/recommended-games-set-1.png" width="1366" height="768"></image></svg></article>
+                </div>
+                <div class="recommended-slide">
+                  <article class="game-poster-card"><svg viewBox="488 232 110 160" preserveAspectRatio="xMidYMid slice"><image href="assets/recommended-games-set-2.png" width="1366" height="768"></image></svg></article>
+                  <article class="game-poster-card"><svg viewBox="604 232 119 160" preserveAspectRatio="xMidYMid slice"><image href="assets/recommended-games-set-2.png" width="1366" height="768"></image></svg></article>
+                  <article class="game-poster-card"><svg viewBox="729 232 118 160" preserveAspectRatio="xMidYMid slice"><image href="assets/recommended-games-set-2.png" width="1366" height="768"></image></svg></article>
+                </div>
+              </div>
+              <div class="recommended-dots" aria-hidden="true"><i class="active"></i><i></i></div>
+            </div>
+          </section>
+
+          <section class="club-section lottery-section">
+            <div class="club-section-title lottery-title">
+              <strong><span class="section-badge">8</span> Lottery</strong>
+              <small>Fast, fair and independently generated rounds</small>
+            </div>
+            <div class="lottery-grid">
+              <button type="button" class="lottery-card lottery-poster wingo-card" onclick="window.openClubPage('game')" aria-label="Open WinGo">
+                <svg viewBox="488 207 181 106" preserveAspectRatio="xMidYMid slice"><image href="assets/lottery-poster-source.png" width="1366" height="768"></image></svg>
+              </button>
+              <button type="button" class="lottery-card lottery-poster k3" aria-label="K3">
+                <svg viewBox="682 207 181 106" preserveAspectRatio="xMidYMid slice"><image href="assets/lottery-poster-source.png" width="1366" height="768"></image></svg>
+              </button>
+              <button type="button" class="lottery-card lottery-poster five-d" aria-label="5D">
+                <svg viewBox="488 326 181 107" preserveAspectRatio="xMidYMid slice"><image href="assets/lottery-poster-source.png" width="1366" height="768"></image></svg>
+              </button>
+              <button type="button" class="lottery-card lottery-poster trx" aria-label="TRX WinGo">
+                <svg viewBox="682 326 181 107" preserveAspectRatio="xMidYMid slice"><image href="assets/lottery-poster-source.png" width="1366" height="768"></image></svg>
+              </button>
+              <button type="button" class="lottery-card lottery-poster racing" aria-label="Moto Racing">
+                <svg viewBox="488 446 181 106" preserveAspectRatio="xMidYMid slice"><image href="assets/lottery-poster-source.png" width="1366" height="768"></image></svg>
+              </button>
+            </div>
+          </section>
+
+          <section class="club-section home-rotator-section">
+            <div class="club-section-title home-rotator-title">
+              <strong><i class="bi bi-controller"></i> Mini game</strong>
+              <span><b>Detail</b><button type="button" data-rotator-prev="mini">‹</button><button type="button" data-rotator-next="mini">›</button></span>
+            </div>
+            <div id="home-rotator-mini" class="home-game-rotator"></div>
+          </section>
+
+          <section class="club-section home-rotator-section">
+            <div class="club-section-title home-rotator-title">
+              <strong>🎰 Slots</strong>
+              <span><b>Detail</b><button type="button" data-rotator-prev="slots">‹</button><button type="button" data-rotator-next="slots">›</button></span>
+            </div>
+            <div id="home-rotator-slots" class="home-game-rotator"></div>
+          </section>
+
+          <section class="club-section home-rotator-section">
+            <div class="club-section-title home-rotator-title">
+              <strong>🎣 Fishing</strong>
+              <span><b>Detail</b><button type="button" data-rotator-prev="fishing">‹</button><button type="button" data-rotator-next="fishing">›</button></span>
+            </div>
+            <div id="home-rotator-fishing" class="home-game-rotator"></div>
+          </section>
+
+          <section class="club-section home-rotator-section">
+            <div class="club-section-title home-rotator-title">
+              <strong>👩🏻 Casino</strong>
+              <span><b>Detail</b><button type="button" data-rotator-prev="casino">‹</button><button type="button" data-rotator-next="casino">›</button></span>
+            </div>
+            <div id="home-rotator-casino" class="home-game-rotator"></div>
+          </section>
+
+          <section class="club-section home-jackpot-section">
+            <div class="club-section-title"><strong><i class="bi bi-trophy-fill"></i> Super Jackpot</strong></div>
+            <p class="club-section-copy">When you win a super jackpot, you will receive additional rewards<br>Maximum bonus <b>₹300.00</b></p>
+            <div id="home-rotator-jackpot" class="home-jackpot-rotator"></div>
+            <button class="look-jackpot-button" type="button">Look Super Jackpot</button>
+          </section>
+
+          <section id="home-winning-information" class="club-section winning-section home-winning-section">
+            <div class="club-section-title"><strong>🎰 Winning information</strong></div>
+            <div class="home-winner-table">
+              <div class="home-winner-head"><span>Game</span><span>User</span><span>Winning amount</span></div>
+              <div id="home-winning-rows"></div>
+            </div>
+          </section>
+
+          <section id="home-earnings-chart" class="club-section earnings-section">
+            <div class="club-section-title"><strong>📊 Today's earnings chart</strong></div>
+            <div class="earnings-card">
+              <div class="earnings-podium">
+                <div class="podium-place second"><span class="earning-avatar avatar-boy"></span><strong>2</strong><b>Mem***QF7</b><small>₹4,364,920.00</small></div>
+                <div class="podium-place first"><span class="earning-avatar avatar-girl"></span><strong>1</strong><b>KA***HA</b><small>₹83,476,400.00</small></div>
+                <div class="podium-place third"><span class="earning-avatar avatar-boy"></span><strong>3</strong><b>DAN***SHH</b><small>₹1,750,853.85</small></div>
+              </div>
+              <div id="earnings-ranking-list" class="earnings-ranking-list"></div>
+            </div>
+          </section>
+
+          <section class="club-section adult-notice">
+            <strong>+18</strong>
+            <p>◆ The platform advocates fairness, justice, and openness. We mainly operate fair lottery, blockchain games, live casinos, and slot machine games.</p>
+            <p>◆ Club 8 works with verified game providers and fair games.</p>
+            <p>◆ The platform supports fast deposit and withdrawal and promotes responsible play.</p>
+          </section>
+        </div>
+
+        <!-- MAIN WINGO GAME PAGE -->
+        <div id="page-game" class="sub-page">
+          
+          <!-- Wallet Balance Card -->
+          <div class="wallet-card">
+            <div class="wallet-info">
+              <div class="balance">
+                <span class="user-balance-display">₹0.00</span>
+                <i class="bi bi-arrow-repeat balance-refresh"></i>
+              </div>
+              <div class="label"><i class="bi bi-wallet-fill"></i> Wallet balance</div>
+            </div>
+
+            <div class="wallet-btns">
+              <button class="btn-secondary" onclick="window.appNav('withdraw')">
+                Withdraw
+              </button>
+              <button class="btn-primary" onclick="window.appNav('recharge')">
+                Deposit
+              </button>
+            </div>
+          </div>
+
+          <div class="game-announcement" role="status">
+            <i class="bi bi-volume-up-fill"></i>
+            <span>Our customer service will never send any payment link to members. Please use only the official channels.</span>
+            <button type="button">Detail</button>
+          </div>
+
+          <!-- Room Tabs -->
+          <div class="room-tabs">
+            <div class="room-tab active" data-room="parity">
+              <i class="room-emblem bi bi-trophy-fill"></i> WinGo <span class="time-sub">30 sec</span>
+            </div>
+            <div class="room-tab" data-room="sapre">
+              <i class="room-emblem bi bi-trophy-fill"></i> WinGo <span class="time-sub">1 Min</span>
+            </div>
+            <div class="room-tab" data-room="bcone">
+              <i class="room-emblem bi bi-trophy-fill"></i> WinGo <span class="time-sub">3 Min</span>
+            </div>
+            <div class="room-tab" data-room="emerd">
+              <i class="room-emblem bi bi-trophy-fill"></i> WinGo <span class="time-sub">5 Min</span>
+            </div>
+          </div>
+
+          <!-- Game Status Header & Countdown -->
+          <div class="game-status-bar">
+            <div class="period-info">
+              <button id="btn-how-play" type="button" class="how-play"><i class="bi bi-card-list"></i> How to play</button>
+              <div id="active-room-title" class="period-title">WinGo 30sec</div>
+              <div id="recent-result-balls" class="recent-result-balls"></div>
+            </div>
+            <div class="status-divider"></div>
+            <div class="countdown-box">
+              <div class="label">Time remaining</div>
+              <div id="countdown-timer-display" class="timer-digits">00:45</div>
+              <div id="period-id-display" class="period-id">20260724101</div>
+            </div>
+          </div>
+
+          <!-- Freeze State Overlay Alert -->
+          <div id="freeze-banner" class="freeze-overlay">
+            <i class="bi bi-lock-fill"></i> Round closing—betting is locked for the final 5 seconds.
+          </div>
+
+          <!-- Betting Controls Grid -->
+          <div class="betting-section">
+            <div id="closing-countdown-overlay" class="closing-countdown-overlay" aria-hidden="true">
+              <span id="closing-countdown-tens">0</span>
+              <span id="closing-countdown-ones">5</span>
+            </div>
+            
+            <!-- Colors Row (Green, Violet, Red) -->
+            <div class="color-btns-grid">
+              <button class="btn-color green" data-color="green">
+                <span>Green</span>
+              </button>
+              <button class="btn-color violet" data-color="violet">
+                <span>Violet</span>
+              </button>
+              <button class="btn-color red" data-color="red">
+                <span>Red</span>
+              </button>
+            </div>
+
+            <!-- Numbers Grid (0 to 9) -->
+            <div class="numbers-grid">
+              <button class="btn-number num-violet" data-number="0" aria-label="Select number 0"><span class="ball-number">0</span><span class="sub-tag">Red+Violet</span></button>
+              <button class="btn-number num-green" data-number="1" aria-label="Select number 1"><span class="ball-number">1</span><span class="sub-tag">Green</span></button>
+              <button class="btn-number num-red" data-number="2" aria-label="Select number 2"><span class="ball-number">2</span><span class="sub-tag">Red</span></button>
+              <button class="btn-number num-green" data-number="3" aria-label="Select number 3"><span class="ball-number">3</span><span class="sub-tag">Green</span></button>
+              <button class="btn-number num-red" data-number="4" aria-label="Select number 4"><span class="ball-number">4</span><span class="sub-tag">Red</span></button>
+              <button class="btn-number num-violet" data-number="5" aria-label="Select number 5"><span class="ball-number">5</span><span class="sub-tag">Green+Violet</span></button>
+              <button class="btn-number num-red" data-number="6" aria-label="Select number 6"><span class="ball-number">6</span><span class="sub-tag">Red</span></button>
+              <button class="btn-number num-green" data-number="7" aria-label="Select number 7"><span class="ball-number">7</span><span class="sub-tag">Green</span></button>
+              <button class="btn-number num-red" data-number="8" aria-label="Select number 8"><span class="ball-number">8</span><span class="sub-tag">Red</span></button>
+              <button class="btn-number num-green" data-number="9" aria-label="Select number 9"><span class="ball-number">9</span><span class="sub-tag">Green</span></button>
+            </div>
+
+            <div class="quick-controls">
+              <button id="random-number" class="random-btn" type="button">Random</button>
+              <button class="quick-mult active" type="button" data-mult="1">X1</button>
+              <button class="quick-mult" type="button" data-mult="5">X5</button>
+              <button class="quick-mult" type="button" data-mult="10">X10</button>
+              <button class="quick-mult" type="button" data-mult="20">X20</button>
+              <button class="quick-mult" type="button" data-mult="50">X50</button>
+              <button class="quick-mult" type="button" data-mult="100">X100</button>
+            </div>
+
+            <!-- Big / Small Row -->
+            <div class="big-small-grid">
+              <button class="btn-big-small big" data-size="Big">
+                Big
+              </button>
+              <button class="btn-big-small small" data-size="Small">
+                Small
+              </button>
+            </div>
+
+          </div>
+
+          <!-- Trend & History Record Section -->
+          <div class="record-section">
+            <div class="history-tabs">
+              <button class="history-tab active" type="button" data-history-tab="game">Game history</button>
+              <button class="history-tab" type="button" data-history-tab="chart">Chart</button>
+              <button class="history-tab" type="button" data-history-tab="strategy">Follow Strategy</button>
+              <button class="history-tab" type="button" data-history-tab="orders">My history</button>
+            </div>
+
+            <div id="history-panel-game" class="history-panel active">
+              <table class="record-table">
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th>Number</th>
+                    <th>Big Small</th>
+                    <th>Color</th>
+                  </tr>
+                </thead>
+                <tbody id="history-table-body">
+                  <!-- Dynamically Rendered -->
+                </tbody>
+              </table>
+              <div class="history-pagination">
+                <button id="history-prev" type="button" aria-label="Previous page"><i class="bi bi-chevron-left"></i></button>
+                <span id="history-page-label">1/3</span>
+                <button id="history-next" type="button" aria-label="Next page"><i class="bi bi-chevron-right"></i></button>
+              </div>
+            </div>
+
+            <!-- Graphical Bead Plate Visualization -->
+            <div id="history-panel-chart" class="history-panel">
+              <div id="trend-chart" class="trend-chart"></div>
+              <div id="bead-plate-grid" class="bead-plate-grid" hidden></div>
+            </div>
+
+            <!-- Follow Strategy -->
+            <div id="history-panel-strategy" class="history-panel">
+              <div class="strategy-card">
+                <div class="strategy-card-head">
+                  <strong>Betting Strategy <i class="bi bi-question-circle"></i></strong>
+                  <button type="button"><i class="bi bi-clock"></i> History</button>
+                </div>
+                <div class="strategy-empty">Please select a strategy</div>
+              </div>
+            </div>
+
+            <!-- My Orders Section -->
+            <div id="history-panel-orders" class="history-panel">
+              <div class="record-title" style="margin-bottom: 8px;"><i class="bi bi-receipt"></i> My Bet History</div>
+              <table class="record-table">
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th>Select</th>
+                    <th>Stake</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="my-orders-body">
+                  <!-- Dynamically Rendered -->
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- SCREENSHOT-MATCH DEPOSIT SUB-PAGE -->
+        <div id="page-recharge" class="sub-page club-page money-page deposit-page">
+          <div class="club-page-head">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <strong>Deposit</strong>
+            <button type="button" onclick="window.openClubPage('deposit-history')">Deposit history</button>
+          </div>
+
+          <div class="money-balance-card">
+            <small><i class="bi bi-wallet-fill"></i> Balance</small>
+            <strong class="user-balance-display">₹0.00</strong>
+            <span>•••• &nbsp; ••••</span>
+          </div>
+
+          <div class="deposit-methods">
+            <button type="button" class="active"><i class="bi bi-qr-code"></i><span>UPI-QR</span></button>
+            <button type="button"><i class="bi bi-qr-code-scan"></i><span>Instant UPI-QR</span></button>
+            <button type="button"><i class="bi bi-wallet2"></i><span>Expert Paytm-<br>QR</span></button>
+            <button type="button"><i class="bi bi-upc-scan"></i><span>UPI-QR PAY</span></button>
+            <button type="button"><i class="bi bi-currency-exchange"></i><span>USDT</span><em>+2%</em></button>
+            <button type="button"><i class="bi bi-triangle-fill"></i><span>ARPay</span><em>+2%</em></button>
+          </div>
+
+          <div class="deposit-channel-card">
+            <h3 class="money-section-title"><i class="bi bi-pencil-fill"></i> Select channel</h3>
+            <button type="button" class="selected-channel" data-channel-name="Phonepe_QR">Phonepe_QR<br><small>Balance:100 - 50K</small></button>
+          </div>
+
+          <form id="form-deposit" class="deposit-amount-card">
+            <h3><i class="bi bi-wallet2"></i> Deposit amount</h3>
+            <div class="amount-chips">
+              <button class="chip chip-amount" type="button" data-amount="100"><span>₹</span>100</button>
+              <button class="chip chip-amount" type="button" data-amount="200"><span>₹</span>200</button>
+              <button class="chip chip-amount" type="button" data-amount="300"><span>₹</span>300</button>
+              <button class="chip chip-amount" type="button" data-amount="400"><span>₹</span>400</button>
+              <button class="chip chip-amount" type="button" data-amount="500"><span>₹</span>500</button>
+              <button class="chip chip-amount" type="button" data-amount="1000"><span>₹</span>1K</button>
+              <button class="chip chip-amount" type="button" data-amount="2000"><span>₹</span>2K</button>
+              <button class="chip chip-amount" type="button" data-amount="3000"><span>₹</span>3K</button>
+              <button class="chip chip-amount" type="button" data-amount="5000"><span>₹</span>5K</button>
+            </div>
+            <div class="deposit-custom-amount">
+              <b>₹</b><span></span>
+              <input type="number" id="deposit-amount-input" min="100" max="50000" placeholder="₹100.00 - ₹50,000.00" required>
+              <button id="clear-deposit-amount" type="button" aria-label="Clear amount"><i class="bi bi-x-octagon"></i></button>
+            </div>
+            <input type="hidden" id="deposit-utr-input" value="">
+          </form>
+
+          <div class="recharge-instructions">
+            <h3><i class="bi bi-journal-bookmark-fill"></i> Recharge instructions</h3>
+            <div>
+              <p>If the transfer time is up, please fill out the deposit form again.</p>
+              <p>The transfer amount must match the order you created, otherwise the money cannot be credited successfully.</p>
+              <p>If you transfer the wrong amount, our company will not be responsible for the lost amount!</p>
+              <p>Note: do not cancel the deposit order after the money has been transferred.</p>
+            </div>
+          </div>
+          <div class="deposit-history-title"><i class="bi bi-files"></i> Deposit history</div>
+          <div class="deposit-empty-state"><i class="bi bi-file-earmark-text-fill"></i><span>No data</span></div>
+
+          <div class="deposit-sticky-bar">
+            <span>Recharge Method:<b id="selected-recharge-method">Phonepe_QR</b></span>
+            <button id="deposit-sticky-submit" type="button" disabled>Deposit</button>
+          </div>
+        </div>
+
+        <!-- WITHDRAW SUB-PAGE -->
+        <div id="page-withdraw" class="sub-page club-page money-page bank-mode">
+          <div class="club-page-head">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <strong>Withdraw</strong>
+            <button type="button" onclick="window.openClubPage('withdraw-history')">Withdrawal history</button>
+          </div>
+
+          <div class="money-balance-card">
+            <small><i class="bi bi-wallet-fill"></i> Available balance</small>
+            <strong class="user-balance-display">₹0.00</strong>
+            <span>•••• &nbsp; ••••</span>
+          </div>
+
+          <div class="arpay-banner"><i class="bi bi-triangle-fill"></i><span><strong>ARPay</strong><small>Supports UPI for fast payment</small></span></div>
+          <div class="withdraw-methods">
+            <button id="withdraw-method-bank" type="button" data-withdraw-method="bank"><i class="bi bi-credit-card-fill"></i><span>BANK CARD</span></button>
+            <button id="withdraw-method-upi" type="button" class="active" data-withdraw-method="upi"><i class="bi bi-upc-scan"></i><span>UPI</span></button>
+            <button type="button" data-withdraw-method="usdt"><i class="bi bi-currency-exchange"></i><span>USDT</span></button>
+          </div>
+
+          <div class="upi-pay-card">
+            <button id="withdraw-bank-bind-card" class="withdraw-bank-bind-card" type="button">
+              <span class="withdraw-bank-plus"><i class="bi bi-plus-lg"></i></span>
+              <span class="withdraw-bank-empty-label">Add a bank account number</span>
+              <span class="withdraw-bank-saved" hidden>
+                <i class="bi bi-bank2"></i>
+                <b id="withdraw-saved-bank-name">Bank account</b>
+                <small id="withdraw-saved-bank-number">•••• 0000</small>
+              </span>
+            </button>
+            <p id="withdraw-bank-warning" class="withdraw-bank-warning">Need to add beneficiary information to be able to withdraw money</p>
+
+            <button id="withdraw-upi-bind-card" class="withdraw-upi-bind-card" type="button">
+              <span class="withdraw-upi-plus"><i class="bi bi-plus-lg"></i></span>
+              <span class="withdraw-upi-empty-label">Add UPI</span>
+              <span class="withdraw-upi-saved" hidden>
+                <i class="bi bi-upc-scan"></i>
+                <b id="withdraw-saved-upi-name">UPI account</b>
+                <small id="withdraw-saved-upi-id">user@upi</small>
+              </span>
+            </button>
+
+            <div style="margin-bottom:12px;">
+              <span style="font-size:0.75rem; color:var(--text-secondary);">Withdrawable Balance:</span>
+              <div class="user-balance-display" style="font-size:1.4rem; font-weight:800; color:var(--color-green);">₹0.00</div>
+            </div>
+
+            <form id="form-withdrawal">
+              <div class="form-group">
+                <label><i class="bi bi-cash-stack"></i> Withdrawal Amount</label>
+                <div class="amount-chips withdraw-chips">
+                  <div class="chip">₹5K</div><div class="chip">₹10K</div><div class="chip">₹15K</div>
+                  <div class="chip">₹20K</div><div class="chip">₹30K</div><div class="chip">₹50K</div>
+                </div>
+                <input type="number" id="withdraw-amount-input" class="form-control" placeholder="Minimum ₹200" required min="200">
+              </div>
+
+              <div id="withdraw-upi-field" class="form-group">
+                <label>Your UPI ID / VPA</label>
+                <input type="text" id="withdraw-upi-input" class="form-control" placeholder="e.g. user@upi">
+              </div>
+
+              <button id="withdraw-submit-button" type="button" class="btn-primary" style="width:100%; justify-content:center; padding:12px; margin-top:10px;">
+                Withdraw
+              </button>
+            </form>
+          </div>
+
+          <!-- Withdrawal Status History -->
+          <div class="record-title" style="margin-bottom:8px;"><i class="bi bi-clock-history"></i> Payout History</div>
+          <table class="record-table">
+            <thead>
+              <tr>
+                <th>Amount</th>
+                <th>UPI ID</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="user-withdraw-history">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ADD BANK ACCOUNT SUB-PAGE -->
+        <div id="page-bank-account-add" class="sub-page club-page bank-bind-page">
+          <div class="club-page-head bank-bind-head">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <strong>Add a bank account number</strong>
+            <span></span>
+          </div>
+
+          <div class="bank-bind-safety"><i class="bi bi-exclamation-circle"></i><span>To ensure the safety of your funds, please bind your bank account</span></div>
+
+          <form id="bank-account-form" class="bank-account-form">
+            <label class="bank-field-label"><i class="bi bi-bank2"></i><span>Choose a bank</span></label>
+            <button id="choose-bank-button" class="choose-bank-button" type="button">
+              <span id="selected-bank-name">Please select a bank</span><i class="bi bi-chevron-right"></i>
+            </button>
+
+            <label class="bank-field-label"><i class="bi bi-person-fill"></i><span>Full recipient's name</span></label>
+            <input id="bank-recipient-name" type="text" autocomplete="name" placeholder="Please enter the recipient's name" required>
+
+            <label class="bank-field-label"><i class="bi bi-credit-card-fill"></i><span>Bank account number</span></label>
+            <input id="bank-account-number" type="text" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="Please enter your bank account number" required>
+
+            <label class="bank-field-label"><i class="bi bi-phone-fill"></i><span>Phone number</span></label>
+            <input id="bank-phone-number" type="tel" inputmode="numeric" autocomplete="tel" maxlength="10" placeholder="Please enter your phone number" required>
+
+            <label class="bank-field-label"><i class="bi bi-key-fill"></i><span>IFSC code</span></label>
+            <input id="bank-ifsc-code" type="text" autocomplete="off" maxlength="11" placeholder="Please enter IFSC code" required>
+
+            <button id="save-bank-account" class="save-bank-account" type="submit" disabled>Save</button>
+          </form>
+        </div>
+
+        <!-- CHOOSE BANK SUB-PAGE -->
+        <div id="page-bank-choose" class="sub-page club-page bank-choose-page">
+          <div class="club-page-head bank-bind-head">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <strong>Choose a bank</strong>
+            <span></span>
+          </div>
+          <label class="bank-search-box">
+            <i class="bi bi-search"></i>
+            <input id="bank-search-input" type="search" placeholder="Search bank" autocomplete="off">
+          </label>
+          <div id="bank-list" class="bank-list" role="listbox" aria-label="Choose a bank"></div>
+        </div>
+
+        <!-- UPI PAYMENT METHODS SUB-PAGE -->
+        <div id="page-upi-methods" class="sub-page club-page upi-methods-page">
+          <div class="club-page-head upi-bind-head">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <strong>Payment method</strong>
+            <span></span>
+          </div>
+          <div id="upi-method-empty" class="upi-method-empty">
+            <div class="upi-empty-illustration"><i class="bi bi-file-earmark-text"></i><i class="bi bi-tree-fill"></i></div>
+            <span>No payment method</span>
+          </div>
+          <button id="upi-saved-method-card" class="upi-saved-method-card" type="button" hidden>
+            <i class="bi bi-upc-scan"></i>
+            <span><b id="upi-method-name">UPI account</b><small id="upi-method-id">user@upi</small></span>
+            <i class="bi bi-chevron-right"></i>
+          </button>
+          <button id="add-upi-method-button" class="add-upi-method-button" type="button">Add payment method</button>
+        </div>
+
+        <!-- ADD UPI ACCOUNT SUB-PAGE -->
+        <div id="page-upi-account-add" class="sub-page club-page upi-bind-page">
+          <div class="club-page-head upi-bind-head">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <strong>Payment method</strong>
+            <span></span>
+          </div>
+          <form id="upi-account-form" class="upi-account-form">
+            <h2><em>UPI</em><span>Information UPI</span></h2>
+
+            <label for="upi-account-name">UPI Name</label>
+            <input id="upi-account-name" type="text" autocomplete="name" placeholder="Please enter UPI name" required>
+
+            <label for="upi-phone-number">phone number</label>
+            <input id="upi-phone-number" type="tel" inputmode="numeric" autocomplete="tel" maxlength="10" placeholder="Please enter the phone number" required>
+            <small class="upi-field-warning"><i class="bi bi-exclamation-circle"></i> For the security of your account, please fill in your real mobile phone number</small>
+
+            <label for="upi-account-id">UPI ID</label>
+            <input id="upi-account-id" type="text" autocomplete="off" placeholder="Please enter your UPI ID" required>
+
+            <label for="upi-confirm-id">Confirm UPI ID</label>
+            <input id="upi-confirm-id" type="text" autocomplete="off" placeholder="Please enter your UPI ID" required>
+
+            <small class="upi-security-note">Security Notice:<br>For your safety, please avoid using your phone number as your UPI ID. This may expose you to potential fraud risks. Do not share OTPs or make any payments to unsolicited contacts claiming to be support.</small>
+
+            <button id="save-upi-account" class="save-upi-account" type="submit" disabled>Save</button>
+          </form>
+        </div>
+
+        <!-- USER PROFILE PAGE -->
+        <div id="page-profile" class="sub-page club-page club-account">
+          <div class="account-hero">
+            <div class="account-avatar"><svg viewBox="88 132 102 100" preserveAspectRatio="xMidYMid slice"><image href="assets/account-reference-source.png" width="1366" height="768"></image></svg></div>
+            <div><strong id="profile-user-name">MEMBERNNG3JFBW</strong><span><i class="bi bi-gem"></i> VIP0</span><small class="account-id-pill">UID &nbsp; | &nbsp; <b id="profile-user-id">13882050</b> <i class="bi bi-copy"></i></small><small>Last login: 2026-07-28 21:51:59</small></div>
+          </div>
+
+          <div class="account-wallet-card">
+            <div><small>Total balance</small><strong class="user-balance-display">₹0.00</strong></div>
+            <button type="button" onclick="window.openClubPage('arwallet')">Enter wallet</button>
+            <div class="account-wallet-actions">
+              <button type="button" onclick="window.openClubPage('arwallet')">
+                <i class="bi bi-wallet2 account-action-icon account-icon-ar"></i>
+                <span>ARWallet</span>
+              </button>
+              <button type="button" onclick="window.openClubPage('recharge')">
+                <i class="bi bi-handbag-fill account-action-icon account-icon-deposit"></i>
+                <span>Deposit</span>
+              </button>
+              <button type="button" onclick="window.openClubPage('withdraw')">
+                <i class="bi bi-credit-card-fill account-action-icon account-icon-withdraw"></i>
+                <span>Withdraw</span>
+              </button>
+              <button type="button">
+                <i class="bi bi-shield-fill-check account-action-icon account-icon-vip"></i>
+                <span>VIP</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="account-history-grid">
+            <button type="button" onclick="window.openClubPage('bet-history')"><i class="bi bi-file-earmark-bar-graph-fill blue"></i><span><b>Game History</b><small>My game history</small></span></button>
+            <button type="button" onclick="window.openClubPage('transaction-history')"><i class="bi bi-receipt-cutoff green"></i><span><b>Transaction</b><small>My transaction history</small></span></button>
+            <button type="button" onclick="window.openClubPage('deposit-history')"><i class="bi bi-file-earmark-text-fill pink"></i><span><b>Deposit</b><small>My deposit history</small></span></button>
+            <button type="button" onclick="window.openClubPage('withdraw-history')"><i class="bi bi-wallet-fill orange"></i><span><b>Withdraw</b><small>My withdraw history</small></span></button>
+          </div>
+
+          <div class="account-menu">
+            <button type="button" onclick="window.openClubPage('notification')"><i class="bi bi-envelope-heart-fill"></i><span>Notification</span><b>›</b></button>
+            <button type="button"><i class="bi bi-gift-fill"></i><span>Gifts</span><b>›</b></button>
+            <button type="button"><i class="bi bi-bar-chart-fill"></i><span>Game statistics</span><b>›</b></button>
+            <button type="button"><i class="bi bi-globe2"></i><span>Language</span><small>English</small><b>›</b></button>
+          </div>
+
+          <div class="service-center">
+            <h3>Service center</h3>
+            <div>
+              <span><i class="bi bi-gear-fill"></i>Settings</span>
+              <span><i class="bi bi-clipboard2-fill"></i>Feedback</span>
+              <span><i class="bi bi-megaphone-fill"></i>Announcement</span>
+              <span><i class="bi bi-headset"></i>Customer Service</span>
+              <span><i class="bi bi-book-half"></i>Beginner's Guide</span>
+              <span><i class="bi bi-box-fill"></i>About us</span>
+            </div>
+          </div>
+
+          <button id="btn-logout-user" class="club-logout" type="button"><i class="bi bi-power"></i> Log out</button>
+        </div>
+
+        <!-- ACTIVITY PAGE -->
+        <div id="page-activity" class="sub-page club-page club-activity">
+          <div class="activity-hero">
+            <div class="club-wordmark"><span class="club-pin">8</span> CLUB 8</div>
+            <div><span>Today's bonus<strong>₹0.00</strong></span><span>Total bonus<strong>₹8.46</strong></span></div>
+            <button type="button">Bonus details</button>
+          </div>
+          <div class="activity-icons">
+            <span><i class="bi bi-award-fill"></i>Activity Award</span>
+            <span><i class="bi bi-person-plus-fill"></i>Invitation bonus</span>
+            <span><i class="bi bi-cash-coin"></i>Betting rebate</span>
+            <span><i class="bi bi-trophy-fill"></i>Super Jackpot</span>
+          </div>
+          <div class="activity-pair">
+            <div><i class="bi bi-envelope-paper-heart-fill"></i><b>Gifts</b><small>Enter the redemption code to receive gift rewards</small></div>
+            <div><i class="bi bi-calendar2-check-fill"></i><b>Attendance bonus</b><small>The more consecutive days you sign in, the higher the reward</small></div>
+          </div>
+          <div class="activity-art-card"><svg viewBox="488 173 375 179"><image href="assets/dark-activity-311.png" width="1366" height="768"></image></svg><b>INSTALL 1.1.1 FOR A FASTER EXPERIENCE</b></div>
+          <div class="activity-art-card"><svg viewBox="488 366 375 139"><image href="assets/dark-activity-311.png" width="1366" height="768"></image></svg><b>CHICKEN ROAD 2</b></div>
+          <div class="activity-art-card"><svg viewBox="488 159 375 139"><image href="assets/dark-activity-312.png" width="1366" height="768"></image></svg><b>Cumulative 10 Days Recharge Bonus</b></div>
+          <div class="activity-art-card"><svg viewBox="488 351 375 139"><image href="assets/dark-activity-312.png" width="1366" height="768"></image></svg><b>Tutorial AR Wallet How To Buy &amp; Sell ARB Coins</b></div>
+          <div class="activity-art-card"><svg viewBox="488 157 375 139"><image href="assets/dark-activity-313.png" width="1366" height="768"></image></svg><b>Member First Deposit Bonus</b></div>
+          <div class="activity-art-card"><svg viewBox="488 350 375 139"><image href="assets/dark-activity-313.png" width="1366" height="768"></image></svg><b>AGENT REFERRAL BONUS</b></div>
+          <div class="activity-art-card"><svg viewBox="488 144 375 139"><image href="assets/dark-activity-314.png" width="1366" height="768"></image></svg><b>REFERRAL BONUS</b></div>
+          <div class="activity-art-card"><svg viewBox="488 336 375 139"><image href="assets/dark-activity-314.png" width="1366" height="768"></image></svg><b>7-DAYS CUMULATIVE BETTING REWARDS</b></div>
+          <div class="activity-art-card"><svg viewBox="488 209 375 139"><image href="assets/dark-activity-315.png" width="1366" height="768"></image></svg><b>MINI GAMES WEEKLY MISSION REWARDS</b></div>
+          <div class="activity-art-card"><svg viewBox="488 401 375 139"><image href="assets/dark-activity-315.png" width="1366" height="768"></image></svg><b>Benefits of Using AR WALLET</b></div>
+          <div class="activity-no-more">No more</div>
+        </div>
+
+        <div id="page-promotion" class="sub-page club-page promotion-page">
+          <div class="club-page-head agency-head"><span></span><strong>Agency</strong><i class="bi bi-trophy-fill"></i></div>
+
+          <section class="agency-hero">
+            <div class="agency-commission">
+              <strong>0</strong>
+              <span>Yesterday's total commission</span>
+              <small>Upgrade the level to increase commission income</small>
+            </div>
+            <div class="agency-stats-card">
+              <div class="agency-stats-tabs"><span>Direct subordinates</span><span>Team subordinates</span></div>
+              <div class="agency-stat-columns">
+                <div>
+                  <p><b>0</b><span>number of register</span></p>
+                  <p class="green"><b>0</b><span>Deposit number</span></p>
+                  <p class="orange"><b>0</b><span>Deposit amount</span></p>
+                  <p><b>0</b><span>Number of people making first<br>deposit</span></p>
+                </div>
+                <div>
+                  <p><b>0</b><span>number of register</span></p>
+                  <p class="green"><b>0</b><span>Deposit number</span></p>
+                  <p class="orange"><b>0</b><span>Deposit amount</span></p>
+                  <p><b>0</b><span>Number of people making first<br>deposit</span></p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="agency-invite-title">INVITATION LINK</div>
+          <button id="copy-invite-code" class="agency-code-card" type="button">
+            <i class="bi bi-briefcase-fill"></i>
+            <span>Copy invitation code</span>
+            <small id="agency-invite-code">7434713882050</small>
+            <i class="bi bi-copy"></i>
+          </button>
+
+          <div class="agency-menu">
+            <button type="button"><i class="bi bi-journal-text"></i><span>Subordinate data</span><b>›</b></button>
+            <button type="button"><i class="bi bi-currency-dollar"></i><span>Commission detail</span><b>›</b></button>
+            <button type="button"><i class="bi bi-file-earmark-text-fill"></i><span>Invitation rules</span><b>›</b></button>
+            <button type="button"><i class="bi bi-headset"></i><span>Agent line customer service</span><b>›</b></button>
+            <button type="button"><i class="bi bi-cash-coin"></i><span>Rebate ratio</span><b>›</b></button>
+          </div>
+
+          <section class="promotion-data-card">
+            <h3><i class="bi bi-chat-dots-fill"></i> promotion data</h3>
+            <div>
+              <p><b>0</b><span>This Week</span></p>
+              <p><b>0</b><span>Total commission</span></p>
+              <p><b>0</b><span>direct subordinate</span></p>
+              <p><b>0</b><span>Total number of<br>subordinates in the team</span></p>
+            </div>
+          </section>
+        </div>
+
+        <div id="page-wallet" class="sub-page club-page dark-wallet-page">
+          <div class="club-page-head"><button type="button" onclick="window.clubBack()"><i class="bi bi-chevron-left"></i></button><strong>Wallet</strong><span></span></div>
+          <section class="dark-wallet-summary">
+            <i class="bi bi-wallet-fill"></i>
+            <strong class="user-balance-display">₹0.00</strong>
+            <small>Total balance</small>
+            <div><span><b>0</b>Total Withdrawal Amount</span><span><b>0</b>Total deposit amount</span></div>
+          </section>
+          <section class="dark-wallet-card">
+            <div class="wallet-rings">
+              <span><i>0%</i><b class="user-balance-display">₹0.00</b><small>Main wallet</small></span>
+              <span><i>0%</i><b>₹0.00</b><small>3rd party wallet</small></span>
+            </div>
+            <button type="button" class="main-wallet-transfer">Main wallet transfer</button>
+            <div class="dark-wallet-actions">
+              <button type="button" onclick="window.openClubPage('recharge')"><i class="bi bi-handbag-fill"></i><span>Deposit</span></button>
+              <button type="button" onclick="window.openClubPage('withdraw')"><i class="bi bi-credit-card-fill"></i><span>Withdraw</span></button>
+              <button type="button" onclick="window.openClubPage('deposit-history')"><i class="bi bi-file-earmark-text-fill"></i><span>Deposit<br>history</span></button>
+              <button type="button" onclick="window.openClubPage('withdraw-history')"><i class="bi bi-wallet-fill"></i><span>Withdrawal<br>history</span></button>
+            </div>
+          </section>
+          <div class="wallet-balance-types"><span><b>0.00</b>ARGame</span><span><b>0.00</b>Lottery</span></div>
+        </div>
+
+        <div id="page-arwallet" class="sub-page club-page arwallet-page">
+          <div class="arwallet-loader">
+            <div class="arwallet-mark">A</div>
+            <strong>AR Wallet</strong>
+            <span>Checking available nodes…</span>
+          </div>
+          <button type="button" class="arwallet-back" onclick="window.clubBack()"><i class="bi bi-chevron-left"></i> Back to account</button>
+        </div>
+
+        <div id="page-bet-history" class="sub-page club-page history-club-page">
+          <div class="club-page-head"><button type="button" onclick="window.clubBack()"><i class="bi bi-chevron-left"></i></button><strong>Bet history</strong><span></span></div>
+          <div class="history-kind-tabs"><button class="active"><i class="bi bi-disc-fill"></i>Lottery</button><button><i class="bi bi-controller"></i>Casino</button><button><i class="bi bi-tropical-storm"></i>Fishing</button><button><i class="bi bi-dice-5-fill"></i>Rummy</button></div>
+          <div class="history-filters"><button>Win Go <i class="bi bi-chevron-down"></i></button><button>Choose a date <i class="bi bi-chevron-down"></i></button></div>
+          <div class="club-no-data"><i class="bi bi-file-earmark-x-fill"></i><span>No data</span></div>
+        </div>
+
+        <div id="page-transaction-history" class="sub-page club-page history-club-page">
+          <div class="club-page-head"><button type="button" onclick="window.clubBack()"><i class="bi bi-chevron-left"></i></button><strong>Transaction history</strong><span></span></div>
+          <div class="history-filters"><button>All <i class="bi bi-chevron-down"></i></button><button>Choose a date <i class="bi bi-chevron-down"></i></button></div>
+          <div class="club-no-data"><i class="bi bi-file-earmark-x-fill"></i><span>No data</span></div>
+        </div>
+
+        <div id="page-deposit-history" class="sub-page club-page history-club-page">
+          <div class="club-page-head"><button type="button" onclick="window.clubBack()"><i class="bi bi-chevron-left"></i></button><strong>Deposit history</strong><span></span></div>
+          <div class="history-kind-tabs"><button class="active">All</button><button>UPI Pay</button><button>Instant UPI-QR</button></div>
+          <div class="history-filters"><button>All <i class="bi bi-chevron-down"></i></button><button>Choose a date <i class="bi bi-chevron-down"></i></button></div>
+          <div id="user-deposit-history-list" class="wallet-history-list"><div class="club-no-data"><i class="bi bi-file-earmark-x-fill"></i><span>No data</span></div></div>
+        </div>
+
+        <div id="page-withdraw-history" class="sub-page club-page history-club-page">
+          <div class="club-page-head"><button type="button" onclick="window.clubBack()"><i class="bi bi-chevron-left"></i></button><strong>Withdrawal history</strong><span></span></div>
+          <div class="history-kind-tabs"><button class="active">All</button><button>ARPay</button><button>BANK CARD</button><button>UPI</button></div>
+          <div class="history-filters"><button>All <i class="bi bi-chevron-down"></i></button><button>Choose a date <i class="bi bi-chevron-down"></i></button></div>
+          <div id="user-withdraw-history-list" class="wallet-history-list"><div class="club-no-data"><i class="bi bi-file-earmark-x-fill"></i><span>No data</span></div></div>
+        </div>
+
+        <div id="page-notification" class="sub-page club-page history-club-page">
+          <div class="club-page-head"><button type="button" onclick="window.clubBack()"><i class="bi bi-chevron-left"></i></button><strong>Notification</strong><span></span></div>
+          <div class="notification-tabs"><button class="active">Notification</button><button>Information</button></div>
+          <div class="club-no-data"><i class="bi bi-file-earmark-x-fill"></i><span>No data</span></div>
+        </div>
+
+        <!-- CHICKEN ROAD MINI GAME -->
+        <div id="page-chicken-road" class="sub-page club-page arcade-game-page chicken-road-page">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="chicken-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="chicken-brandbar">
+            <strong>CHICKEN <em>2</em> ROAD</strong>
+            <i class="bi bi-question-circle"></i>
+            <span><b id="chicken-brand-balance">0.00</b> INR</span>
+            <button type="button"><i class="bi bi-list"></i></button>
+          </div>
+          <section class="chicken-stage">
+            <!-- The road is drawn, not photographed: the old background PNG could not
+                 scroll, so lanes, kerb and traffic are SVG that the engine animates. -->
+            <svg id="chicken-world" class="chicken-world" viewBox="0 0 960 1680"
+                 preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"
+                 role="img" aria-label="Chicken crossing a scrolling road">
+              <defs>
+                <linearGradient id="crRoad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#686565"/>
+                  <stop offset="50%" stop-color="#5d5a5a"/>
+                  <stop offset="100%" stop-color="#686565"/>
+                </linearGradient>
+                <linearGradient id="crWalk" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#bdbdbd"/>
+                  <stop offset="100%" stop-color="#aaa"/>
+                </linearGradient>
+                <radialGradient id="crLampGlow">
+                  <stop offset="0%" stop-color="#fff1ba" stop-opacity=".7"/>
+                  <stop offset="55%" stop-color="#d7c487" stop-opacity=".28"/>
+                  <stop offset="100%" stop-color="#cbb574" stop-opacity="0"/>
+                </radialGradient>
+                <pattern id="crBrick" width="138" height="128" patternUnits="userSpaceOnUse">
+                  <rect width="138" height="128" fill="url(#crWalk)"/>
+                  <path d="M0 0H138 M0 64H138 M0 128H138 M69 0V64 M34 64V128 M104 64V128"
+                        stroke="#8a8a8a" stroke-width="3" opacity=".78"/>
+                </pattern>
+                <filter id="crSoftShadow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#242424" flood-opacity=".35"/>
+                </filter>
+              </defs>
+
+              <!-- Static kerbside: never scrolls, so the player can see how far they have come. -->
+              <g id="chicken-side">
+                <rect x="0" y="0" width="72" height="1680" fill="#7fb42a"/>
+                <rect x="72" y="0" width="172" height="1680" fill="url(#crBrick)"/>
+                <rect x="238" y="0" width="28" height="1680" fill="#aaa"/>
+                <path d="M238 0V1680 M266 0V1680" stroke="#777" stroke-width="4" opacity=".7"/>
+                <g filter="url(#crSoftShadow)">
+                  <rect x="-12" y="0" width="98" height="88" rx="10" fill="#6fac16"/>
+                  <rect x="-12" y="520" width="98" height="130" rx="12" fill="#6fac16"/>
+                  <rect x="-12" y="694" width="98" height="138" rx="12" fill="#6fac16"/>
+                  <rect x="-12" y="878" width="98" height="138" rx="12" fill="#6fac16"/>
+                  <rect x="-12" y="1074" width="98" height="170" rx="12" fill="#6fac16"/>
+                  <path d="M20 325 L53 372 L28 410 L10 386 Z" fill="#9a5538"/>
+                  <circle cx="13" cy="210" r="124" fill="#6fa51a"/>
+                  <circle cx="47" cy="195" r="112" fill="#74ad1d"/>
+                  <circle cx="9" cy="264" r="96" fill="#76ad1d"/>
+                </g>
+                <circle cx="294" cy="86" r="105" fill="url(#crLampGlow)"/>
+                <g filter="url(#crSoftShadow)">
+                  <path d="M151 475V107 C151 75 172 54 204 54 H266" fill="none" stroke="#343b3f" stroke-width="34" stroke-linejoin="round"/>
+                  <path d="M151 475V107 C151 75 172 54 204 54 H266" fill="none" stroke="#586166" stroke-width="23" stroke-linejoin="round"/>
+                  <path d="M266 34 H326 L349 58 V112 H266 Z" fill="#5e666b" stroke="#30373b" stroke-width="7"/>
+                  <path d="M277 44 H319 L335 61 V95 H277 Z" fill="#a1a6ad" opacity=".85"/>
+                  <path d="M252 111 H335" stroke="#30373b" stroke-width="7"/>
+                  <path d="M275 112 Q294 137 314 112" fill="#f1efda"/>
+                  <ellipse cx="151" cy="478" rx="26" ry="13" fill="#2d3438"/>
+                  <ellipse cx="151" cy="473" rx="22" ry="10" fill="#747c81"/>
+                </g>
+              </g>
+
+              <!-- Everything inside this group slides left as the chicken advances. -->
+              <g id="chicken-road-world">
+                <rect x="266" y="0" width="2600" height="1680" fill="url(#crRoad)"/>
+                <g id="chicken-lane-lines"></g>
+                <g id="chicken-targets"></g>
+                <g id="chicken-cars"></g>
+              </g>
+
+              <ellipse id="chicken-shadow" cx="175" cy="1071" rx="47" ry="15" fill="#222" opacity=".28"/>
+              <g id="chicken-runner" transform="translate(175 1020)">
+                <image href="assets/chicken-road-runner.png" x="-72" y="-92" width="144" height="151"
+                       preserveAspectRatio="xMidYMax meet"/>
+              </g>
+            </svg>
+            <div id="chicken-road-multiplier" class="chicken-road-multiplier">1.00x</div>
+            <div id="chicken-result-badge" class="chicken-result-badge" aria-live="polite"></div>
+          </section>
+          <section class="chicken-console">
+            <button type="button" class="chicken-select">Bet ID: <span id="chicken-bet-id">—</span><i class="bi bi-chevron-down"></i></button>
+            <div class="chicken-amount-row">
+              <button id="chicken-minus" type="button">−</button>
+              <strong><span id="chicken-amount">1.00</span> INR</strong>
+              <button id="chicken-plus" type="button">+</button>
+              <button type="button" data-chicken-multiplier="0.5">x0.5</button>
+              <button type="button" data-chicken-multiplier="2">x2.0</button>
+              <button type="button"><i class="bi bi-stack"></i></button>
+            </div>
+            <label class="chicken-difficulty"><span>Difficulty</span><select id="chicken-difficulty"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option><option value="hardcore">Hardcore</option></select><i class="bi bi-chevron-down"></i></label>
+            <div class="chicken-actions">
+              <button id="chicken-play" type="button" class="chicken-play">Play</button>
+              <button id="chicken-cashout" type="button" class="chicken-cashout" hidden>Cash Out <span>0.00 INR</span></button>
+            </div>
+            <p id="chicken-message">Choose an amount and start crossing.</p>
+          </section>
+        </div>
+
+        <!-- LUCKY REELS (3x3 slots, server-settled) -->
+        <div id="page-slots" class="sub-page club-page arcade-game-page slot-page slot-page-classic">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="slots-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="slot-brandbar"><strong>LUCKY <em>REELS</em></strong><span>5 paylines · 3×3</span></div>
+          <section class="slot-stage">
+            <div id="slots-grid" class="slot-grid" aria-label="Lucky Reels board"></div>
+            <p id="slots-win" class="slot-win"></p>
+            <ul id="slots-lines" class="slot-lines"></ul>
+          </section>
+          <section class="slot-controls">
+            <div class="slot-amount">
+              <button type="button" id="slots-minus" aria-label="Decrease bet">−</button>
+              <b>₹<span id="slots-amount">10.00</span></b>
+              <button type="button" id="slots-plus" aria-label="Increase bet">+</button>
+            </div>
+            <div class="slot-quick">
+              <button type="button" data-slot-multiplier="2">×2</button>
+              <button type="button" data-slot-multiplier="5">×5</button>
+            </div>
+            <button type="button" id="slots-spin" class="slot-spin">SPIN</button>
+          </section>
+          <details class="slot-paytable-wrap">
+            <summary>Paytable</summary>
+            <ul id="slots-paytable" class="slot-paytable"></ul>
+          </details>
+        </div>
+
+        <!-- MEGA SLOTS (5x3, nine paylines, server-settled) -->
+        <div id="page-megaslots" class="sub-page club-page arcade-game-page slot-page slot-page-mega">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="megaslots-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="slot-brandbar"><strong>MEGA <em>SLOTS</em></strong><span>9 paylines · 5×3</span></div>
+          <section class="slot-stage">
+            <div id="megaslots-grid" class="slot-grid" aria-label="Mega Slots board"></div>
+            <p id="megaslots-win" class="slot-win"></p>
+            <ul id="megaslots-lines" class="slot-lines"></ul>
+          </section>
+          <section class="slot-controls">
+            <div class="slot-amount">
+              <button type="button" id="megaslots-minus" aria-label="Decrease bet">−</button>
+              <b>₹<span id="megaslots-amount">10.00</span></b>
+              <button type="button" id="megaslots-plus" aria-label="Increase bet">+</button>
+            </div>
+            <div class="slot-quick">
+              <button type="button" data-slot-multiplier="2">×2</button>
+              <button type="button" data-slot-multiplier="5">×5</button>
+            </div>
+            <button type="button" id="megaslots-spin" class="slot-spin">SPIN</button>
+          </section>
+          <details class="slot-paytable-wrap">
+            <summary>Paytable</summary>
+            <ul id="megaslots-paytable" class="slot-paytable"></ul>
+          </details>
+        </div>
+
+        <!-- ROULETTE (European, single zero) -->
+        <div id="page-roulette" class="sub-page club-page arcade-game-page roulette-page">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="roulette-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="slot-brandbar"><strong>ROU<em>LETTE</em></strong><span>European · single zero</span></div>
+          <section class="roulette-stage">
+            <div id="roulette-wheel" class="roulette-wheel"></div>
+            <p id="roulette-result" class="roulette-result"></p>
+            <div id="roulette-history" class="roulette-history" aria-label="Recent results"></div>
+          </section>
+          <section class="roulette-betting">
+            <div id="roulette-chips" class="roulette-chips" aria-label="Chip value"></div>
+            <div id="roulette-numbers" class="roulette-numbers" aria-label="Number bets"></div>
+            <div id="roulette-outside" class="roulette-outside" aria-label="Outside bets"></div>
+            <ul id="roulette-slip" class="roulette-slip"></ul>
+            <footer class="roulette-actions">
+              <span>Total ₹<b id="roulette-stake">0.00</b></span>
+              <button type="button" id="roulette-clear" class="roulette-clear">Clear</button>
+              <button type="button" id="roulette-spin" class="slot-spin">SPIN</button>
+            </footer>
+          </section>
+        </div>
+
+        <!-- DAILY LOTTERY -->
+        <div id="page-lottery" class="sub-page club-page arcade-game-page lottery-page">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="lottery-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="slot-brandbar"><strong>DAILY <em>LOTTERY</em></strong><span id="lottery-date">—</span></div>
+          <section class="lottery-hero">
+            <div><small>Ticket</small><b>₹<span id="lottery-price">100.00</span></b></div>
+            <div class="is-prize"><small>Prize</small><b>₹<span id="lottery-prize">1000.00</span></b></div>
+            <div><small>Aapka number</small><b id="lottery-picked">--</b></div>
+          </section>
+          <section class="lottery-board">
+            <h3>Number chuno (00–99)</h3>
+            <div id="lottery-grid" class="lottery-grid" aria-label="Lottery numbers"></div>
+            <p class="lottery-legend">
+              <span class="lot-key is-free"></span> free
+              <span class="lot-key is-taken"></span> taken
+              <span class="lot-key is-pending"></span> aapka pending
+              <span class="lot-key is-mine"></span> aapka confirmed
+            </p>
+          </section>
+          <section id="lottery-form" class="lottery-form" hidden>
+            <h3>Payment</h3>
+            <div id="lottery-qr" class="lottery-qr"></div>
+            <label for="lottery-utr">UPI reference (UTR)</label>
+            <input id="lottery-utr" type="text" inputmode="latin" autocomplete="off"
+                   placeholder="e.g. 412345678901" maxlength="40">
+            <button type="button" id="lottery-buy" class="slot-spin">Book ticket</button>
+            <p class="lottery-note">Payment admin confirm karega, tab number aapka pakka hoga.</p>
+          </section>
+          <section class="lottery-lists">
+            <h3>Aaj ke aapke tickets</h3>
+            <ul id="lottery-my-tickets" class="lottery-tickets"></ul>
+            <h3>Pichle results</h3>
+            <ul id="lottery-results" class="lottery-results"></ul>
+          </section>
+        </div>
+
+        <!-- AVIATOR MINI GAME -->
+        <div id="page-aviator" class="sub-page club-page arcade-game-page aviator-page">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="aviator-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="aviator-brandbar">
+            <strong>Aviator</strong><span><b id="aviator-brand-balance">0.00</b> INR</span><button type="button"><i class="bi bi-list"></i></button>
+          </div>
+          <div id="aviator-recent" class="aviator-recent"><span>7.89x</span><span>1.24x</span><span>1.79x</span><span>2.24x</span><span>2.17x</span><span>1.35x</span></div>
+          <section class="aviator-stage">
+            <!-- Drawn, not a screenshot: the curve is rebuilt every frame from
+                 the live multiplier, so it always matches the round. -->
+            <div class="aviator-rays" aria-hidden="true"></div>
+            <svg class="aviator-graph" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="aviator-area-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#e50539" stop-opacity=".58"></stop>
+                  <stop offset="100%" stop-color="#e50539" stop-opacity="0"></stop>
+                </linearGradient>
+              </defs>
+              <path id="aviator-area" fill="url(#aviator-area-fill)" d=""></path>
+              <path id="aviator-trail-path" d=""></path>
+            </svg>
+            <div class="aviator-axis-x" aria-hidden="true"></div>
+            <div class="aviator-axis-y" aria-hidden="true"></div>
+            <div id="aviator-plane" class="aviator-plane" aria-hidden="true">
+              <svg viewBox="0 0 64 34" width="64" height="34">
+                <path fill="#e9223f" d="M2 22c6-2 12-3 18-3l8-11c1-2 3-3 5-3h4l-5 13 12-1 5-6h4l-3 7 9 1c3 0 3 4 0 4l-9 1 3 7h-4l-5-6-12-1 5 13h-4c-2 0-4-1-5-3l-8-11c-6 0-12-1-18-3z"></path>
+                <ellipse class="aviator-prop" cx="9" cy="22" rx="3" ry="9" fill="#ffffff" opacity=".85"></ellipse>
+              </svg>
+            </div>
+            <div class="aviator-flight">
+              <small id="aviator-round-status">WAITING FOR NEXT ROUND</small>
+              <strong id="aviator-live-multiplier">1.00x</strong>
+              <span id="aviator-countdown">3.0</span>
+              <div class="aviator-countdown-track" aria-hidden="true"><i id="aviator-countdown-bar"></i></div>
+            </div>
+          </section>
+          <div id="aviator-bet-panels" class="aviator-bet-panels">
+            <section class="aviator-bet-panel" data-aviator-panel>
+              <div class="aviator-mode"><button class="active" data-mode="bet">Bet</button><button data-mode="auto">Auto</button></div>
+              <label class="aviator-auto-target" hidden>Auto cashout <input type="number" min="1.01" max="1000" step="0.01" value="1.50"><span>x</span></label>
+              <label class="aviator-autobet" data-aviator-autobet hidden><input type="checkbox"> Auto bet every round</label>
+              <div class="aviator-bet-body">
+                <div class="aviator-amount-control">
+                  <div><button data-aviator-action="minus">−</button><strong data-aviator-amount>10.00</strong><button data-aviator-action="plus">+</button></div>
+                  <div class="aviator-quick"><button data-value="100">100</button><button data-value="200">200</button><button data-value="500">500</button><button data-value="1000">1,000</button></div>
+                </div>
+                <button type="button" class="aviator-bet-button" data-aviator-action="bet">Bet <span>10.00 INR</span></button>
+              </div>
+            </section>
+            <section class="aviator-bet-panel" data-aviator-panel>
+              <div class="aviator-mode"><button class="active" data-mode="bet">Bet</button><button data-mode="auto">Auto</button></div>
+              <label class="aviator-auto-target" hidden>Auto cashout <input type="number" min="1.01" max="1000" step="0.01" value="2.00"><span>x</span></label>
+              <label class="aviator-autobet" data-aviator-autobet hidden><input type="checkbox"> Auto bet every round</label>
+              <div class="aviator-bet-body">
+                <div class="aviator-amount-control">
+                  <div><button data-aviator-action="minus">−</button><strong data-aviator-amount>10.00</strong><button data-aviator-action="plus">+</button></div>
+                  <div class="aviator-quick"><button data-value="100">100</button><button data-value="200">200</button><button data-value="500">500</button><button data-value="1000">1,000</button></div>
+                </div>
+                <button type="button" class="aviator-bet-button" data-aviator-action="bet">Bet <span>10.00 INR</span></button>
+              </div>
+            </section>
+          </div>
+          <section class="aviator-bets-list">
+            <div class="aviator-list-tabs"><button class="active" data-aviator-tab="all">All Bets</button><button data-aviator-tab="mine">My Bets</button><button data-aviator-tab="top">Top</button></div>
+            <div class="aviator-total"><span id="aviator-bet-count">1,252/1,252 Bets</span><b id="aviator-total-win">0.00<small>Total win INR</small></b></div>
+            <div class="aviator-list-head"><span>Player</span><span>Bet INR</span><span>X</span><span>Win INR</span></div>
+            <div id="aviator-player-list"></div>
+            <footer class="aviator-fair"><i class="bi bi-shield-check"></i> Provably fair · <span id="aviator-fair-hash">syncing…</span><span>Tap any past multiplier to verify</span></footer>
+          </section>
+        </div>
+
+        <!-- MINES MINI GAME -->
+        <div id="page-mines" class="sub-page club-page mines-game-page">
+          <header class="mines-head">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <strong>MINES</strong>
+            <button id="mines-help" type="button"><i class="bi bi-question-circle-fill"></i> How to Play?</button>
+            <span class="mines-balance"><b id="mines-balance">0.00</b> INR</span>
+          </header>
+          <section class="mines-board-wrap">
+            <div class="mines-status-row">
+              <span>Game ID: <b id="mines-game-id">—</b></span>
+              <span class="mines-next">Next: <b id="mines-next-win">11.02 INR</b></span>
+            </div>
+            <div id="mines-grid" class="mines-grid" aria-label="Mines game board"></div>
+            <div class="mines-tools">
+              <button id="mines-random" type="button">RANDOM</button>
+              <label><input id="mines-auto" type="checkbox"> Auto Game</label>
+              <label>Mines:
+                <select id="mines-count">
+                  <option>1</option><option>2</option><option selected>3</option>
+                  <option>4</option><option>5</option><option>7</option><option>10</option>
+                </select>
+              </label>
+            </div>
+          </section>
+          <footer class="mines-bet-panel">
+            <label>Bet
+              <span><input id="mines-bet-amount" type="number" min="1" step="1" value="10.00"> INR</span>
+            </label>
+            <button id="mines-minus" type="button" aria-label="Decrease bet">−</button>
+            <button id="mines-plus" type="button" aria-label="Increase bet">+</button>
+            <button id="mines-bet-button" class="mines-bet-button" type="button"><i class="bi bi-play-fill"></i><span>BET</span></button>
+          </footer>
+          <p id="mines-message" class="mines-message">Choose your bet and start the round.</p>
+        </div>
+
+        <!-- Bottom Navigation Bar -->
+        <nav class="bottom-nav club-bottom-nav">
+          <div class="nav-item active" data-page="home">
+            <i class="bi bi-house-door"></i>
+            <span>Home</span>
+          </div>
+          <div class="nav-item" data-page="activity">
+            <i class="bi bi-gift-fill"></i>
+            <span>Activity</span>
+          </div>
+          <div class="nav-item" data-page="promotion">
+            <i class="bi bi-cash-coin"></i>
+            <span>Promotion</span>
+          </div>
+          <div class="nav-item" data-page="profile">
+            <i class="bi bi-person-circle"></i>
+            <span>Account</span>
+          </div>
+        </nav>
+
+      </div>
+    </div>
+
+    <div id="admin-unlock-overlay" class="nd-gate" aria-hidden="true">
+      <div class="nd-gate-card">
+        <span class="nd-gate-icon"><i class="bi bi-shield-lock-fill"></i></span>
+        <h2>Club 8 Admin</h2>
+        <p class="nd-gate-sub">Sign in to manage payments and player access.</p>
+
+        <div class="nd-gate-tabs" role="tablist">
+          <button type="button" class="nd-gate-tab active" data-gate="password" role="tab">Password</button>
+          <button type="button" class="nd-gate-tab" data-gate="key" role="tab">Access key</button>
+        </div>
+
+        <form id="admin-login-form" class="nd-gate-form active" data-gate-panel="password">
+          <label for="admin-login-phone">Phone number</label>
+          <input id="admin-login-phone" class="form-control" type="tel" inputmode="numeric" autocomplete="username" placeholder="10-digit number">
+          <label for="admin-login-password">Password</label>
+          <input id="admin-login-password" class="form-control" type="password" autocomplete="current-password" placeholder="Your password">
+          <button type="submit" class="btn-primary nd-gate-submit"><i class="bi bi-box-arrow-in-right"></i> Sign in</button>
+        </form>
+
+        <form id="admin-unlock-form" class="nd-gate-form" data-gate-panel="key">
+          <label for="admin-access-key">Admin access key</label>
+          <input id="admin-access-key" class="form-control" type="password" autocomplete="current-password" placeholder="Paste access key">
+          <button type="submit" class="btn-primary nd-gate-submit"><i class="bi bi-unlock-fill"></i> Unlock</button>
+        </form>
+
+        <label class="nd-gate-remember">
+          <input id="admin-remember" type="checkbox" checked>
+          <span>Keep me signed in on this device</span>
+        </label>
+        <small id="admin-unlock-error" class="nd-gate-error" hidden></small>
+        <a href="/" class="nd-gate-back"><i class="bi bi-arrow-left"></i> Back to Club 8</a>
+      </div>
+    </div>
+
+    <!-- ADMIN DASHBOARD -->
+    <div id="admin-dashboard-view" class="view-viewport nd-root">
+
+      <header class="nd-topbar">
+        <div class="nd-brand"><i class="bi bi-shield-lock-fill"></i> <span>Club 8 Admin</span></div>
+        <div class="nd-topbar-right">
+          <span id="admin-api-status" class="nd-status"><i class="bi bi-circle-fill"></i> connecting</span>
+          <button id="admin-refresh" class="nd-icon-btn" type="button" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+          <button id="admin-lock" class="nd-icon-btn" type="button" title="Sign out"><i class="bi bi-box-arrow-right"></i></button>
+        </div>
+      </header>
+
+      <div class="nd-stats">
+        <article class="nd-stat nd-stat-warn">
+          <span class="nd-stat-label">Pending deposits</span>
+          <b id="admin-pending-deposits">0</b>
+        </article>
+        <article class="nd-stat nd-stat-warn">
+          <span class="nd-stat-label">Pending withdrawals</span>
+          <b id="admin-pending-withdrawals">0</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Approved deposits</span>
+          <b id="admin-approved-deposit-total">₹0.00</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Paid withdrawals</span>
+          <b id="admin-paid-withdrawal-total">₹0.00</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Players</span>
+          <b id="nd-users-count">0</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Live stake</span>
+          <b id="admin-kpi-total-pool">₹0</b>
+          <small id="admin-kpi-active-bets">0 Active Bets</small>
+        </article>
+      </div>
+
+      <!-- ACTION QUEUE -->
+      <section class="nd-panel nd-queue-panel">
+        <div class="nd-panel-head">
+          <h3><i class="bi bi-lightning-charge-fill"></i> Action queue <span id="nd-queue-count" class="nd-pill">0</span></h3>
+          <div class="nd-seg" role="tablist">
+            <button type="button" class="nd-seg-btn active" data-queue="all">All</button>
+            <button type="button" class="nd-seg-btn" data-queue="deposit">Deposits</button>
+            <button type="button" class="nd-seg-btn" data-queue="withdrawal">Withdrawals</button>
+          </div>
+        </div>
+        <div id="nd-queue" class="nd-queue">
+          <div class="nd-empty"><i class="bi bi-hourglass"></i> Loading…</div>
+        </div>
+      </section>
+
+      <!-- LOWER TABS -->
+      <nav class="nd-tabs" role="tablist">
+        <button type="button" class="nd-tab active" data-section="users"><i class="bi bi-people-fill"></i> Players</button>
+        <button type="button" class="nd-tab" data-section="history"><i class="bi bi-clock-history"></i> History</button>
+        <button type="button" class="nd-tab" data-section="games"><i class="bi bi-controller"></i> Games</button>
+        <button type="button" class="nd-tab" data-section="qr"><i class="bi bi-qr-code"></i> Payment QR</button>
+        <button type="button" class="nd-tab" data-section="controls"><i class="bi bi-sliders"></i> Controls</button>
+      </nav>
+
+      <section id="nd-section-users" class="nd-panel nd-section active">
+        <div class="nd-panel-head">
+          <h3>Players</h3>
+          <input id="nd-user-search" class="nd-search" type="search" placeholder="Search name, phone or ID…" autocomplete="off">
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Player</th><th>Balance</th><th>Recharge</th><th>Game access</th><th>Status</th><th></th></tr></thead>
+            <tbody id="admin-users-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="nd-section-history" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Processed requests</h3>
+          <input id="nd-history-search" class="nd-search" type="search" placeholder="Search player, UTR or order…" autocomplete="off">
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Type</th><th>Player</th><th>Amount</th><th>Reference</th><th>When</th><th>Status</th></tr></thead>
+            <tbody id="nd-history-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- GAMES: live and historical analytics, plus the lottery desk -->
+      <section id="nd-section-games" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Game analytics</h3>
+          <div class="nd-seg" role="tablist">
+            <button type="button" class="nd-seg-btn ng-range active" data-days="1">Today</button>
+            <button type="button" class="nd-seg-btn ng-range" data-days="7">7 days</button>
+            <button type="button" class="nd-seg-btn ng-range" data-days="30">30 days</button>
+          </div>
+        </div>
+
+        <div class="ng-kpis">
+          <div class="ng-kpi"><small>Total staked</small><b id="ng-total-stake">₹0.00</b></div>
+          <div class="ng-kpi"><small>Total paid out</small><b id="ng-total-payout">₹0.00</b></div>
+          <div class="ng-kpi is-ggr"><small>Gross gaming revenue</small><b id="ng-total-ggr">₹0.00</b></div>
+          <div class="ng-kpi"><small>Rounds</small><b id="ng-total-rounds">0</b></div>
+        </div>
+
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Game</th><th>Rounds</th><th>Players</th><th>Staked</th><th>Paid out</th><th>GGR</th><th>RTP</th></tr></thead>
+            <tbody id="ng-games-body"></tbody>
+          </table>
+        </div>
+
+        <div class="nd-panel-head"><h3>Live feed <small id="ng-live-note">last 40 rounds</small></h3></div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>When</th><th>Game</th><th>Player</th><th>Stake</th><th>Payout</th><th>House</th></tr></thead>
+            <tbody id="ng-live-body"></tbody>
+          </table>
+        </div>
+
+        <!-- LOTTERY DESK -->
+        <div class="nd-panel-head">
+          <h3><i class="bi bi-ticket-perforated"></i> Daily lottery</h3>
+          <input id="ng-lottery-date" class="nd-search" type="date">
+        </div>
+        <div class="ng-kpis">
+          <div class="ng-kpi"><small>Tickets</small><b id="ng-lot-total">0</b></div>
+          <div class="ng-kpi"><small>Pending</small><b id="ng-lot-pending">0</b></div>
+          <div class="ng-kpi"><small>Approved</small><b id="ng-lot-approved">0</b></div>
+          <div class="ng-kpi is-ggr"><small>Collected</small><b id="ng-lot-collected">₹0.00</b></div>
+        </div>
+
+        <form id="ng-draw-form" class="nd-form-row">
+          <input id="ng-winning-ticket" class="form-control" type="number" min="0" max="99"
+                 placeholder="Winning ticket (00-99)" required>
+          <button class="btn-primary" type="submit"><i class="bi bi-trophy"></i> Set winner</button>
+        </form>
+        <div id="ng-winner-card" class="ng-winner" hidden></div>
+
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Ticket</th><th>Player</th><th>Phone</th><th>UTR</th><th>Status</th><th></th></tr></thead>
+            <tbody id="ng-lottery-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="nd-section-qr" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Deposit QR codes</h3>
+          <small id="nd-qr-pool-note" class="nd-pool-note"></small>
+        </div>
+        <form id="admin-qr-upload-form" class="nd-form-row">
+          <input id="admin-qr-name" class="form-control" placeholder="Display name" required>
+          <input id="admin-qr-upi" class="form-control" placeholder="UPI ID (optional)">
+          <input id="admin-qr-min" class="form-control" type="number" min="1" value="100" placeholder="Min ₹">
+          <input id="admin-qr-max" class="form-control" type="number" min="1" value="50000" placeholder="Max ₹">
+          <input id="admin-qr-file" class="form-control" type="file" accept="image/png,image/jpeg,image/webp" required>
+          <button class="btn-primary" type="submit"><i class="bi bi-upload"></i> Upload</button>
+        </form>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>QR</th><th>Name</th><th>UPI / limits</th><th>State</th><th></th></tr></thead>
+            <tbody id="admin-qr-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="nd-section-controls" class="nd-panel nd-section">
+        <div class="nd-controls-grid">
+          <div class="nd-control-card">
+            <h4>Payments</h4>
+            <form id="admin-payment-settings" class="nd-settings">
+              <label class="nd-switch">
+                <input id="admin-deposits-enabled" type="checkbox">
+                <span>Accept deposits</span>
+              </label>
+              <label class="nd-switch">
+                <input id="admin-withdrawals-enabled" type="checkbox">
+                <span>Accept withdrawals</span>
+              </label>
+              <label class="nd-field">
+                <span>Minimum withdrawal (₹)</span>
+                <input id="admin-withdrawal-min" class="form-control" type="number" min="1" value="200">
+              </label>
+              <button class="btn-primary" type="submit">Save</button>
+            </form>
+          </div>
+
+          <div class="nd-control-card">
+            <h4>Result mode</h4>
+            <p class="nd-hint">Current: <b id="admin-kpi-current-mode">auto least</b></p>
+            <div class="nd-mode-row">
+              <button type="button" class="nd-mode" data-mode="auto_least">Auto (least payout)</button>
+              <button type="button" class="nd-mode" data-mode="random">Random</button>
+            </div>
+            <label class="nd-field">
+              <span>Force next number</span>
+              <div class="nd-force-row">
+                <input id="nd-force-number" class="form-control" type="number" min="0" max="9" placeholder="0-9">
+                <button type="button" id="nd-force-apply" class="btn-primary">Force</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="nd-control-card">
+            <h4>Live pool</h4>
+            <div class="nd-pool"><span>Green</span><div class="nd-bar"><i id="admin-pool-green-fill" class="fill-green"></i></div><b id="admin-pool-green-val">₹0 (0%)</b></div>
+            <div class="nd-pool"><span>Red</span><div class="nd-bar"><i id="admin-pool-red-fill" class="fill-red"></i></div><b id="admin-pool-red-val">₹0 (0%)</b></div>
+            <div class="nd-pool"><span>Violet</span><div class="nd-bar"><i id="admin-pool-violet-fill" class="fill-violet"></i></div><b id="admin-pool-violet-val">₹0 (0%)</b></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+  </div>
+
+  <div class="floating-tools" aria-label="Quick support">
+    <button type="button" aria-label="Gift"><i class="bi bi-gift-fill"></i></button>
+    <button type="button" aria-label="Wheel of fortune"><i class="bi bi-pie-chart-fill"></i></button>
+    <button type="button" aria-label="Bonus wheel"><i class="bi bi-vinyl-fill"></i></button>
+    <button type="button" aria-label="Game support"><i class="bi bi-lightning-charge-fill"></i></button>
+    <button type="button" aria-label="Live chat"><i class="bi bi-chat-dots-fill"></i></button>
+  </div>
+
+  <!-- HOW TO PLAY RULES DIALOG -->
+  <div id="how-play-modal" class="rules-overlay" aria-hidden="true">
+    <div class="rules-dialog" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+      <div id="rules-title" class="rules-title">- WinGo Rules -</div>
+      <div class="rules-content">
+        <p>Each round has a countdown. Betting closes during the final 5 seconds and the result is drawn automatically.</p>
+        <p><strong>Green:</strong> 1, 3, 7, 9. <strong>Red:</strong> 2, 4, 6, 8. Numbers 0 and 5 also include Violet.</p>
+        <p><strong>Big:</strong> 5–9. <strong>Small:</strong> 0–4. A correct Big/Small or standard color selection returns 1.96×.</p>
+        <p>A correct number selection returns 8.82×. Violet returns 4.5×. All balances and outcomes in this project are demo-only.</p>
+      </div>
+      <button id="btn-close-rules" class="rules-close" type="button">Close</button>
+    </div>
+  </div>
+
+  <!-- INTERACTIVE BET MODAL (BOTTOM SHEET) -->
+  <div id="bet-modal" class="modal-overlay">
+    <div class="modal-sheet bet-contract-sheet">
+      <div class="contract-hero">
+        <div id="modal-room-label" class="contract-room">WinGo 30sec</div>
+        <div id="modal-selection-title" class="contract-selection">Select Big</div>
+      </div>
+
+      <div class="contract-body">
+        <div class="contract-row">
+          <div class="contract-label">Balance</div>
+          <div class="balance-options">
+            <button class="balance-chip active" type="button" data-base="1">1</button>
+            <button class="balance-chip" type="button" data-base="10">10</button>
+            <button class="balance-chip" type="button" data-base="100">100</button>
+            <button class="balance-chip" type="button" data-base="1000">1000</button>
+          </div>
+        </div>
+
+        <div class="contract-row">
+          <div class="contract-label">Quantity</div>
+          <div class="quantity-control">
+            <button id="quantity-minus" type="button">−</button>
+            <span id="modal-quantity">1</span>
+            <button id="quantity-plus" type="button">+</button>
+          </div>
+        </div>
+
+        <div class="multiplier-row">
+          <button class="mult-btn active" type="button" data-mult="1">X1</button>
+          <button class="mult-btn" type="button" data-mult="5">X5</button>
+          <button class="mult-btn" type="button" data-mult="10">X10</button>
+          <button class="mult-btn" type="button" data-mult="20">X20</button>
+          <button class="mult-btn" type="button" data-mult="50">X50</button>
+          <button class="mult-btn" type="button" data-mult="100">X100</button>
+        </div>
+
+        <label class="contract-agree">
+          <input id="contract-agreement" type="checkbox" checked>
+          <span><i class="bi bi-check-lg"></i></span>
+          I agree <b>《Pre-sale rules》</b>
+        </label>
+
+        <div class="return-summary">
+          Win return <strong id="modal-potential-return">₹1.96</strong>
+        </div>
+      </div>
+
+      <div class="contract-footer">
+        <button id="btn-close-modal" class="contract-cancel" type="button">Cancel</button>
+        <button id="btn-confirm-bet" class="contract-confirm" type="button">
+          Total amount <span id="modal-total-stake">₹1.00</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="club-bonus-modal" class="club-bonus-modal" aria-hidden="true">
+    <div class="club-bonus-backdrop" onclick="window.closeClubBonus()"></div>
+    <div class="club-bonus-sheet">
+      <h3>Extra first deposit bonus</h3>
+      <p>Each account can only receive rewards once</p>
+      <div class="bonus-tier-scroll">
+        <div class="bonus-tier"><span><b>First deposit ₹400</b><small>Deposit ₹400 for the first time and receive ₹48 bonus</small></span><strong>+ ₹48.00</strong><em>0/400</em><button type="button" onclick="window.openClubPage('recharge')">Deposit</button></div>
+        <div class="bonus-tier"><span><b>First deposit ₹1000</b><small>Deposit ₹1000 for the first time and receive ₹108 bonus</small></span><strong>+ ₹108.00</strong><em>0/1000</em><button type="button" onclick="window.openClubPage('recharge')">Deposit</button></div>
+        <div class="bonus-tier"><span><b>First deposit ₹2000</b><small>Deposit ₹2000 for the first time and receive ₹188 bonus</small></span><strong>+ ₹188.00</strong><em>0/2000</em><button type="button" onclick="window.openClubPage('recharge')">Deposit</button></div>
+        <div class="bonus-tier"><span><b>First deposit ₹10000</b><small>Deposit ₹10000 for the first time and receive ₹488 bonus</small></span><strong>+ ₹488.00</strong><em>0/10000</em><button type="button" onclick="window.openClubPage('recharge')">Deposit</button></div>
+      </div>
+      <label><input type="checkbox"> No more reminders today</label>
+      <button class="bonus-activity-btn" type="button" onclick="window.openClubPage('activity')">Activity</button>
+      <button class="bonus-close" type="button" onclick="window.closeClubBonus()"><i class="bi bi-x-lg"></i></button>
+    </div>
+  </div>
+
+  <div id="game-access-modal" class="game-access-modal" aria-hidden="true">
+    <div class="game-access-backdrop"></div>
+    <div class="game-access-dialog" role="dialog" aria-modal="true" aria-labelledby="game-access-title">
+      <h3 id="game-access-title">Tips</h3>
+      <p>Minimum recharge <b>₹300.00</b> to enter this game</p>
+      <div><button id="cancel-game-access" type="button">Cancel</button><button id="confirm-game-access" type="button">Recharge</button></div>
+    </div>
+  </div>
+
+  <div id="deposit-payment-modal" class="deposit-payment-modal" aria-hidden="true">
+    <div class="deposit-payment-backdrop"></div>
+    <div class="deposit-payment-sheet" role="dialog" aria-modal="true" aria-labelledby="deposit-payment-title">
+      <button id="close-deposit-payment" class="deposit-payment-close" type="button" aria-label="Close payment"><i class="bi bi-x-lg"></i></button>
+      <h2 id="deposit-payment-title">Complete payment</h2>
+      <p>Scan the active Admin QR and pay the exact amount</p>
+      <div class="deposit-pay-amount"><span>Amount to pay</span><strong id="deposit-payment-amount">₹0.00</strong></div>
+      <div class="deposit-modern-qr-card">
+        <div class="deposit-modern-qr-head"><span><i class="bi bi-shield-check"></i> Secure payment</span><b>UPI</b></div>
+        <div class="deposit-pay-qr-wrap">
+          <i class="qr-corner qr-corner-tl"></i><i class="qr-corner qr-corner-tr"></i>
+          <i class="qr-corner qr-corner-bl"></i><i class="qr-corner qr-corner-br"></i>
+          <img id="deposit-payment-qr" alt="Active deposit QR">
+        </div>
+        <div class="deposit-modern-qr-foot"><i class="bi bi-phone"></i> Scan using any UPI app</div>
+      </div>
+      <a id="deposit-upi-intent" class="deposit-upi-intent" href="#" role="button"><i class="bi bi-phone-fill"></i> Pay with UPI app</a>
+      <div class="deposit-order-row"><span>Order ID</span><b id="deposit-payment-order">ORDER000000</b></div>
+      <label class="deposit-utr-field">
+        <span>12-digit UTR / Transaction ID</span>
+        <input id="deposit-payment-utr" type="text" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="Enter UTR after payment">
+        <small>UPI app ki payment details se UTR number bharein</small>
+      </label>
+      <button id="confirm-deposit-paid" class="confirm-deposit-paid" type="button"><i class="bi bi-check-circle-fill"></i> Submit payment</button>
+      <em>Balance will update after Admin approval</em>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Helper navigation script -->
+  <script>
+    window.appNav = function(page) {
+      const el = document.querySelector(`.nav-item[data-page="${page}"]`);
+      if (el) {
+        el.click();
+      } else if (typeof window.openClubPage === 'function') {
+        window.openClubPage(page);
+      }
+    };
+    window.switchAuthTab = function(tab) {
+      document.getElementById('form-login').style.display = tab === 'login' ? 'block' : 'none';
+      document.getElementById('form-register').style.display = tab === 'register' ? 'block' : 'none';
+      document.getElementById('auth-login-methods').hidden = tab !== 'login';
+      document.getElementById('auth-register-title').hidden = tab !== 'register';
+      document.getElementById('auth-heading').textContent = tab === 'login' ? 'Log in' : 'Register';
+      document.getElementById('auth-subheading').innerHTML = tab === 'login'
+        ? 'Please log in with your phone number<br>If you forget your password, please contact customer service'
+        : 'Please register by phone number<br>Get ₹100 signup bonus instantly';
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    };
+  </script>
+
+  <script src="js/config.js"></script>
+  <!-- App Script (ES Module) -->
+    <script type="module" src="js/app.js?v=chicken-road-1"></script>
+
+</body>
+</html>

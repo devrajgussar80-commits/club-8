@@ -1,0 +1,19 @@
+{
+  "name": "club-8",
+  "version": "1.0.0",
+  "description": "Club 8 mobile WinGo platform with wallet and admin dashboard",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx -y serve . -p 3000",
+    "start": "npx -y serve . -p 3000"
+  },
+  "keywords": [
+    "club-8",
+    "mobile-app",
+    "upi-wallet",
+    "admin-dashboard",
+    "gaming"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}

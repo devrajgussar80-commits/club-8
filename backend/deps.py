@@ -1,0 +1,96 @@
+"""FastAPI dependencies for player and admin authentication."""
+
+import hashlib
+import hmac
+from typing import Optional
+
+from fastapi import Depends, Header, HTTPException
+
+import auth
+import config
+from database import get_db_connection
+
+
+def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        if config.ALLOW_DEMO_USER:
+            conn = get_db_connection()
+            user = conn.execute(
+                "SELECT * FROM users WHERE id = ?", (config.DEMO_USER_ID,)
+            ).fetchone()
+            conn.close()
+            if user:
+                return dict(user)
+        raise HTTPException(status_code=401, detail="Please log in to continue")
+
+    token = authorization.split(" ", 1)[1]
+    payload = auth.decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE id = ?", (payload.get("user_id"),)).fetchone()
+    conn.close()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    user_dict = dict(user)
+    if user_dict.get("status") == "disabled":
+        raise HTTPException(status_code=403, detail="Your account has been suspended by Admin.")
+
+    return user_dict
+
+
+def _rotated_admin_key_hash() -> str:
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT value FROM system_settings WHERE key = 'admin_api_key_hash'"
+        ).fetchone()
+        return str(row[0]) if row else ""
+    finally:
+        conn.close()
+
+
+def _admin_token_is_valid(authorization: Optional[str]) -> bool:
+    if not authorization or not authorization.startswith("Bearer "):
+        return False
+    payload = auth.decode_access_token(authorization.split(" ", 1)[1])
+    if not payload or not payload.get("is_admin"):
+        return False
+    conn = get_db_connection()
+    row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (payload.get("user_id"),)).fetchone()
+    conn.close()
+    return bool(row and row["is_admin"])
+
+
+def require_admin(
+    x_admin_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+) -> bool:
+    """Accepts either an admin session token or the shared access key.
+
+    The token path is what the dashboard uses; the key stays supported so
+    existing tooling and the recovery path keep working.
+    """
+    if _admin_token_is_valid(authorization):
+        return True
+
+    if not config.ADMIN_API_KEY:
+        raise HTTPException(status_code=503, detail="Admin API is not configured on this server")
+
+    supplied_key = x_admin_key or ""
+    rotated_hash = _rotated_admin_key_hash()
+    supplied_hash = hashlib.sha256(supplied_key.encode("utf-8")).hexdigest()
+    if rotated_hash:
+        if not hmac.compare_digest(supplied_hash, rotated_hash):
+            raise HTTPException(status_code=401, detail="Invalid admin access key")
+        return True
+    if not hmac.compare_digest(supplied_key, config.ADMIN_API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid admin access key")
+    return True
+
+
+AdminAuth = Depends(require_admin)
+CurrentUser = Depends(get_current_user)

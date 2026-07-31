@@ -1,0 +1,24 @@
+.vercel
+.env*
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+uploads/
+deployment-test-uploads/
+.preview.*.log
+admin_view_initial_*.png
+
+# Archives here bundle .env.local, the live SQLite DB and uploaded QR images.
+# They must never reach a remote.
+*.zip
+work/
+.claude/settings.local.json
+
+# Database credential files. neodb-url.txt holds the full Neon connection
+# string, password included. Vercel serves this repo as static files, so an
+# un-ignored copy would be downloadable at https://<site>/neodb-url.txt
+neodb-url.txt
+*neon*.txt
+*neodb*

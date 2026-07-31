@@ -1,0 +1,5 @@
+# Test-only dependencies. Install alongside requirements.txt for local work;
+# never install these on the production host.
+-r requirements.txt
+pytest>=8.0
+httpx>=0.27
