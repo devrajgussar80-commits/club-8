@@ -849,19 +849,23 @@ class App {
     this.pollInterval = setInterval(async () => {
       if (this.backendSyncInFlight) return;
       this.backendSyncInFlight = true;
+      // Background upkeep only. Anything the user is waiting on runs on its own
+      // and must never queue behind these, so they go out in parallel and the
+      // slower ones are rate-limited.
+      const jobs = [];
+      const isAdmin = appState.getState().viewMode === 'admin';
       try {
-        if (this.authToken) await this.syncGameStatus();
+        if (this.authToken && !isAdmin) jobs.push(this.syncGameStatus());
         // Picks up an admin access grant without needing a re-login.
-        if (this.authToken && Date.now() - this.lastAccessSync >= 10000) {
-          await this.syncUserAccess();
+        if (this.authToken && Date.now() - this.lastAccessSync >= 20000) {
+          jobs.push(this.syncUserAccess());
         }
-        if (Date.now() - this.lastQrSync >= 15000) {
-          await this.syncActiveQR();
+        if (!isAdmin && Date.now() - this.lastQrSync >= 30000) {
           this.lastQrSync = Date.now();
+          jobs.push(this.syncActiveQR());
         }
-        if (appState.getState().viewMode === 'admin' && this.adminApiKey) {
-          await this.syncAdminMetrics();
-        }
+        if (isAdmin && this.adminApiKey) jobs.push(this.syncAdminMetrics());
+        await Promise.allSettled(jobs);
       } finally {
         this.backendSyncInFlight = false;
       }
@@ -1132,8 +1136,11 @@ class App {
     }
   }
 
+  // Five requests per run. At the old 5s throttle this fired on nearly every
+  // poll tick, saturating the backend and making every click feel slow. User
+  // actions patch their own rows optimistically, so the reconcile can be rare.
   async syncAdminTables(force = false) {
-    if (!force && Date.now() - this.lastAdminTablesSync < 5000) return;
+    if (!force && Date.now() - this.lastAdminTablesSync < 20000) return;
     this.lastAdminTablesSync = Date.now();
     try {
       const [platformSettings, usersData, qrData, depData, wthData] = await Promise.all([
@@ -1154,19 +1161,14 @@ class App {
       const usersBody = document.getElementById('admin-users-table-body');
       if (usersBody && usersData.users) {
         usersBody.innerHTML = usersData.users.map(u => `
-          <tr>
+          <tr data-user-id="${this.escapeHtml(u.id)}">
             <td><code>${this.escapeHtml(u.id)}</code></td>
             <td><strong>${this.escapeHtml(u.username)}</strong></td>
             <td>${this.escapeHtml(u.phone)}</td>
-            <td>₹${u.balance.toFixed(2)}</td>
+            <td data-user-balance>₹${u.balance.toFixed(2)}</td>
             <td>
-              <span class="admin-game-access">
-                <small>Recharge ₹${Number(u.approved_deposit_total || 0).toFixed(2)}</small>
-                <button class="btn-sm-access ${u.game_access_enabled ? 'enabled' : Number(u.approved_deposit_total || 0) >= 300 ? 'eligible' : ''}"
-                  ${!u.game_access_enabled && Number(u.approved_deposit_total || 0) < 300 ? 'disabled' : ''}
-                  onclick="window.adminToggleGameAccess('${u.id}', ${u.game_access_enabled ? 'false' : 'true'})">
-                  ${u.game_access_enabled ? 'Disable Access' : Number(u.approved_deposit_total || 0) >= 300 ? 'Enable Access' : '₹300 Required'}
-                </button>
+              <span class="admin-game-access" data-approved-total="${Number(u.approved_deposit_total || 0)}">
+                ${this.renderUserAccessCell(u.id, Number(u.approved_deposit_total || 0), Boolean(u.game_access_enabled))}
               </span>
             </td>
             <td><span class="tag-badge ${u.status === 'active' ? 'tag-win' : 'tag-loss'}">${u.status.toUpperCase()}</span></td>
@@ -1201,7 +1203,7 @@ class App {
       const depBody = document.getElementById('admin-deposits-table-body');
       if (depBody && depData.deposits) {
         depBody.innerHTML = depData.deposits.map(d => `
-          <tr data-deposit-id="${this.escapeHtml(d.id)}">
+          <tr data-deposit-id="${this.escapeHtml(d.id)}" data-user-id="${this.escapeHtml(d.user_id || '')}" data-amount="${Number(d.amount) || 0}">
             <td><strong>${this.escapeHtml(d.user_name)}</strong></td>
             <td>₹${d.amount}</td>
             <td><code style="color:var(--color-green);">${this.escapeHtml(d.order_id || d.utr)}</code><br><small>${this.escapeHtml(d.qr_id || 'Legacy deposit')} · Ref ${this.escapeHtml(d.utr)}</small></td>
@@ -1407,7 +1409,7 @@ class App {
         updateDepositSubmit();
         this.pendingDeposit = null;
         closeDepositPayment();
-        await this.syncWalletHistory();
+        void this.syncWalletHistory();
       } catch (err) {
         this.showToast(err.message, 'error');
       } finally {
@@ -1736,8 +1738,8 @@ class App {
         await this.fetchApi('/api/wallet/withdraw', 'POST', { amount, upi_id });
         this.showToast(`${this.withdrawMethod === 'bank' ? 'Bank' : 'UPI'} withdrawal request submitted!`, 'success');
         document.getElementById('form-withdrawal')?.reset();
-        await this.syncGameStatus();
-        await this.syncWalletHistory();
+        void this.syncGameStatus();
+        void this.syncWalletHistory();
       } catch (err) {
         this.showToast(err.message, 'error');
       }
@@ -1985,7 +1987,7 @@ class App {
         'success'
       );
       this.closeBetModal();
-      await this.syncGameStatus();
+      void this.syncGameStatus();
     } catch (err) {
       this.showToast(err.message, 'error');
     }
@@ -2377,12 +2379,47 @@ class App {
     });
   }
 
-  // Approving/rejecting money changes a user's approved-recharge total, which is
-  // what unlocks the "Enable Access" button. The optimistic row patch cannot know
-  // that, so always reconcile the real tables instead of suppressing the sync.
-  async refreshAdminMetricsFast() {
+  renderUserAccessCell(userId, approvedTotal, accessEnabled) {
+    const eligible = approvedTotal >= 300;
+    const label = accessEnabled ? 'Disable Access' : eligible ? 'Enable Access' : '₹300 Required';
+    const tone = accessEnabled ? 'enabled' : eligible ? 'eligible' : '';
+    return `
+      <small>Recharge ₹${approvedTotal.toFixed(2)}</small>
+      <button class="btn-sm-access ${tone}" ${!accessEnabled && !eligible ? 'disabled' : ''}
+        onclick="window.adminToggleGameAccess('${this.escapeHtml(userId)}', ${accessEnabled ? 'false' : 'true'})">
+        ${label}
+      </button>`;
+  }
+
+  findUserRow(userId) {
+    if (!userId) return null;
+    return [...document.querySelectorAll('#admin-users-table-body [data-user-id]')]
+      .find(row => row.getAttribute('data-user-id') === String(userId)) || null;
+  }
+
+  // Approving a deposit changes that user's approved-recharge total, which is
+  // what unlocks "Enable Access". Patch the row straight away so the admin sees
+  // it immediately instead of waiting on a full table reload.
+  bumpUserRecharge(userId, delta) {
+    const cell = this.findUserRow(userId)?.querySelector('.admin-game-access');
+    if (!cell) return;
+    const next = Math.max(0, Number(cell.dataset.approvedTotal || 0) + delta);
+    cell.dataset.approvedTotal = String(next);
+    const enabled = cell.querySelector('.btn-sm-access')?.classList.contains('enabled') || false;
+    cell.innerHTML = this.renderUserAccessCell(userId, next, enabled);
+  }
+
+  setUserAccessCell(userId, accessEnabled) {
+    const cell = this.findUserRow(userId)?.querySelector('.admin-game-access');
+    if (!cell) return;
+    cell.innerHTML = this.renderUserAccessCell(userId, Number(cell.dataset.approvedTotal || 0), accessEnabled);
+  }
+
+  // Fire-and-forget reconcile. The optimistic patches above already gave the
+  // admin their feedback, so nothing should await this.
+  refreshAdminMetricsFast() {
     this.lastAdminTablesSync = 0;
-    await this.syncAdminMetrics();
+    void this.syncAdminMetrics();
   }
 }
 
@@ -2393,15 +2430,16 @@ document.addEventListener('DOMContentLoaded', () => { app.init(); });
 window.adminToggleUser = async (id, status) => {
   await app.fetchApi(`/api/admin/users/${id}/status`, 'PUT', { status });
   app.showToast(`User ${id} status set to ${status.toUpperCase()}`, 'success');
-  await app.syncAdminTables(true);
+  void app.syncAdminTables(true);
 };
 
 window.adminToggleGameAccess = async (id, enabled) => {
+  app.setUserAccessCell(id, enabled);   // paint first, confirm after
   try {
     await app.fetchApi(`/api/admin/users/${id}/game-access`, 'PUT', { enabled });
-    app.showToast(`Game access ${enabled ? 'enabled' : 'disabled'} for ${id}`, 'success');
-    await app.syncAdminTables(true);
+    app.showToast(`All games ${enabled ? 'unlocked' : 'locked'} for ${id}`, 'success');
   } catch (error) {
+    app.setUserAccessCell(id, !enabled);  // roll the cell back
     app.showToast(error.message, 'error');
   }
 };
@@ -2409,15 +2447,17 @@ window.adminToggleGameAccess = async (id, enabled) => {
 window.adminDeleteUser = async (id) => {
   if (confirm(`Are you sure you want to delete user ${id}?`)) {
     await app.fetchApi(`/api/admin/users/${id}`, 'DELETE');
+    app.findUserRow(id)?.remove();
     app.showToast(`User ${id} deleted`, 'success');
-    await app.syncAdminTables(true);
+    void app.syncAdminTables(true);
   }
 };
 
 window.adminDeleteQR = async (id) => {
   await app.fetchApi(`/api/admin/qr-codes/${id}`, 'DELETE');
+  app.findAdminRow('qr', id)?.remove();
   app.showToast(`QR Code ${id} deleted`, 'success');
-  await app.syncAdminTables(true);
+  void app.syncAdminTables(true);
 };
 
 window.adminActivateQR = async (id) => {
@@ -2434,12 +2474,16 @@ window.adminActivateQR = async (id) => {
 };
 
 window.adminApproveDep = async (id) => {
+  const row = app.findAdminRow('deposit', id);
+  const userId = row?.getAttribute('data-user-id');
+  const amount = Number(row?.getAttribute('data-amount') || 0);
   app.setAdminRowBusy('deposit', id, true);
   try {
     await app.fetchApi(`/api/admin/deposits/${id}/approve`, 'POST');
     app.updateAdminRequestRow('deposit', id, 'approved');
-    app.showToast(`Deposit ${id} approved. Enable game access from User Directory after ₹300 eligibility.`, 'success');
-    await app.refreshAdminMetricsFast();
+    app.bumpUserRecharge(userId, amount);
+    app.showToast(`Deposit approved. ₹${amount.toFixed(2)} credited.`, 'success');
+    app.refreshAdminMetricsFast();
   } catch (error) {
     app.showToast(error.message, 'error');
     app.setAdminRowBusy('deposit', id, false);
