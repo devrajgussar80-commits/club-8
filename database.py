@@ -50,6 +50,7 @@ def init_db():
     if "is_admin" not in user_columns:
         cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
 
+
     # 2. Rounds Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS rounds (
@@ -121,6 +122,23 @@ def init_db():
         min_amount REAL DEFAULT 100,
         max_amount REAL DEFAULT 50000,
         is_active INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    # Deposit QRs rotate, so each one tracks when it was last handed out.
+    qr_columns = {row["name"] for row in cursor.execute("PRAGMA table_info(qr_codes)").fetchall()}
+    if "last_used_at" not in qr_columns:
+        cursor.execute("ALTER TABLE qr_codes ADD COLUMN last_used_at TIMESTAMP")
+
+    # An order pins the QR the player was actually shown. Without this the
+    # deposit could be rejected just because the rotation moved on.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS deposit_orders (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        qr_id TEXT NOT NULL,
+        amount REAL NOT NULL,
+        consumed INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)

@@ -470,6 +470,79 @@ def get_setting(conn, key: str, default: str) -> str:
     row = conn.execute("SELECT value FROM system_settings WHERE key = ?", (key,)).fetchone()
     return str(row["value"]) if row else default
 
+class DepositOrderRequest(BaseModel):
+    amount: float
+
+
+@app.post("/api/wallet/deposit-order")
+def create_deposit_order(req: DepositOrderRequest, current_user: dict = Depends(get_current_user)):
+    """Hand out the next QR in the rotation and pin it to a fresh order.
+
+    Every order gets the least-recently-used QR, so abandoning one and starting
+    again shows a different account instead of the same one every time.
+    """
+    amount = round(float(req.amount), 2)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if get_setting(conn, "deposits_enabled", "true").lower() != "true":
+        conn.close()
+        raise HTTPException(status_code=503, detail="Deposits are temporarily paused by Admin")
+
+    cursor.execute("BEGIN IMMEDIATE")
+    qr = cursor.execute(
+        """SELECT * FROM qr_codes WHERE is_active = 1
+           ORDER BY COALESCE(last_used_at, '') ASC, created_at ASC LIMIT 1"""
+    ).fetchone()
+    if not qr:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Admin has not enabled any deposit QR yet")
+
+    minimum = float(qr["min_amount"] or 100)
+    maximum = float(qr["max_amount"] or 50000)
+    if amount < minimum or amount > maximum:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Deposit must be between ₹{minimum:.2f} and ₹{maximum:.2f}")
+
+    order_id = f"ORD{uuid.uuid4().hex[:12].upper()}"
+    cursor.execute(
+        "UPDATE qr_codes SET last_used_at = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), qr["id"]),
+    )
+    cursor.execute(
+        "INSERT INTO deposit_orders (id, user_id, qr_id, amount) VALUES (?, ?, ?, ?)",
+        (order_id, current_user["id"], qr["id"], amount),
+    )
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "order_id": order_id,
+        "amount": amount,
+        "qr": {
+            "id": qr["id"],
+            "name": qr["name"],
+            "note": qr["note"],
+            "qr_url": qr["qr_url"],
+            "upi_id": qr["upi_id"],
+            "min_amount": minimum,
+            "max_amount": maximum,
+        },
+    }
+
+
+@app.get("/api/wallet/qr-pool")
+def get_qr_pool():
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT id, name, note, qr_url, upi_id, min_amount, max_amount FROM qr_codes WHERE is_active = 1 ORDER BY created_at DESC"
+    ).fetchall()
+    conn.close()
+    return {"qr_codes": [dict(r) for r in rows], "count": len(rows)}
+
+
 class DepositRequest(BaseModel):
     amount: float
     utr: str
@@ -495,13 +568,20 @@ def submit_deposit(req: DepositRequest, current_user: dict = Depends(get_current
         conn.close()
         raise HTTPException(status_code=503, detail="Deposits are temporarily paused by Admin")
 
-    qr = cursor.execute(
-        "SELECT * FROM qr_codes WHERE id = ? AND is_active = 1",
-        (req.qr_id,),
+    # Accept the QR the player was actually shown. Rotation, or an admin
+    # disabling that QR while the player was paying, must not invalidate money
+    # that has already left their bank.
+    order = cursor.execute(
+        "SELECT * FROM deposit_orders WHERE id = ? AND user_id = ?",
+        (order_id, current_user["id"]),
     ).fetchone()
+    qr_id = order["qr_id"] if order else req.qr_id
+
+    qr = cursor.execute("SELECT * FROM qr_codes WHERE id = ?", (qr_id,)).fetchone()
     if not qr:
         conn.close()
-        raise HTTPException(status_code=400, detail="This QR is no longer active. Create a new deposit order.")
+        raise HTTPException(status_code=400, detail="That payment QR no longer exists. Start a new deposit.")
+
     minimum = float(qr["min_amount"] or 100)
     maximum = float(qr["max_amount"] or 50000)
     if amount < minimum or amount > maximum:
@@ -518,11 +598,12 @@ def submit_deposit(req: DepositRequest, current_user: dict = Depends(get_current
         cursor.execute("""
         INSERT INTO upi_deposits (id, user_id, user_name, amount, utr, qr_id, order_id, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-        """, (dep_id, current_user["id"], current_user["username"], amount, req.utr.strip(), req.qr_id, order_id))
+        """, (dep_id, current_user["id"], current_user["username"], amount, req.utr.strip(), qr_id, order_id))
     except Exception:
         conn.close()
         raise HTTPException(status_code=400, detail="This deposit order has already been submitted")
 
+    cursor.execute("UPDATE deposit_orders SET consumed = 1 WHERE id = ?", (order_id,))
     conn.commit()
     conn.close()
     return {"status": "success", "deposit_id": dep_id}
@@ -977,7 +1058,6 @@ class AddQRReq(BaseModel):
 def add_admin_qr_code(req: AddQRReq, _: bool = Depends(require_admin)):
     conn = get_db_connection()
     qr_id = f"QR-{uuid.uuid4().hex[:8].upper()}"
-    conn.execute("UPDATE qr_codes SET is_active = 0")
     conn.execute(
         """INSERT INTO qr_codes
         (id, name, note, qr_url, upi_id, min_amount, max_amount, is_active)
@@ -1017,7 +1097,6 @@ async def upload_admin_qr_code(
 
     conn = get_db_connection()
     qr_id = f"QR-{uuid.uuid4().hex[:8].upper()}"
-    conn.execute("UPDATE qr_codes SET is_active = 0")
     conn.execute(
         """INSERT INTO qr_codes
         (id, name, note, qr_url, upi_id, min_amount, max_amount, is_active)
@@ -1038,17 +1117,22 @@ async def upload_admin_qr_code(
     return {"status": "success", "qr_id": qr_id, "qr_url": qr_url}
 
 @app.post("/api/admin/qr-codes/{qr_id}/activate")
-def activate_admin_qr_code(qr_id: str, _: bool = Depends(require_admin)):
+def activate_admin_qr_code(qr_id: str, enabled: bool = True, _: bool = Depends(require_admin)):
+    """Toggle a QR in or out of the rotation pool.
+
+    Several QRs can be live at once; each new deposit order is handed the
+    least-recently-used one.
+    """
     conn = get_db_connection()
     qr = conn.execute("SELECT id FROM qr_codes WHERE id = ?", (qr_id,)).fetchone()
     if not qr:
         conn.close()
         raise HTTPException(status_code=404, detail="QR code not found")
-    conn.execute("UPDATE qr_codes SET is_active = 0")
-    conn.execute("UPDATE qr_codes SET is_active = 1 WHERE id = ?", (qr_id,))
+    conn.execute("UPDATE qr_codes SET is_active = ? WHERE id = ?", (1 if enabled else 0, qr_id))
+    remaining = conn.execute("SELECT COUNT(*) FROM qr_codes WHERE is_active = 1").fetchone()[0]
     conn.commit()
     conn.close()
-    return {"status": "success", "active_qr_id": qr_id}
+    return {"status": "success", "qr_id": qr_id, "enabled": enabled, "pool_size": remaining}
 
 @app.delete("/api/admin/qr-codes/{qr_id}")
 def delete_admin_qr_code(qr_id: str, _: bool = Depends(require_admin)):

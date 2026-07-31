@@ -6562,3 +6562,8 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
   .nd-panel-head { flex-direction: column; align-items: stretch; }
   .nd-search { max-width: none; }
 }
+
+.nd-pool-note { font-size: 11px; color: var(--text-muted); }
+.nd-pool-note.warn { color: var(--color-red); font-weight: 600; }
+.nd-qr-state { white-space: nowrap; }
+.nd-qr-state .nd-row-btn { margin-left: 7px; }

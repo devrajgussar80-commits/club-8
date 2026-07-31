@@ -31,6 +31,7 @@ class App {
     this.adminLoadInFlight = false;
     this.adminDashboardUnavailable = false;
     this.adminFailStreak = 0;
+    this.adminMutationsInFlight = 0;
     this.pollInterval = null;
     this.localGameClockInterval = null;
     this.historyPage = 0;
@@ -1172,7 +1173,9 @@ class App {
       this.adminFailStreak = 0;
       this.hideAdminGate();
       this.setAdminStatus('live', 'live');
-      this.renderAdmin(data);
+      // A poll that was already in flight when the admin changed something
+      // carries pre-change data; repainting it would flick the row back.
+      if (this.adminMutationsInFlight === 0) this.renderAdmin(data);
     } catch (error) {
       this.adminFailStreak = (this.adminFailStreak || 0) + 1;
 
@@ -1385,12 +1388,41 @@ class App {
         <td><img class="nd-qr-thumb" src="${this.escapeHtml(this.resolveApiUrl(q.qr_url))}" alt=""></td>
         <td><span class="nd-player-name">${this.escapeHtml(q.name)}</span><span class="nd-player-sub">${this.escapeHtml(q.note || '')}</span></td>
         <td><code>${this.escapeHtml(q.upi_id || 'Static QR')}</code><br><span class="nd-player-sub">₹${q.min_amount || 100} – ₹${q.max_amount || 50000}</span></td>
-        <td><span class="nd-badge ${q.is_active ? 'ok' : 'bad'}">${q.is_active ? 'Active' : 'Inactive'}</span></td>
+        <td class="nd-qr-state">${this.renderQrStateCell(q.id, Boolean(q.is_active))}</td>
         <td>
-          ${q.is_active ? '' : `<button class="nd-row-btn" onclick="window.adminActivateQR('${this.escapeHtml(q.id)}')">Set active</button>`}
           <button class="nd-row-btn danger" onclick="window.adminDeleteQR('${this.escapeHtml(q.id)}')">Delete</button>
         </td>
       </tr>`).join('');
+    this.renderQrPoolNote();
+  }
+
+  // Several QRs can be live at once; each deposit order is handed the
+  // least-recently-used one.
+  renderQrStateCell(qrId, enabled) {
+    return `
+      <span class="nd-badge ${enabled ? 'ok' : 'bad'}">${enabled ? 'In rotation' : 'Off'}</span>
+      <button class="nd-row-btn nd-qr-toggle" onclick="window.adminToggleQR('${this.escapeHtml(qrId)}', ${enabled ? 'false' : 'true'})">
+        ${enabled ? 'Turn off' : 'Turn on'}
+      </button>`;
+  }
+
+  setQrStateCell(qrId, enabled) {
+    const row = document.querySelector(`#admin-qr-table-body tr[data-qr-id="${CSS.escape(String(qrId))}"]`);
+    const cell = row?.querySelector('.nd-qr-state');
+    if (cell) cell.innerHTML = this.renderQrStateCell(qrId, enabled);
+    const record = ((this.adminData || {}).qr_codes || []).find(q => q.id === qrId);
+    if (record) record.is_active = enabled ? 1 : 0;
+    this.renderQrPoolNote();
+  }
+
+  renderQrPoolNote() {
+    const note = document.getElementById('nd-qr-pool-note');
+    if (!note) return;
+    const live = ((this.adminData || {}).qr_codes || []).filter(q => q.is_active).length;
+    note.textContent = live === 0
+      ? 'No QR in rotation — players cannot deposit.'
+      : `${live} QR${live > 1 ? 's' : ''} in rotation · each new deposit order gets the next one`;
+    note.classList.toggle('warn', live === 0);
   }
 
   renderAdminControls(data) {
@@ -1487,6 +1519,16 @@ class App {
 
   refreshAdminMetricsFast() {
     void this.loadAdmin({ silent: true });
+  }
+
+  // Holds off background repaints while a local change is being confirmed.
+  async adminMutate(work) {
+    this.adminMutationsInFlight += 1;
+    try {
+      return await work();
+    } finally {
+      this.adminMutationsInFlight -= 1;
+    }
   }
 
   attachAdminListeners() {
@@ -1827,21 +1869,26 @@ class App {
         return this.showToast('Please enter the valid 12-digit UTR number.', 'error');
       }
       const button = e.currentTarget;
+      const pending = this.pendingDeposit;
       button.disabled = true;
+
+      // Close and confirm straight away — the request is already valid at this
+      // point, so making the player watch a spinner adds nothing.
+      this.showToast('Payment submitted. Waiting for Admin approval.', 'success');
+      document.getElementById('form-deposit')?.reset();
+      if (utrInput) utrInput.value = '';
+      document.querySelectorAll('.chip-amount').forEach(item => item.classList.remove('active'));
+      updateDepositSubmit();
+      this.pendingDeposit = null;
+      closeDepositPayment();
+
       try {
         await this.fetchApi('/api/wallet/deposit', 'POST', {
-          amount: this.pendingDeposit.amount,
+          amount: pending.amount,
           utr,
-          qr_id: this.pendingDeposit.qr.id,
-          order_id: this.pendingDeposit.orderId
+          qr_id: pending.qr.id,
+          order_id: pending.orderId
         });
-        this.showToast('Payment submitted. Waiting for Admin approval.', 'success');
-        document.getElementById('form-deposit')?.reset();
-        if (utrInput) utrInput.value = '';
-        document.querySelectorAll('.chip-amount').forEach(item => item.classList.remove('active'));
-        updateDepositSubmit();
-        this.pendingDeposit = null;
-        closeDepositPayment();
         void this.syncWalletHistory();
       } catch (err) {
         this.showToast(err.message, 'error');
@@ -2075,18 +2122,33 @@ class App {
         return;
       }
       const amount = Number(document.getElementById('deposit-amount-input')?.value);
-      if (!this.activeQR?.qr_url) await this.syncActiveQR();
-      const qr = this.activeQR;
-      if (!qr?.qr_url) return this.showToast('Admin has not uploaded an active QR yet.', 'error');
 
+      // Ask the server for the next QR in the rotation. Abandoning an order and
+      // starting again therefore lands on a different account each time.
+      let qr = null;
+      let orderId = null;
+      try {
+        const order = await this.fetchApi('/api/wallet/deposit-order', 'POST', { amount });
+        qr = order.qr;
+        orderId = order.order_id;
+      } catch (error) {
+        if (!/404|not found/i.test(error.message)) {
+          return this.showToast(error.message, 'error');
+        }
+        // Older backend without rotation — fall back to the single active QR.
+        if (!this.activeQR?.qr_url) await this.syncActiveQR();
+        qr = this.activeQR;
+        const randomPart = crypto.getRandomValues(new Uint32Array(1))[0].toString(36).toUpperCase().slice(-4).padStart(4, '0');
+        orderId = `ORD${String(Date.now()).slice(-8)}${randomPart}`;
+      }
+
+      if (!qr?.qr_url) return this.showToast('Admin has not enabled a deposit QR yet.', 'error');
       const minimum = Number(qr.min_amount || 100);
       const maximum = Number(qr.max_amount || 50000);
       if (amount < minimum || amount > maximum) {
         return this.showToast(`Enter an amount between ₹${minimum} and ₹${maximum}.`, 'error');
       }
 
-      const randomPart = crypto.getRandomValues(new Uint32Array(1))[0].toString(36).toUpperCase().slice(-4).padStart(4, '0');
-      const orderId = `ORD${String(Date.now()).slice(-8)}${randomPart}`;
       this.pendingDeposit = { amount, qr, orderId };
       document.getElementById('deposit-payment-amount').innerText = `₹${amount.toFixed(2)}`;
       let paymentQrUrl = this.resolveApiUrl(qr.qr_url);
@@ -2658,7 +2720,7 @@ window.adminApproveWth = (id) =>
 window.adminRejectWth = (id) =>
   settleRequest(id, `/api/admin/withdrawals/${id}/reject`, null, 'Withdrawal rejected and refunded.');
 
-window.adminToggleGameAccess = async (id, enabled) => {
+window.adminToggleGameAccess = (id, enabled) => app.adminMutate(async () => {
   app.setUserAccessCell(id, enabled);   // paint first, confirm after
   try {
     await app.adminApi(`/api/admin/users/${id}/game-access`, 'PUT', { enabled });
@@ -2667,7 +2729,7 @@ window.adminToggleGameAccess = async (id, enabled) => {
     app.setUserAccessCell(id, !enabled);
     app.showToast(error.message, 'error');
   }
-};
+});
 
 window.adminToggleUser = async (id, status) => {
   try {
@@ -2692,16 +2754,20 @@ window.adminDeleteUser = async (id) => {
   }
 };
 
-window.adminActivateQR = async (id) => {
+window.adminToggleQR = (id, enabled) => app.adminMutate(async () => {
+  app.setQrStateCell(id, enabled);       // paint first, confirm after
   try {
-    await app.adminApi(`/api/admin/qr-codes/${id}/activate`, 'POST');
-    app.showToast('Active deposit QR changed.', 'success');
-    void app.loadAdmin({ silent: true });
+    await app.adminApi(`/api/admin/qr-codes/${id}/activate?enabled=${enabled}`, 'POST');
+    app.showToast(enabled ? 'QR added to rotation.' : 'QR removed from rotation.', 'success');
     void app.syncActiveQR();
   } catch (error) {
+    app.setQrStateCell(id, !enabled);
     app.showToast(error.message, 'error');
   }
-};
+});
+
+// Kept for older markup that still calls the activate-only handler.
+window.adminActivateQR = (id) => window.adminToggleQR(id, true);
 
 window.adminDeleteQR = async (id) => {
   if (!confirm('Delete this QR code?')) return;
