@@ -20,6 +20,7 @@ import database
 from database import get_db_connection
 import auth
 from game_engine import python_engine
+import arcade_engine
 
 BASE_DIR = os.path.dirname(__file__)
 UPLOAD_ROOT = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
@@ -52,6 +53,7 @@ GAME_ACCESS_MIN_DEPOSIT = 300.0
 
 # Initialize database
 database.init_db()
+arcade_engine.init_arcade_tables()
 
 
 def get_approved_deposit_total(conn, user_id: str) -> float:
@@ -638,6 +640,78 @@ def generate_payment_qr(amount: float, qr_id: str, order_id: str):
     image.save(output, format="PNG")
     output.seek(0)
     return StreamingResponse(output, media_type="image/png")
+
+# ----------------- ARCADE: CHICKEN ROAD -----------------
+class ChickenStartRequest(BaseModel):
+    bet: float
+    difficulty: str = "easy"
+    client_seed: Optional[str] = None
+
+
+class ChickenRoundRequest(BaseModel):
+    round_id: str
+
+
+@app.get("/api/arcade/chicken/config")
+def chicken_config(current_user: dict = Depends(get_current_user)):
+    return {
+        "rtp": arcade_engine.RTP,
+        "min_bet": arcade_engine.MIN_BET,
+        "max_bet": arcade_engine.MAX_BET,
+        "difficulties": {
+            name: {
+                "lanes": cfg["lanes"],
+                "survival": cfg["survival"],
+                "multipliers": arcade_engine.multiplier_table(name),
+            }
+            for name, cfg in arcade_engine.DIFFICULTIES.items()
+        },
+        "active_round": arcade_engine.active_round(current_user["id"]),
+        "balance": current_user["balance"],
+    }
+
+
+def _chicken_response(payload, user_id):
+    conn = get_db_connection()
+    row = conn.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    payload["balance"] = float(row["balance"]) if row else 0.0
+    return payload
+
+
+@app.post("/api/arcade/chicken/start")
+def chicken_start(req: ChickenStartRequest, current_user: dict = Depends(get_current_user)):
+    if not bool(current_user.get("game_access_enabled", 0)):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Recharge ₹{GAME_ACCESS_MIN_DEPOSIT:.0f} and ask admin to unlock the arcade games.",
+        )
+    try:
+        payload = arcade_engine.start_round(
+            current_user["id"], req.difficulty, req.bet, req.client_seed
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return _chicken_response(payload, current_user["id"])
+
+
+@app.post("/api/arcade/chicken/step")
+def chicken_step(req: ChickenRoundRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        payload = arcade_engine.step_round(current_user["id"], req.round_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return _chicken_response(payload, current_user["id"])
+
+
+@app.post("/api/arcade/chicken/cashout")
+def chicken_cashout(req: ChickenRoundRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        payload = arcade_engine.cashout_round(current_user["id"], req.round_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return _chicken_response(payload, current_user["id"])
+
 
 # ----------------- ADMIN ROUTER -----------------
 @app.get("/api/admin/dashboard")

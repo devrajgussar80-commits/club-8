@@ -725,7 +725,17 @@ class App {
       canPlay: () => this.canEnterPremiumGames(),
       denyPlay: () => this.showGameAccessModal()
     };
-    this.chickenRoadEngine = new ChickenRoadEngine(gameOptions);
+    // Chicken Road is server-authoritative, so it gets the API bridge and the
+    // absolute balance the server reports rather than a local delta.
+    this.chickenRoadEngine = new ChickenRoadEngine({
+      ...gameOptions,
+      api: (path, method = 'GET', body = null) => this.fetchApi(path, method, body),
+      setBalance: balance => {
+        const state = appState.getState();
+        state.user.balance = Number(Number(balance).toFixed(2));
+        appState.saveState();
+      }
+    });
     this.chickenRoadEngine.init();
     this.aviatorEngine = new AviatorEngine(gameOptions);
     this.aviatorEngine.init();

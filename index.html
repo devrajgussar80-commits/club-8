@@ -980,39 +980,80 @@
             <button type="button" class="arcade-plus" aria-label="Add money">+</button>
             <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
           </header>
+
           <div class="chicken-brandbar">
             <strong>CHICKEN <em>2</em> ROAD</strong>
-            <i class="bi bi-question-circle"></i>
+            <button type="button" id="cr-fair-open" class="cr-fair-btn" title="Provably fair"><i class="bi bi-shield-check"></i></button>
             <span><b id="chicken-brand-balance">0.00</b> INR</span>
-            <button type="button"><i class="bi bi-list"></i></button>
+            <span id="cr-mode-tag" class="cr-mode-tag" hidden>DEMO</span>
           </div>
-          <section class="chicken-stage">
-            <img src="assets/club8-chicken-road-bg.png" alt="Chicken Road">
-            <div id="chicken-runner" class="chicken-runner" aria-hidden="true">🐔</div>
-            <div id="chicken-car" class="chicken-car" aria-hidden="true">🚗</div>
-            <div class="chicken-impact" aria-hidden="true">💥</div>
-            <div id="chicken-step-track" class="chicken-step-track" aria-label="Road multipliers"></div>
-            <div id="chicken-road-multiplier" class="chicken-road-multiplier">1.00x</div>
-            <div id="chicken-result-badge" class="chicken-result-badge" aria-live="polite"></div>
+
+          <section id="cr-stage" class="cr-stage">
+            <div class="cr-sky"></div>
+            <div id="cr-road" class="cr-road">
+              <div id="cr-lanes" class="cr-lanes"></div>
+              <div id="cr-chicken" class="cr-chicken">🐔</div>
+            </div>
+            <div id="cr-live" class="cr-live">
+              <small id="cr-live-label">Place a bet to start</small>
+              <strong id="chicken-road-multiplier">1.00x</strong>
+            </div>
+            <div id="chicken-result-badge" class="cr-badge" aria-live="polite"></div>
           </section>
+
           <section class="chicken-console">
-            <button type="button" class="chicken-select">Bet ID: <span id="chicken-bet-id">—</span><i class="bi bi-chevron-down"></i></button>
+            <div class="cr-row-top">
+              <span class="cr-betid">Bet ID: <b id="chicken-bet-id">—</b></span>
+              <label class="cr-difficulty">
+                <select id="chicken-difficulty">
+                  <option value="easy">Easy · 24 lanes</option>
+                  <option value="medium">Medium · 22 lanes</option>
+                  <option value="hard">Hard · 20 lanes</option>
+                  <option value="hardcore">Hardcore · 15 lanes</option>
+                </select>
+                <i class="bi bi-chevron-down"></i>
+              </label>
+            </div>
+
             <div class="chicken-amount-row">
               <button id="chicken-minus" type="button">−</button>
-              <strong><span id="chicken-amount">1.00</span> INR</strong>
+              <strong><span id="chicken-amount">10.00</span> INR</strong>
               <button id="chicken-plus" type="button">+</button>
-              <button type="button" data-chicken-multiplier="0.5">x0.5</button>
-              <button type="button" data-chicken-multiplier="2">x2.0</button>
-              <button type="button"><i class="bi bi-stack"></i></button>
+              <button type="button" data-chicken-multiplier="0.5">½</button>
+              <button type="button" data-chicken-multiplier="2">2×</button>
             </div>
-            <label class="chicken-difficulty"><span>Difficulty</span><select id="chicken-difficulty"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option><option value="hardcore">Hardcore</option></select><i class="bi bi-chevron-down"></i></label>
+
             <div class="chicken-actions">
               <button id="chicken-play" type="button" class="chicken-play">Play</button>
               <button id="chicken-cashout" type="button" class="chicken-cashout" hidden>Cash Out <span>0.00 INR</span></button>
             </div>
-            <p id="chicken-message">Choose an amount and start crossing.</p>
+            <p id="chicken-message">Pick an amount and cross the road.</p>
           </section>
+
+          <div id="cr-fair-sheet" class="cr-fair-sheet" aria-hidden="true">
+            <div class="cr-fair-card">
+              <div class="cr-fair-head">
+                <h3><i class="bi bi-shield-check"></i> Provably fair</h3>
+                <button type="button" id="cr-fair-close" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+              </div>
+              <p class="cr-fair-note">
+                Every lane comes from <code>HMAC-SHA256(server seed, client seed : nonce : lane)</code>.
+                The hash of the server seed is shown before the round starts, and the seed itself is
+                revealed once the round ends — so the outcome cannot be changed after you start.
+              </p>
+              <label>Server seed hash (before round)</label>
+              <code id="cr-fair-hash" class="cr-fair-value">—</code>
+              <label>Server seed (after round)</label>
+              <code id="cr-fair-seed" class="cr-fair-value">—</code>
+              <label>Client seed</label>
+              <input id="cr-fair-client" class="form-control" placeholder="Your own seed (optional)">
+              <label>Nonce</label>
+              <code id="cr-fair-nonce" class="cr-fair-value">—</code>
+              <div id="cr-fair-rtp" class="cr-fair-rtp"></div>
+            </div>
+          </div>
         </div>
+
 
         <!-- AVIATOR MINI GAME -->
         <div id="page-aviator" class="sub-page club-page arcade-game-page aviator-page">
