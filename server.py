@@ -262,11 +262,8 @@ def get_game_status(room: str = "parity", current_user: dict = Depends(get_curre
 
 @app.post("/api/game/bet")
 def place_bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
-    if not bool(current_user.get("game_access_enabled", 0)):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Game access is locked. Recharge ₹{GAME_ACCESS_MIN_DEPOSIT:.0f} and wait for admin approval.",
-        )
+    # WinGo is deliberately open to every signed-in user. The admin access
+    # switch gates only the premium arcade games.
     if req.amount <= 0:
         raise HTTPException(status_code=400, detail="Bet amount must be greater than zero.")
     if req.multiplier not in (1, 5, 10, 20, 50, 100):

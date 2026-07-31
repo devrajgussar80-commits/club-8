@@ -51,11 +51,17 @@ against `ADMIN_API_KEY`, so rotating that variable fully revokes old access.
 
 ## Game access
 
-One admin switch per user unlocks every game, WinGo included. The switch can
-only be turned on once the user has ≥ ₹300 of *approved* deposits, and
-`/api/game/bet` re-checks it on the server, so the gate cannot be bypassed by
-calling the API directly. The frontend re-syncs `/api/auth/me` on a poll and on
-window focus, so a grant applies without a re-login.
+WinGo is open to every signed-in user and needs no deposit. One admin switch per
+user unlocks all the premium arcade games together (Aviator, Chicken Road,
+Mines); there is no per-game toggle. The switch can only be turned on once the
+user has ≥ ₹300 of *approved* deposits.
+
+Those premium games run entirely in the browser against a local balance ledger,
+so the gate is enforced client-side in `isPremiumGamePage`/`canEnterPremiumGames`
+and centrally in `switchSubPage`. `/api/game/bet` deliberately does **not**
+check the switch — that endpoint serves WinGo. The frontend re-syncs
+`/api/auth/me` on a poll and on window focus, so a grant applies without a
+re-login.
 
 ## Passwords
 

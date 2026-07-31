@@ -689,7 +689,7 @@ class App {
     document.querySelectorAll('.lobby-mini-card:not(.mines-launch-card)').forEach(card => {
       card.addEventListener('click', () => {
         const game = (card.dataset.miniGame || '').toLowerCase();
-        if (!this.canEnterPremiumGames()) {
+        if (!game.includes('wingo') && !this.canEnterPremiumGames()) {
           this.showGameAccessModal();
           return;
         }
@@ -737,9 +737,7 @@ class App {
       this.switchSubPage('auth');
     } else if (path.startsWith('/game')) {
       state.viewMode = 'user';
-      // Land on home when the game is still locked, so the deep link never
-      // leaves the app on a blank screen behind the access modal.
-      this.switchSubPage(this.canEnterPremiumGames() ? 'game' : 'home', { record: false });
+      this.switchSubPage('game', { record: false });
     } else {
       state.viewMode = 'user';
       this.switchSubPage('home', { record: false });
@@ -748,9 +746,10 @@ class App {
     appState.saveState();
   }
 
-  // One admin switch gates every game, WinGo ('game') included.
+  // WinGo ('game') stays open to everyone. One admin switch unlocks all the
+  // premium arcade games together.
   isPremiumGamePage(page) {
-    return new Set(['game', 'aviator', 'chicken-road', 'mines']).has(page);
+    return new Set(['aviator', 'chicken-road', 'mines']).has(page);
   }
 
   // The server already refuses to enable access below the ₹300 approved
