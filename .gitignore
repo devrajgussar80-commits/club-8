@@ -1,0 +1,16 @@
+.vercel
+.env*
+.venv/
+__pycache__/
+*.pyc
+*.db
+uploads/
+deployment-test-uploads/
+.preview.*.log
+admin_view_initial_*.png
+
+# Archives here bundle .env.local, the live SQLite DB and uploaded QR images.
+# They must never reach a remote.
+*.zip
+work/
+.claude/settings.local.json

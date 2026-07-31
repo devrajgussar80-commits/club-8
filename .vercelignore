@@ -1,0 +1,9 @@
+.venv
+.git
+__pycache__
+*.py
+*.pyc
+*.db
+requirements.txt
+uploads
+admin_view_initial_*.png

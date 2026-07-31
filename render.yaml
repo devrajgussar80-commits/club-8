@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: club-8-python-api
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    disk:
+      name: club-8-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SERVE_FRONTEND
+        value: "false"
+      - key: ALLOW_DEMO_USER
+        value: "false"
+      - key: DATABASE_PATH
+        value: /var/data/club8.db
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: PASSWORD_SALT
+        generateValue: true
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
