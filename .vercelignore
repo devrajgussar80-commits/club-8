@@ -7,3 +7,12 @@ __pycache__
 requirements.txt
 uploads
 admin_view_initial_*.png
+
+# Vercel serves this project as static files, so anything uploaded here is
+# reachable over the public URL. These bundle .env.local, the live SQLite
+# database and uploaded QR images.
+.env*
+*.zip
+work/
+.claude/
+render.yaml
