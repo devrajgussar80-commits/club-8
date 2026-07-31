@@ -6402,6 +6402,10 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
 .nd-status { font-size: 11px; color: var(--color-green); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .nd-status i { font-size: 7px; }
 .nd-status.offline { color: var(--color-red); }
+/* A blip should read as "hang on", not as "you have been signed out". */
+.nd-status.retrying { color: var(--color-gold); }
+.nd-status.retrying i { animation: nd-blink 1s ease-in-out infinite; }
+@keyframes nd-blink { 50% { opacity: .25; } }
 .nd-icon-btn {
   width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer;
   background: var(--bg-card); border: 1px solid var(--border-color);

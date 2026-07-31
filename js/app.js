@@ -30,6 +30,7 @@ class App {
     this.adminQueueFilter = 'all';
     this.adminLoadInFlight = false;
     this.adminDashboardUnavailable = false;
+    this.adminFailStreak = 0;
     this.pollInterval = null;
     this.localGameClockInterval = null;
     this.historyPage = 0;
@@ -1099,22 +1100,45 @@ class App {
     return headers;
   }
 
-  async adminApi(path, method = 'GET', body = null) {
-    const res = await fetch(`${this.apiBaseUrl}${path}`, {
-      method,
-      headers: this.adminHeaders(),
-      body: body ? JSON.stringify(body) : null
-    });
+  async adminApi(path, method = 'GET', body = null, { timeout = 20000 } = {}) {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), timeout);
+    let res;
+    try {
+      res = await fetch(`${this.apiBaseUrl}${path}`, {
+        method,
+        headers: this.adminHeaders(),
+        body: body ? JSON.stringify(body) : null,
+        signal: abort.signal
+      });
+    } catch (cause) {
+      // A dropped connection is not a credentials problem; tag it so the caller
+      // can retry instead of signing the admin out.
+      const error = new Error('network');
+      error.transient = true;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+
     let data = {};
     try { data = await res.json(); } catch (_) {}
-    if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+    if (!res.ok) {
+      const error = new Error(data.detail || `Request failed (${res.status})`);
+      error.status = res.status;
+      // 401 is the only answer that actually means "these credentials are wrong".
+      // 403/503/502/504 are server-side states that come and go on their own.
+      error.transient = res.status !== 401;
+      throw error;
+    }
     return data;
   }
 
-  setAdminStatus(online, label) {
+  setAdminStatus(state, label) {
     const el = document.getElementById('admin-api-status');
     if (!el) return;
-    el.classList.toggle('offline', !online);
+    el.classList.toggle('offline', state === 'offline');
+    el.classList.toggle('retrying', state === 'retrying');
     el.innerHTML = `<i class="bi bi-circle-fill"></i> ${label}`;
   }
 
@@ -1145,15 +1169,30 @@ class App {
         }
       }
       this.adminData = data;
+      this.adminFailStreak = 0;
       this.hideAdminGate();
-      this.setAdminStatus(true, 'live');
+      this.setAdminStatus('live', 'live');
       this.renderAdmin(data);
     } catch (error) {
-      this.setAdminStatus(false, 'offline');
-      if (/invalid admin|not configured|401|403/i.test(error.message)) {
+      this.adminFailStreak = (this.adminFailStreak || 0) + 1;
+
+      // Only a real 401 means the credentials are wrong, and even then one
+      // stray response should not throw the admin out mid-approval.
+      if (!error.transient && this.adminFailStreak >= 2) {
+        this.adminFailStreak = 0;
         this.lockAdmin('Sign in again to continue.');
-      } else if (!silent) {
-        this.showToast(error.message, 'error');
+        return;
+      }
+
+      // Everything else: keep the dashboard on screen with its last good data
+      // and just say we are retrying. The poll will recover on its own.
+      if (this.adminFailStreak < 3) {
+        this.setAdminStatus('retrying', 'reconnecting…');
+      } else {
+        this.setAdminStatus('offline', 'offline — retrying');
+      }
+      if (!silent && this.adminFailStreak === 1) {
+        this.showToast('Connection hiccup — retrying in the background.', 'error');
       }
     } finally {
       this.adminLoadInFlight = false;
@@ -2594,8 +2633,10 @@ const settleRequest = async (id, path, onDone, successMessage) => {
     await app.adminApi(path, 'POST');
     app.refreshAdminMetricsFast();
   } catch (error) {
-    app.showToast(error.message, 'error');
-    void app.loadAdmin();
+    app.showToast(error.transient
+      ? 'Could not reach the server — checking what actually happened.'
+      : error.message, 'error');
+    void app.loadAdmin({ silent: true });
   }
 };
 
