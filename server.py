@@ -7,7 +7,7 @@ import io
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 import qrcode
 from fastapi import FastAPI, HTTPException, Header, Depends, Body, UploadFile, File, Form
@@ -123,9 +123,32 @@ def _rotated_admin_key_hash() -> str:
         conn.close()
 
 
-def require_admin(x_admin_key: Optional[str] = Header(None)):
-    # Only the configured key is accepted. There is deliberately no build-time
-    # fallback key: one shipped in the source would survive every rotation.
+def _admin_token_is_valid(authorization: Optional[str]) -> bool:
+    if not authorization or not authorization.startswith("Bearer "):
+        return False
+    payload = auth.decode_access_token(authorization.split(" ", 1)[1])
+    if not payload or not payload.get("is_admin"):
+        return False
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT is_admin FROM users WHERE id = ?", (payload.get("user_id"),)
+    ).fetchone()
+    conn.close()
+    return bool(row and row["is_admin"])
+
+
+def require_admin(
+    x_admin_key: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Accepts either an admin session token or the shared access key.
+
+    The token path is what the dashboard uses; the key stays supported so
+    existing tooling and the recovery path keep working.
+    """
+    if _admin_token_is_valid(authorization):
+        return True
+
     if not ADMIN_API_KEY:
         raise HTTPException(status_code=503, detail="Admin API is not configured on this server")
     supplied_key = x_admin_key or ""
@@ -138,6 +161,58 @@ def require_admin(x_admin_key: Optional[str] = Header(None)):
     if not hmac.compare_digest(supplied_key, ADMIN_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid admin access key")
     return True
+
+
+class AdminLoginRequest(BaseModel):
+    phone: str
+    password: str
+
+
+@app.post("/api/admin/login")
+def admin_login(req: AdminLoginRequest):
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE phone = ?", (req.phone,)).fetchone()
+    conn.close()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid phone or password!")
+
+    user_dict = dict(user)
+    if not user_dict.get("is_admin"):
+        raise HTTPException(status_code=403, detail="This account is not an admin")
+    if not auth.verify_password(req.password, user_dict["password_hash"]):
+        raise HTTPException(status_code=400, detail="Invalid phone or password!")
+
+    token = auth.create_access_token(
+        {"user_id": user_dict["id"], "phone": user_dict["phone"], "is_admin": True},
+        expires_delta=timedelta(days=30),
+    )
+    return {
+        "status": "success",
+        "token": token,
+        "admin": {"id": user_dict["id"], "name": user_dict["username"], "phone": user_dict["phone"]},
+    }
+
+
+class GrantAdminRequest(BaseModel):
+    phone: str
+    is_admin: bool = True
+
+
+@app.post("/api/admin/grant-admin")
+def grant_admin(req: GrantAdminRequest, _: bool = Depends(require_admin)):
+    """Promote an existing account to admin. Authenticated by the access key."""
+    conn = get_db_connection()
+    user = conn.execute("SELECT id FROM users WHERE phone = ?", (req.phone,)).fetchone()
+    if not user:
+        conn.close()
+        raise HTTPException(status_code=404, detail="No account with that phone number")
+    conn.execute(
+        "UPDATE users SET is_admin = ? WHERE phone = ?",
+        (1 if req.is_admin else 0, req.phone),
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "success", "phone": req.phone, "is_admin": req.is_admin}
 
 
 class AdminKeyRotationRequest(BaseModel):
@@ -565,6 +640,85 @@ def generate_payment_qr(amount: float, qr_id: str, order_id: str):
     return StreamingResponse(output, media_type="image/png")
 
 # ----------------- ADMIN ROUTER -----------------
+@app.get("/api/admin/dashboard")
+def get_admin_dashboard(_: bool = Depends(require_admin)):
+    """Everything the dashboard renders, in one round trip.
+
+    The panel used to open with five parallel calls on every refresh. On a
+    single-worker host that queued behind itself and made the UI feel slow.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    settings = {
+        row["key"]: row["value"]
+        for row in cursor.execute("SELECT key, value FROM system_settings").fetchall()
+    }
+
+    active_bets = [
+        dict(r)
+        for r in cursor.execute(
+            "SELECT * FROM bets WHERE period = ?", (python_engine.current_period,)
+        ).fetchall()
+    ]
+    stake_by = lambda pick: sum(
+        float(b["total_stake"]) for b in active_bets if b["selection"] == pick
+    )
+    green_stake, red_stake, violet_stake = stake_by("green"), stake_by("red"), stake_by("violet")
+
+    financial = dict(cursor.execute(
+        """SELECT
+        (SELECT COUNT(*) FROM users) AS users_count,
+        (SELECT COALESCE(SUM(balance), 0) FROM users) AS total_user_balance,
+        (SELECT COUNT(*) FROM upi_deposits WHERE status = 'pending') AS pending_deposits,
+        (SELECT COALESCE(SUM(amount), 0) FROM upi_deposits WHERE status = 'approved') AS approved_deposit_total,
+        (SELECT COUNT(*) FROM upi_withdrawals WHERE status = 'pending') AS pending_withdrawals,
+        (SELECT COALESCE(SUM(amount), 0) FROM upi_withdrawals WHERE status = 'paid') AS paid_withdrawal_total"""
+    ).fetchone())
+
+    users = [dict(u) for u in cursor.execute(
+        """SELECT u.id, u.phone, u.username, u.balance, u.status, u.created_at,
+                  u.referral_code, u.game_access_enabled,
+                  COALESCE(SUM(CASE WHEN d.status = 'approved' THEN d.amount ELSE 0 END), 0) AS approved_deposit_total
+           FROM users u LEFT JOIN upi_deposits d ON d.user_id = u.id
+           GROUP BY u.id ORDER BY u.created_at DESC"""
+    ).fetchall()]
+
+    deposits = [dict(r) for r in cursor.execute(
+        "SELECT * FROM upi_deposits ORDER BY timestamp DESC LIMIT 300"
+    ).fetchall()]
+    withdrawals = [dict(r) for r in cursor.execute(
+        "SELECT * FROM upi_withdrawals ORDER BY timestamp DESC LIMIT 300"
+    ).fetchall()]
+    qr_codes = [dict(q) for q in cursor.execute(
+        "SELECT * FROM qr_codes ORDER BY created_at DESC"
+    ).fetchall()]
+    conn.close()
+
+    return {
+        "metrics": {
+            "prediction_mode": settings.get("prediction_mode", "auto_least"),
+            "total_active_stake": green_stake + red_stake + violet_stake,
+            "active_bets_count": len(active_bets),
+            "green_stake": green_stake,
+            "red_stake": red_stake,
+            "violet_stake": violet_stake,
+            **financial,
+        },
+        "platform_settings": {
+            "deposits_enabled": str(settings.get("deposits_enabled", "true")).lower() == "true",
+            "withdrawals_enabled": str(settings.get("withdrawals_enabled", "true")).lower() == "true",
+            "withdrawal_min": float(settings.get("withdrawal_min", 200)),
+        },
+        "users": users,
+        "deposits": deposits,
+        "withdrawals": withdrawals,
+        "qr_codes": qr_codes,
+        "game_access_min_deposit": GAME_ACCESS_MIN_DEPOSIT,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.get("/api/admin/metrics")
 def get_admin_metrics(_: bool = Depends(require_admin)):
     conn = get_db_connection()

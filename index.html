@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   
   <!-- App Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=auth-access-1">
+  <link rel="stylesheet" href="style.css?v=admin-v2">
 </head>
 <body>
 
@@ -1134,287 +1134,192 @@
       </div>
     </div>
 
-    <div id="admin-unlock-overlay" class="admin-unlock-overlay" aria-hidden="true">
-      <form id="admin-unlock-form" class="admin-unlock-card">
-        <span class="admin-unlock-icon"><i class="bi bi-shield-lock-fill"></i></span>
-        <h2>Admin dashboard</h2>
-        <p>Enter your private admin access key to load payment requests and controls.</p>
-        <label for="admin-access-key">Admin access key</label>
-        <input id="admin-access-key" class="form-control" type="password" autocomplete="current-password" required placeholder="Enter access key">
-        <small id="admin-unlock-error" class="admin-unlock-error" hidden></small>
-        <button type="submit" class="btn-primary"><i class="bi bi-unlock-fill"></i> Unlock dashboard</button>
-        <a href="/" class="admin-unlock-back"><i class="bi bi-arrow-left"></i> Back to Club 8</a>
-      </form>
+    <div id="admin-unlock-overlay" class="nd-gate" aria-hidden="true">
+      <div class="nd-gate-card">
+        <span class="nd-gate-icon"><i class="bi bi-shield-lock-fill"></i></span>
+        <h2>Club 8 Admin</h2>
+        <p class="nd-gate-sub">Sign in to manage payments and player access.</p>
+
+        <div class="nd-gate-tabs" role="tablist">
+          <button type="button" class="nd-gate-tab active" data-gate="password" role="tab">Password</button>
+          <button type="button" class="nd-gate-tab" data-gate="key" role="tab">Access key</button>
+        </div>
+
+        <form id="admin-login-form" class="nd-gate-form active" data-gate-panel="password">
+          <label for="admin-login-phone">Phone number</label>
+          <input id="admin-login-phone" class="form-control" type="tel" inputmode="numeric" autocomplete="username" placeholder="10-digit number">
+          <label for="admin-login-password">Password</label>
+          <input id="admin-login-password" class="form-control" type="password" autocomplete="current-password" placeholder="Your password">
+          <button type="submit" class="btn-primary nd-gate-submit"><i class="bi bi-box-arrow-in-right"></i> Sign in</button>
+        </form>
+
+        <form id="admin-unlock-form" class="nd-gate-form" data-gate-panel="key">
+          <label for="admin-access-key">Admin access key</label>
+          <input id="admin-access-key" class="form-control" type="password" autocomplete="current-password" placeholder="Paste access key">
+          <button type="submit" class="btn-primary nd-gate-submit"><i class="bi bi-unlock-fill"></i> Unlock</button>
+        </form>
+
+        <label class="nd-gate-remember">
+          <input id="admin-remember" type="checkbox" checked>
+          <span>Keep me signed in on this device</span>
+        </label>
+        <small id="admin-unlock-error" class="nd-gate-error" hidden></small>
+        <a href="/" class="nd-gate-back"><i class="bi bi-arrow-left"></i> Back to Club 8</a>
+      </div>
     </div>
 
-    <!-- 2. STREAMLINED & ELEGANT ADMIN DASHBOARD VIEW (/admin) -->
-    <div id="admin-dashboard-view" class="view-viewport">
-      
-      <!-- Admin Top Bar -->
-      <div class="admin-top-bar">
-        <div class="admin-brand">
-          <i class="bi bi-shield-lock-fill"></i> Club 8 Executive Control Center
-        </div>
+    <!-- ADMIN DASHBOARD -->
+    <div id="admin-dashboard-view" class="view-viewport nd-root">
 
-        <div style="display:flex; gap:10px;">
-          <span id="admin-api-status" class="admin-api-status"><i class="bi bi-circle-fill"></i> API checking</span>
-          <button id="admin-refresh" class="btn-secondary" type="button"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
-          <button id="admin-lock" class="btn-secondary" type="button"><i class="bi bi-lock-fill"></i> Lock</button>
-          <a href="/game" class="btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
-            <i class="bi bi-controller"></i> Player Game App
-          </a>
+      <header class="nd-topbar">
+        <div class="nd-brand"><i class="bi bi-shield-lock-fill"></i> <span>Club 8 Admin</span></div>
+        <div class="nd-topbar-right">
+          <span id="admin-api-status" class="nd-status"><i class="bi bi-circle-fill"></i> connecting</span>
+          <button id="admin-refresh" class="nd-icon-btn" type="button" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+          <button id="admin-lock" class="nd-icon-btn" type="button" title="Sign out"><i class="bi bi-box-arrow-right"></i></button>
         </div>
+      </header>
+
+      <div class="nd-stats">
+        <article class="nd-stat nd-stat-warn">
+          <span class="nd-stat-label">Pending deposits</span>
+          <b id="admin-pending-deposits">0</b>
+        </article>
+        <article class="nd-stat nd-stat-warn">
+          <span class="nd-stat-label">Pending withdrawals</span>
+          <b id="admin-pending-withdrawals">0</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Approved deposits</span>
+          <b id="admin-approved-deposit-total">₹0.00</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Paid withdrawals</span>
+          <b id="admin-paid-withdrawal-total">₹0.00</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Players</span>
+          <b id="nd-users-count">0</b>
+        </article>
+        <article class="nd-stat">
+          <span class="nd-stat-label">Live stake</span>
+          <b id="admin-kpi-total-pool">₹0</b>
+          <small id="admin-kpi-active-bets">0 Active Bets</small>
+        </article>
       </div>
 
-      <!-- Navigation Tabs Inside Admin Dashboard -->
-      <div class="admin-nav-tabs">
-        <div class="admin-tab active" data-section="prediction">
-          <i class="bi bi-cpu-fill"></i> 🎯 Prediction Control
-        </div>
-        <div class="admin-tab" data-section="users">
-          <i class="bi bi-people-fill"></i> 👥 User Directory
-        </div>
-        <div class="admin-tab" data-section="qr">
-          <i class="bi bi-qr-code"></i> 💳 Deposit QR Upload
-        </div>
-        <div class="admin-tab" data-section="finance">
-          <i class="bi bi-cash-stack"></i> 💰 Deposits & Withdrawals
-        </div>
-      </div>
-
-      <!-- SECTION 1: PREDICTION CONTROL ROOM -->
-      <div id="admin-section-prediction" class="admin-panel-section active">
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-label">Current Round Total Stakes</span>
-            <div id="admin-kpi-total-pool" class="metric-value" style="color:var(--color-gold);">₹0</div>
-            <span id="admin-kpi-active-bets" class="metric-sub">0 Bets Placed</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Total User Balances</span>
-            <div class="metric-value user-balance-display" style="color:var(--color-green);">₹0.00</div>
-            <span class="metric-sub">Platform Reserve</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Active Prediction Engine</span>
-            <div id="admin-kpi-current-mode" class="metric-value" style="color:var(--color-green); text-transform:uppercase;">AUTO (LEAST-BET)</div>
-            <span class="metric-sub">Automated Risk Protection</span>
+      <!-- ACTION QUEUE -->
+      <section class="nd-panel nd-queue-panel">
+        <div class="nd-panel-head">
+          <h3><i class="bi bi-lightning-charge-fill"></i> Action queue <span id="nd-queue-count" class="nd-pill">0</span></h3>
+          <div class="nd-seg" role="tablist">
+            <button type="button" class="nd-seg-btn active" data-queue="all">All</button>
+            <button type="button" class="nd-seg-btn" data-queue="deposit">Deposits</button>
+            <button type="button" class="nd-seg-btn" data-queue="withdrawal">Withdrawals</button>
           </div>
         </div>
-
-        <div class="admin-card">
-          <div class="card-heading">
-            <span><i class="bi bi-sliders"></i> Select Prediction Engine Mode</span>
-          </div>
-
-          <div class="easy-mode-grid">
-            <div class="mode-card-btn active-auto" data-mode="auto_least">
-              <i class="bi bi-magic"></i>
-              <div class="mode-title">AUTO (LEAST-BET)</div>
-              <div class="mode-sub">Forces result to outcome with minimum user bets to maximize profit!</div>
-            </div>
-
-            <div class="mode-card-btn" data-mode="manual">
-              <i class="bi bi-hand-index-thumb"></i>
-              <div class="mode-title">MANUAL OVERRIDE</div>
-              <div class="mode-sub">Directly force winning number for next period</div>
-            </div>
-
-            <div class="mode-card-btn" data-mode="random">
-              <i class="bi bi-dice-5"></i>
-              <div class="mode-title">RANDOM FAIR</div>
-              <div class="mode-sub">Pure probabilistic outcome engine</div>
-            </div>
-          </div>
-
-          <!-- Live Stake Meter Bars -->
-          <div style="margin-top:16px;">
-            <div class="card-heading" style="font-size:0.95rem; margin-bottom:8px;">Live Stake Distribution Pools</div>
-            <div class="pool-bars">
-              <div class="pool-bar-item">
-                <div class="pool-bar-label">
-                  <span>🟢 Green Stake Pool</span>
-                  <span id="admin-pool-green-val">₹0 (0%)</span>
-                </div>
-                <div class="progress-track">
-                  <div id="admin-pool-green-fill" class="progress-fill fill-green" style="width:0%;"></div>
-                </div>
-              </div>
-
-              <div class="pool-bar-item">
-                <div class="pool-bar-label">
-                  <span>🔴 Red Stake Pool</span>
-                  <span id="admin-pool-red-val">₹0 (0%)</span>
-                </div>
-                <div class="progress-track">
-                  <div id="admin-pool-red-fill" class="progress-fill fill-red" style="width:0%;"></div>
-                </div>
-              </div>
-
-              <div class="pool-bar-item">
-                <div class="pool-bar-label">
-                  <span>🟣 Violet Stake Pool</span>
-                  <span id="admin-pool-violet-val">₹0 (0%)</span>
-                </div>
-                <div class="progress-track">
-                  <div id="admin-pool-violet-fill" class="progress-fill fill-violet" style="width:0%;"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Manual Result Force Grid -->
-          <div style="margin-top: 18px;">
-            <div class="card-heading" style="font-size:0.95rem; margin-bottom:6px; color:var(--color-gold);">
-              Manual Override: Click Number (0-9) to Force Winning Outcome
-            </div>
-            <div class="manual-selector-grid">
-              <button class="manual-num-btn" data-num="0">0</button>
-              <button class="manual-num-btn" data-num="1">1</button>
-              <button class="manual-num-btn" data-num="2">2</button>
-              <button class="manual-num-btn" data-num="3">3</button>
-              <button class="manual-num-btn" data-num="4">4</button>
-              <button class="manual-num-btn" data-num="5">5</button>
-              <button class="manual-num-btn" data-num="6">6</button>
-              <button class="manual-num-btn" data-num="7">7</button>
-              <button class="manual-num-btn" data-num="8">8</button>
-              <button class="manual-num-btn" data-num="9">9</button>
-            </div>
-          </div>
-
+        <div id="nd-queue" class="nd-queue">
+          <div class="nd-empty"><i class="bi bi-hourglass"></i> Loading…</div>
         </div>
-      </div>
+      </section>
 
-      <!-- SECTION 2: USER MANAGEMENT -->
-      <div id="admin-section-users" class="admin-panel-section">
-        <div class="admin-card">
-          <div class="card-heading">
-            <span><i class="bi bi-people-fill"></i> User Directory & Account Control</span>
-          </div>
+      <!-- LOWER TABS -->
+      <nav class="nd-tabs" role="tablist">
+        <button type="button" class="nd-tab active" data-section="users"><i class="bi bi-people-fill"></i> Players</button>
+        <button type="button" class="nd-tab" data-section="history"><i class="bi bi-clock-history"></i> History</button>
+        <button type="button" class="nd-tab" data-section="qr"><i class="bi bi-qr-code"></i> Payment QR</button>
+        <button type="button" class="nd-tab" data-section="controls"><i class="bi bi-sliders"></i> Controls</button>
+      </nav>
 
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>User ID</th>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Balance</th>
-                <th>Game access</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="admin-users-table-body">
-              <!-- Rendered dynamically -->
-            </tbody>
+      <section id="nd-section-users" class="nd-panel nd-section active">
+        <div class="nd-panel-head">
+          <h3>Players</h3>
+          <input id="nd-user-search" class="nd-search" type="search" placeholder="Search name, phone or ID…" autocomplete="off">
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Player</th><th>Balance</th><th>Recharge</th><th>Game access</th><th>Status</th><th></th></tr></thead>
+            <tbody id="admin-users-table-body"></tbody>
           </table>
         </div>
-      </div>
+      </section>
 
-      <!-- SECTION 3: 1-MIN ROTATING QR MANAGEMENT -->
-      <div id="admin-section-qr" class="admin-panel-section">
-        <div class="admin-card">
-          <div class="card-heading">
-            <span><i class="bi bi-qr-code"></i> Active Deposit QR Manager</span>
+      <section id="nd-section-history" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Processed requests</h3>
+          <input id="nd-history-search" class="nd-search" type="search" placeholder="Search player, UTR or order…" autocomplete="off">
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Type</th><th>Player</th><th>Amount</th><th>Reference</th><th>When</th><th>Status</th></tr></thead>
+            <tbody id="nd-history-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="nd-section-qr" class="nd-panel nd-section">
+        <div class="nd-panel-head"><h3>Deposit QR codes</h3></div>
+        <form id="admin-qr-upload-form" class="nd-form-row">
+          <input id="admin-qr-name" class="form-control" placeholder="Display name" required>
+          <input id="admin-qr-upi" class="form-control" placeholder="UPI ID (optional)">
+          <input id="admin-qr-min" class="form-control" type="number" min="1" value="100" placeholder="Min ₹">
+          <input id="admin-qr-max" class="form-control" type="number" min="1" value="50000" placeholder="Max ₹">
+          <input id="admin-qr-file" class="form-control" type="file" accept="image/png,image/jpeg,image/webp" required>
+          <button class="btn-primary" type="submit"><i class="bi bi-upload"></i> Upload</button>
+        </form>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>QR</th><th>Name</th><th>UPI / limits</th><th>State</th><th></th></tr></thead>
+            <tbody id="admin-qr-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="nd-section-controls" class="nd-panel nd-section">
+        <div class="nd-controls-grid">
+          <div class="nd-control-card">
+            <h4>Payments</h4>
+            <form id="admin-payment-settings" class="nd-settings">
+              <label class="nd-switch">
+                <input id="admin-deposits-enabled" type="checkbox">
+                <span>Accept deposits</span>
+              </label>
+              <label class="nd-switch">
+                <input id="admin-withdrawals-enabled" type="checkbox">
+                <span>Accept withdrawals</span>
+              </label>
+              <label class="nd-field">
+                <span>Minimum withdrawal (₹)</span>
+                <input id="admin-withdrawal-min" class="form-control" type="number" min="1" value="200">
+              </label>
+              <button class="btn-primary" type="submit">Save</button>
+            </form>
           </div>
 
-          <form id="form-add-qr" class="admin-qr-upload-form" enctype="multipart/form-data">
-            <label class="admin-qr-dropzone" for="new-qr-file">
-              <input type="file" id="new-qr-file" accept="image/png,image/jpeg,image/webp" required>
-              <img id="new-qr-preview" alt="QR preview">
-              <span><i class="bi bi-cloud-arrow-up-fill"></i><b>Upload QR image</b><small>PNG, JPG or WEBP · maximum 5 MB</small></span>
+          <div class="nd-control-card">
+            <h4>Result mode</h4>
+            <p class="nd-hint">Current: <b id="admin-kpi-current-mode">auto least</b></p>
+            <div class="nd-mode-row">
+              <button type="button" class="nd-mode" data-mode="auto_least">Auto (least payout)</button>
+              <button type="button" class="nd-mode" data-mode="random">Random</button>
+            </div>
+            <label class="nd-field">
+              <span>Force next number</span>
+              <div class="nd-force-row">
+                <input id="nd-force-number" class="form-control" type="number" min="0" max="9" placeholder="0-9">
+                <button type="button" id="nd-force-apply" class="btn-primary">Force</button>
+              </div>
             </label>
-            <div class="admin-qr-fields">
-              <label>QR Name / Title<input type="text" id="new-qr-name" class="form-control" placeholder="e.g. Primary PhonePe" required></label>
-              <label>UPI ID (auto-detected)<input type="text" id="new-qr-upi" class="form-control" placeholder="Automatically read from QR"></label>
-              <label>Minimum Amount<input type="number" id="new-qr-min" class="form-control" value="100" min="1" required></label>
-              <label>Maximum Amount<input type="number" id="new-qr-max" class="form-control" value="50000" min="1" required></label>
-              <label class="admin-qr-note-field">Instruction / Note<input type="text" id="new-qr-note" class="form-control" value="Scan the QR and pay the exact amount"></label>
-              <button type="submit" class="btn-primary admin-upload-qr-btn"><i class="bi bi-cloud-check-fill"></i> Upload & Activate QR</button>
-            </div>
-          </form>
-
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Preview</th>
-                <th>Name</th>
-                <th>UPI / Limits</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="admin-qr-table-body">
-              <!-- Rendered dynamically -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- SECTION 4: FINANCIAL REQUESTS (DEPOSITS & WITHDRAWALS) -->
-      <div id="admin-section-finance" class="admin-panel-section">
-        <div class="admin-finance-kpis">
-          <article><i class="bi bi-hourglass-split"></i><span>Pending deposits<b id="admin-pending-deposits">0</b></span></article>
-          <article><i class="bi bi-bank"></i><span>Approved deposits<b id="admin-approved-deposit-total">₹0.00</b></span></article>
-          <article><i class="bi bi-clock-history"></i><span>Pending withdrawals<b id="admin-pending-withdrawals">0</b></span></article>
-          <article><i class="bi bi-check2-circle"></i><span>Paid withdrawals<b id="admin-paid-withdrawal-total">₹0.00</b></span></article>
-        </div>
-
-        <div class="admin-card">
-          <div class="card-heading"><span><i class="bi bi-toggles"></i> Payment System Controls</span></div>
-          <form id="admin-payment-settings" class="admin-payment-settings">
-            <label><span>Deposits</span><input id="admin-deposits-enabled" type="checkbox"><i></i><small>Allow users to create new UPI deposit orders</small></label>
-            <label><span>Withdrawals</span><input id="admin-withdrawals-enabled" type="checkbox"><i></i><small>Allow users to submit withdrawal requests</small></label>
-            <label class="admin-setting-number"><span>Minimum withdrawal</span><input id="admin-withdrawal-min" class="form-control" type="number" min="1" value="200"><small>Applied server-side to every withdrawal request</small></label>
-            <button type="submit" class="btn-primary"><i class="bi bi-cloud-check-fill"></i> Save payment settings</button>
-          </form>
-        </div>
-        
-        <div class="admin-card">
-          <div class="card-heading">
-            <span><i class="bi bi-wallet2"></i> Pending UPI Deposit Requests (UTR Verification)</span>
           </div>
 
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Amount</th>
-                <th>Order / QR</th>
-                <th>Time</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="admin-deposits-table-body">
-              <!-- Rendered dynamically -->
-            </tbody>
-          </table>
-        </div>
-
-        <div class="admin-card">
-          <div class="card-heading">
-            <span><i class="bi bi-bank"></i> Pending UPI Withdrawal Requests</span>
+          <div class="nd-control-card">
+            <h4>Live pool</h4>
+            <div class="nd-pool"><span>Green</span><div class="nd-bar"><i id="admin-pool-green-fill" class="fill-green"></i></div><b id="admin-pool-green-val">₹0 (0%)</b></div>
+            <div class="nd-pool"><span>Red</span><div class="nd-bar"><i id="admin-pool-red-fill" class="fill-red"></i></div><b id="admin-pool-red-val">₹0 (0%)</b></div>
+            <div class="nd-pool"><span>Violet</span><div class="nd-bar"><i id="admin-pool-violet-fill" class="fill-violet"></i></div><b id="admin-pool-violet-val">₹0 (0%)</b></div>
           </div>
-
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>User</th>
-                <th>Amount</th>
-                <th>User UPI ID</th>
-                <th>Time</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="admin-withdrawals-table-body">
-              <!-- Rendered dynamically -->
-            </tbody>
-          </table>
         </div>
-
-      </div>
+      </section>
 
     </div>
 
@@ -1585,7 +1490,7 @@
 
   <script src="js/config.js"></script>
   <!-- App Script (ES Module) -->
-    <script type="module" src="js/app.js?v=instant-admin-1"></script>
+    <script type="module" src="js/app.js?v=admin-v2"></script>
 
 </body>
 </html>

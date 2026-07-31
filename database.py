@@ -47,6 +47,9 @@ def init_db():
         # Preserve access for accounts that existed before the recharge gate was introduced.
         cursor.execute("UPDATE users SET game_access_enabled = 1")
 
+    if "is_admin" not in user_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+
     # 2. Rounds Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS rounds (

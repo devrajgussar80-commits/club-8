@@ -22,7 +22,14 @@ class App {
     this.approvedDepositTotal = Number(localStorage.getItem('PREDICT_APPROVED_TOTAL') || 0);
     this.lastAccessSync = 0;
     this.apiBaseUrl = String(window.APP_CONFIG?.API_BASE_URL || '').replace(/\/+$/, '');
-    this.adminApiKey = sessionStorage.getItem('PREDICT_ADMIN_API_KEY') || '';
+    this.adminApiKey = localStorage.getItem('PREDICT_ADMIN_API_KEY')
+      || sessionStorage.getItem('PREDICT_ADMIN_API_KEY') || '';
+    this.adminToken = localStorage.getItem('PREDICT_ADMIN_TOKEN')
+      || sessionStorage.getItem('PREDICT_ADMIN_TOKEN') || '';
+    this.adminData = null;
+    this.adminQueueFilter = 'all';
+    this.adminLoadInFlight = false;
+    this.adminDashboardUnavailable = false;
     this.pollInterval = null;
     this.localGameClockInterval = null;
     this.historyPage = 0;
@@ -572,6 +579,7 @@ class App {
     this.initBankBinding();
     this.initUpiBinding();
     this.attachEventListeners();
+    this.attachAdminListeners();
     this.startHomeBannerCarousel();
     this.startRecommendedCarousel();
     this.startHomeGameRotators();
@@ -582,11 +590,9 @@ class App {
     this.render(appState.getState());
     if (this.authToken) void this.syncUserAccess();
     if (appState.getState().viewMode === 'admin') {
-      if (this.adminApiKey) {
-        void this.syncAdminMetrics();
-      } else {
-        this.showAdminGate();
-      }
+      document.body.dataset.view = 'admin';
+      if (this.hasAdminCredentials()) void this.loadAdmin();
+      else this.showAdminGate();
     }
   }
 
@@ -811,31 +817,6 @@ class App {
     }
   }
 
-  showAdminGate(message = '') {
-    const gate = document.getElementById('admin-unlock-overlay');
-    const error = document.getElementById('admin-unlock-error');
-    gate?.classList.add('active');
-    gate?.setAttribute('aria-hidden', 'false');
-    if (error) {
-      error.textContent = message;
-      error.hidden = !message;
-    }
-  }
-
-  hideAdminGate() {
-    const gate = document.getElementById('admin-unlock-overlay');
-    gate?.classList.remove('active');
-    gate?.setAttribute('aria-hidden', 'true');
-    const input = document.getElementById('admin-access-key');
-    if (input) input.value = '';
-  }
-
-  lockAdmin(message = '') {
-    this.adminApiKey = '';
-    sessionStorage.removeItem('PREDICT_ADMIN_API_KEY');
-    this.showAdminGate(message);
-  }
-
   startBackendSync() {
     if (this.pollInterval) clearInterval(this.pollInterval);
     if (this.localGameClockInterval) clearInterval(this.localGameClockInterval);
@@ -864,7 +845,7 @@ class App {
           this.lastQrSync = Date.now();
           jobs.push(this.syncActiveQR());
         }
-        if (isAdmin && this.adminApiKey) jobs.push(this.syncAdminMetrics());
+        if (isAdmin && this.hasAdminCredentials()) jobs.push(this.loadAdmin({ silent: true }));
         await Promise.allSettled(jobs);
       } finally {
         this.backendSyncInFlight = false;
@@ -878,8 +859,8 @@ class App {
       const refreshOnReturn = () => {
         if (document.visibilityState !== 'visible' || !this.authToken) return;
         void this.syncUserAccess();
-        if (appState.getState().viewMode === 'admin' && this.adminApiKey) {
-          void this.refreshAdminMetricsFast();
+        if (appState.getState().viewMode === 'admin' && this.hasAdminCredentials()) {
+          void this.loadAdmin({ silent: true });
         }
       };
       document.addEventListener('visibilitychange', refreshOnReturn);
@@ -1075,185 +1056,598 @@ class App {
     } catch (e) {}
   }
 
-  async syncAdminMetrics() {
-    try {
-      const metrics = await this.fetchApi('/api/admin/metrics');
-      const state = appState.getState();
-      state.admin.predictionMode = metrics.prediction_mode;
-      
-      const totalPoolEl = document.getElementById('admin-kpi-total-pool');
-      const countEl = document.getElementById('admin-kpi-active-bets');
-      const modeEl = document.getElementById('admin-kpi-current-mode');
+  // ===================== ADMIN DASHBOARD =====================
+  // One fetch fills the whole panel; every action repaints its own row first and
+  // reconciles in the background, so nothing waits on the network to feel done.
 
-      if (totalPoolEl) totalPoolEl.innerText = `₹${metrics.total_active_stake}`;
-      if (countEl) countEl.innerText = `${metrics.active_bets_count} Active Bets`;
-      if (modeEl) modeEl.innerText = metrics.prediction_mode.replace('_', ' ');
-      const financeValues = {
-        'admin-pending-deposits': String(metrics.pending_deposits || 0),
-        'admin-approved-deposit-total': `₹${Number(metrics.approved_deposit_total || 0).toFixed(2)}`,
-        'admin-pending-withdrawals': String(metrics.pending_withdrawals || 0),
-        'admin-paid-withdrawal-total': `₹${Number(metrics.paid_withdrawal_total || 0).toFixed(2)}`
-      };
-      Object.entries(financeValues).forEach(([id, value]) => {
-        const element = document.getElementById(id);
-        if (element) element.textContent = value;
-      });
-      const apiStatus = document.getElementById('admin-api-status');
-      apiStatus?.classList.remove('offline');
-      if (apiStatus) apiStatus.innerHTML = '<i class="bi bi-circle-fill"></i> API connected';
-      this.hideAdminGate();
-
-      const grandTotal = (metrics.green_stake + metrics.red_stake + metrics.violet_stake) || 1;
-      const gPct = Math.round((metrics.green_stake / grandTotal) * 100);
-      const rPct = Math.round((metrics.red_stake / grandTotal) * 100);
-      const vPct = Math.round((metrics.violet_stake / grandTotal) * 100);
-
-      const gFill = document.getElementById('admin-pool-green-fill');
-      const rFill = document.getElementById('admin-pool-red-fill');
-      const vFill = document.getElementById('admin-pool-violet-fill');
-
-      if (gFill) {
-        gFill.style.width = `${gPct}%`;
-        document.getElementById('admin-pool-green-val').innerText = `₹${metrics.green_stake} (${gPct}%)`;
-      }
-      if (rFill) {
-        rFill.style.width = `${rPct}%`;
-        document.getElementById('admin-pool-red-val').innerText = `₹${metrics.red_stake} (${rPct}%)`;
-      }
-      if (vFill) {
-        vFill.style.width = `${vPct}%`;
-        document.getElementById('admin-pool-violet-val').innerText = `₹${metrics.violet_stake} (${vPct}%)`;
-      }
-
-      await this.syncAdminTables();
-    } catch (e) {
-      const apiStatus = document.getElementById('admin-api-status');
-      apiStatus?.classList.add('offline');
-      if (apiStatus) apiStatus.innerHTML = '<i class="bi bi-circle-fill"></i> API offline / key invalid';
-      if (appState.getState().viewMode === 'admin') {
-        this.lockAdmin(e.message === 'Invalid admin access key' ? 'Incorrect admin access key.' : e.message);
-      }
+  showAdminGate(message = '') {
+    const gate = document.getElementById('admin-unlock-overlay');
+    gate?.classList.add('active');
+    gate?.setAttribute('aria-hidden', 'false');
+    const error = document.getElementById('admin-unlock-error');
+    if (error) {
+      error.textContent = message;
+      error.hidden = !message;
     }
   }
 
-  // Five requests per run. At the old 5s throttle this fired on nearly every
-  // poll tick, saturating the backend and making every click feel slow. User
-  // actions patch their own rows optimistically, so the reconcile can be rare.
-  async syncAdminTables(force = false) {
-    if (!force && Date.now() - this.lastAdminTablesSync < 20000) return;
-    this.lastAdminTablesSync = Date.now();
+  hideAdminGate() {
+    const gate = document.getElementById('admin-unlock-overlay');
+    gate?.classList.remove('active');
+    gate?.setAttribute('aria-hidden', 'true');
+    const error = document.getElementById('admin-unlock-error');
+    if (error) error.hidden = true;
+  }
+
+  lockAdmin(message = '') {
+    this.adminApiKey = '';
+    this.adminToken = '';
+    sessionStorage.removeItem('PREDICT_ADMIN_API_KEY');
+    localStorage.removeItem('PREDICT_ADMIN_API_KEY');
+    localStorage.removeItem('PREDICT_ADMIN_TOKEN');
+    this.showAdminGate(message);
+  }
+
+  hasAdminCredentials() {
+    return Boolean(this.adminToken || this.adminApiKey);
+  }
+
+  adminHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.adminToken) headers['Authorization'] = `Bearer ${this.adminToken}`;
+    else if (this.adminApiKey) headers['X-Admin-Key'] = this.adminApiKey;
+    return headers;
+  }
+
+  async adminApi(path, method = 'GET', body = null) {
+    const res = await fetch(`${this.apiBaseUrl}${path}`, {
+      method,
+      headers: this.adminHeaders(),
+      body: body ? JSON.stringify(body) : null
+    });
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+    return data;
+  }
+
+  setAdminStatus(online, label) {
+    const el = document.getElementById('admin-api-status');
+    if (!el) return;
+    el.classList.toggle('offline', !online);
+    el.innerHTML = `<i class="bi bi-circle-fill"></i> ${label}`;
+  }
+
+  // Single round trip. Falls back to the older per-table endpoints so the panel
+  // still works against a backend that predates /api/admin/dashboard.
+  async loadAdmin({ silent = false } = {}) {
+    if (!this.hasAdminCredentials()) {
+      this.showAdminGate();
+      return;
+    }
+    if (this.adminLoadInFlight) return;
+    this.adminLoadInFlight = true;
+    if (!silent) document.getElementById('admin-refresh')?.classList.add('spin');
     try {
-      const [platformSettings, usersData, qrData, depData, wthData] = await Promise.all([
-        this.fetchApi('/api/admin/platform-settings'),
-        this.fetchApi('/api/admin/users'),
-        this.fetchApi('/api/admin/qr-codes'),
-        this.fetchApi('/api/admin/deposits'),
-        this.fetchApi('/api/admin/withdrawals')
-      ]);
-      const depositsEnabled = document.getElementById('admin-deposits-enabled');
-      const withdrawalsEnabled = document.getElementById('admin-withdrawals-enabled');
-      const withdrawalMin = document.getElementById('admin-withdrawal-min');
-      if (depositsEnabled) depositsEnabled.checked = Boolean(platformSettings.deposits_enabled);
-      if (withdrawalsEnabled) withdrawalsEnabled.checked = Boolean(platformSettings.withdrawals_enabled);
-      if (withdrawalMin) withdrawalMin.value = String(platformSettings.withdrawal_min || 200);
-
-      // 1. Users Table
-      const usersBody = document.getElementById('admin-users-table-body');
-      if (usersBody && usersData.users) {
-        usersBody.innerHTML = usersData.users.map(u => `
-          <tr data-user-id="${this.escapeHtml(u.id)}">
-            <td><code>${this.escapeHtml(u.id)}</code></td>
-            <td><strong>${this.escapeHtml(u.username)}</strong></td>
-            <td>${this.escapeHtml(u.phone)}</td>
-            <td data-user-balance>₹${u.balance.toFixed(2)}</td>
-            <td>
-              <span class="admin-game-access" data-approved-total="${Number(u.approved_deposit_total || 0)}">
-                ${this.renderUserAccessCell(u.id, Number(u.approved_deposit_total || 0), Boolean(u.game_access_enabled))}
-              </span>
-            </td>
-            <td><span class="tag-badge ${u.status === 'active' ? 'tag-win' : 'tag-loss'}">${u.status.toUpperCase()}</span></td>
-            <td>
-              <button class="btn-sm-approve" style="background:${u.status === 'active' ? 'var(--color-red)' : 'var(--color-green)'}; color:#fff;" onclick="window.adminToggleUser('${u.id}', '${u.status === 'active' ? 'disabled' : 'active'}')">
-                ${u.status === 'active' ? 'Disable' : 'Enable'}
-              </button>
-              <button class="btn-sm-reject" onclick="window.adminDeleteUser('${u.id}')">Delete</button>
-            </td>
-          </tr>
-        `).join('');
+      let data;
+      if (this.adminDashboardUnavailable) {
+        data = await this.loadAdminLegacy();
+      } else {
+        try {
+          data = await this.adminApi('/api/admin/dashboard');
+        } catch (error) {
+          if (/404|not found/i.test(error.message)) {
+            this.adminDashboardUnavailable = true;
+            data = await this.loadAdminLegacy();
+          } else {
+            throw error;
+          }
+        }
       }
-
-      // 2. QR Codes Table
-      const qrBody = document.getElementById('admin-qr-table-body');
-      if (qrBody && qrData.qr_codes) {
-        qrBody.innerHTML = qrData.qr_codes.map(q => `
-          <tr data-qr-id="${this.escapeHtml(q.id)}">
-            <td><img class="admin-qr-thumb" src="${this.escapeHtml(this.resolveApiUrl(q.qr_url))}" alt="${this.escapeHtml(q.name)} QR"></td>
-            <td><strong>${this.escapeHtml(q.name)}</strong><br><small>${this.escapeHtml(q.note || '-')}</small></td>
-            <td><code>${this.escapeHtml(q.upi_id || 'Static QR')}</code><br><small>₹${q.min_amount || 100} - ₹${q.max_amount || 50000}</small></td>
-            <td><span class="${q.is_active ? 'admin-active-pill' : 'admin-inactive-pill'}">${q.is_active ? 'ACTIVE' : 'INACTIVE'}</span></td>
-            <td>
-              ${q.is_active ? '' : `<button class="btn-sm-approve" onclick="window.adminActivateQR('${q.id}')">Set Active</button>`}
-              <button class="btn-sm-reject" onclick="window.adminDeleteQR('${q.id}')">Delete</button>
-            </td>
-          </tr>
-        `).join('');
+      this.adminData = data;
+      this.hideAdminGate();
+      this.setAdminStatus(true, 'live');
+      this.renderAdmin(data);
+    } catch (error) {
+      this.setAdminStatus(false, 'offline');
+      if (/invalid admin|not configured|401|403/i.test(error.message)) {
+        this.lockAdmin('Sign in again to continue.');
+      } else if (!silent) {
+        this.showToast(error.message, 'error');
       }
+    } finally {
+      this.adminLoadInFlight = false;
+      document.getElementById('admin-refresh')?.classList.remove('spin');
+    }
+  }
 
-      // 3. Deposits Table
-      const depBody = document.getElementById('admin-deposits-table-body');
-      if (depBody && depData.deposits) {
-        depBody.innerHTML = depData.deposits.map(d => `
-          <tr data-deposit-id="${this.escapeHtml(d.id)}" data-user-id="${this.escapeHtml(d.user_id || '')}" data-amount="${Number(d.amount) || 0}">
-            <td><strong>${this.escapeHtml(d.user_name)}</strong></td>
-            <td>₹${d.amount}</td>
-            <td><code style="color:var(--color-green);">${this.escapeHtml(d.order_id || d.utr)}</code><br><small>${this.escapeHtml(d.qr_id || 'Legacy deposit')} · Ref ${this.escapeHtml(d.utr)}</small></td>
-            <td>${this.escapeHtml(d.timestamp)}</td>
-            <td><span class="tag-badge ${d.status === 'approved' ? 'tag-win' : d.status === 'rejected' ? 'tag-loss' : 'tag-pending'}">${d.status.toUpperCase()}</span></td>
-            <td>
-              ${d.status === 'pending' ? `
-                <button class="btn-sm-approve" onclick="window.adminApproveDep('${d.id}')">Approve & Unlock</button>
-                <button class="btn-sm-reject" onclick="window.adminRejectDep('${d.id}')">Reject</button>
-              ` : '-'}
-            </td>
-          </tr>
-        `).join('');
+  async loadAdminLegacy() {
+    const [metrics, settings, users, qr, deposits, withdrawals] = await Promise.all([
+      this.adminApi('/api/admin/metrics'),
+      this.adminApi('/api/admin/platform-settings'),
+      this.adminApi('/api/admin/users'),
+      this.adminApi('/api/admin/qr-codes'),
+      this.adminApi('/api/admin/deposits'),
+      this.adminApi('/api/admin/withdrawals')
+    ]);
+    return {
+      metrics,
+      platform_settings: settings,
+      users: users.users || [],
+      qr_codes: qr.qr_codes || [],
+      deposits: deposits.deposits || [],
+      withdrawals: withdrawals.withdrawals || []
+    };
+  }
+
+  renderAdmin(data) {
+    this.renderAdminStats(data.metrics || {});
+    this.renderAdminQueue();
+    this.renderAdminUsers(data.users || []);
+    this.renderAdminHistory();
+    this.renderAdminQrCodes(data.qr_codes || []);
+    this.renderAdminControls(data);
+  }
+
+  renderAdminStats(m) {
+    const money = value => `₹${Number(value || 0).toFixed(2)}`;
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    set('admin-pending-deposits', String(m.pending_deposits || 0));
+    set('admin-pending-withdrawals', String(m.pending_withdrawals || 0));
+    set('admin-approved-deposit-total', money(m.approved_deposit_total));
+    set('admin-paid-withdrawal-total', money(m.paid_withdrawal_total));
+    set('nd-users-count', String(m.users_count || 0));
+    set('admin-kpi-total-pool', `₹${Number(m.total_active_stake || 0).toFixed(0)}`);
+    set('admin-kpi-active-bets', `${m.active_bets_count || 0} Active Bets`);
+
+    document.querySelectorAll('.nd-stat-warn').forEach((card, index) => {
+      const count = index === 0 ? m.pending_deposits : m.pending_withdrawals;
+      card.classList.toggle('has-pending', Number(count || 0) > 0);
+    });
+
+    const total = (Number(m.green_stake) + Number(m.red_stake) + Number(m.violet_stake)) || 1;
+    [['green', m.green_stake], ['red', m.red_stake], ['violet', m.violet_stake]].forEach(([name, stake]) => {
+      const pct = Math.round((Number(stake || 0) / total) * 100);
+      const fill = document.getElementById(`admin-pool-${name}-fill`);
+      const val = document.getElementById(`admin-pool-${name}-val`);
+      if (fill) fill.style.width = `${pct}%`;
+      if (val) val.textContent = `₹${Number(stake || 0).toFixed(0)} (${pct}%)`;
+    });
+  }
+
+  pendingRequests() {
+    const data = this.adminData || {};
+    const deposits = (data.deposits || [])
+      .filter(d => d.status === 'pending')
+      .map(d => ({ kind: 'deposit', id: d.id, amount: Number(d.amount) || 0, who: d.user_name, userId: d.user_id, meta: `Order ${d.order_id || '-'} · UTR ${d.utr}`, at: d.timestamp }));
+    const withdrawals = (data.withdrawals || [])
+      .filter(w => w.status === 'pending')
+      .map(w => ({ kind: 'withdrawal', id: w.id, amount: Number(w.amount) || 0, who: w.user_name, userId: w.user_id, meta: `To ${w.upi_id}`, at: w.timestamp }));
+    return [...deposits, ...withdrawals].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  }
+
+  renderAdminQueue() {
+    const host = document.getElementById('nd-queue');
+    if (!host) return;
+    const filter = this.adminQueueFilter || 'all';
+    const all = this.pendingRequests();
+    const items = filter === 'all' ? all : all.filter(item => item.kind === filter);
+
+    const badge = document.getElementById('nd-queue-count');
+    if (badge) {
+      badge.textContent = String(all.length);
+      badge.classList.toggle('zero', all.length === 0);
+    }
+
+    if (!items.length) {
+      host.innerHTML = `<div class="nd-empty"><i class="bi bi-check2-circle"></i>Nothing waiting. You are all caught up.</div>`;
+      return;
+    }
+
+    host.innerHTML = items.map(item => {
+      const isDeposit = item.kind === 'deposit';
+      const okLabel = isDeposit ? 'Approve' : 'Mark paid';
+      const noLabel = isDeposit ? 'Reject' : 'Reject &amp; refund';
+      const okFn = isDeposit ? 'adminApproveDep' : 'adminApproveWth';
+      const noFn = isDeposit ? 'adminRejectDep' : 'adminRejectWth';
+      return `
+        <article class="nd-req" data-kind="${item.kind}" data-req-id="${this.escapeHtml(item.id)}"
+                 data-user-id="${this.escapeHtml(item.userId || '')}" data-amount="${item.amount}">
+          <div class="nd-req-main">
+            <div class="nd-req-top">
+              <span class="nd-req-kind">${isDeposit ? 'Deposit' : 'Withdrawal'}</span>
+              <span class="nd-req-amount">₹${item.amount.toFixed(2)}</span>
+              <span class="nd-req-who">${this.escapeHtml(item.who || 'Unknown')}</span>
+            </div>
+            <div class="nd-req-meta">${this.escapeHtml(item.meta)} · ${this.escapeHtml(String(item.at || ''))}</div>
+          </div>
+          <div class="nd-req-actions">
+            <button class="nd-btn-ok" onclick="window.${okFn}('${this.escapeHtml(item.id)}')">${okLabel}</button>
+            <button class="nd-btn-no" onclick="window.${noFn}('${this.escapeHtml(item.id)}')">${noLabel}</button>
+          </div>
+        </article>`;
+    }).join('');
+  }
+
+  renderAdminUsers(users) {
+    const body = document.getElementById('admin-users-table-body');
+    if (!body) return;
+    if (!users.length) {
+      body.innerHTML = `<tr><td colspan="6" class="nd-empty">No players yet</td></tr>`;
+      return;
+    }
+    body.innerHTML = users.map(u => {
+      const approved = Number(u.approved_deposit_total || 0);
+      const active = u.status === 'active';
+      return `
+        <tr data-user-id="${this.escapeHtml(u.id)}"
+            data-search="${this.escapeHtml(`${u.username || ''} ${u.phone || ''} ${u.id}`.toLowerCase())}">
+          <td>
+            <span class="nd-player-name">${this.escapeHtml(u.username || '-')}</span>
+            <span class="nd-player-sub">${this.escapeHtml(u.phone || '')} · ${this.escapeHtml(u.id)}</span>
+          </td>
+          <td data-user-balance>₹${Number(u.balance || 0).toFixed(2)}</td>
+          <td class="nd-recharge" data-approved-total="${approved}">₹${approved.toFixed(2)}</td>
+          <td class="admin-game-access">${this.renderUserAccessCell(u.id, approved, Boolean(u.game_access_enabled))}</td>
+          <td><span class="nd-badge ${active ? 'ok' : 'bad'}">${active ? 'Active' : 'Disabled'}</span></td>
+          <td>
+            <button class="nd-row-btn" onclick="window.adminToggleUser('${this.escapeHtml(u.id)}', '${active ? 'disabled' : 'active'}')">${active ? 'Disable' : 'Enable'}</button>
+            <button class="nd-row-btn danger" onclick="window.adminDeleteUser('${this.escapeHtml(u.id)}')">Delete</button>
+          </td>
+        </tr>`;
+    }).join('');
+    this.applyAdminSearch('nd-user-search', 'admin-users-table-body');
+  }
+
+  renderAdminHistory() {
+    const body = document.getElementById('nd-history-body');
+    if (!body) return;
+    const data = this.adminData || {};
+    const rows = [
+      ...(data.deposits || []).filter(d => d.status !== 'pending').map(d => ({
+        kind: 'Deposit', who: d.user_name, amount: d.amount, ref: d.order_id || d.utr, at: d.timestamp, status: d.status
+      })),
+      ...(data.withdrawals || []).filter(w => w.status !== 'pending').map(w => ({
+        kind: 'Withdrawal', who: w.user_name, amount: w.amount, ref: w.upi_id, at: w.timestamp, status: w.status
+      }))
+    ].sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 200);
+
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="6" class="nd-empty">Nothing processed yet</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map(r => {
+      const tone = (r.status === 'approved' || r.status === 'paid') ? 'ok' : 'bad';
+      return `
+        <tr data-search="${this.escapeHtml(`${r.who || ''} ${r.ref || ''}`.toLowerCase())}">
+          <td>${r.kind}</td>
+          <td>${this.escapeHtml(r.who || '-')}</td>
+          <td>₹${Number(r.amount || 0).toFixed(2)}</td>
+          <td><code>${this.escapeHtml(String(r.ref || '-'))}</code></td>
+          <td>${this.escapeHtml(String(r.at || ''))}</td>
+          <td><span class="nd-badge ${tone}">${this.escapeHtml(String(r.status).toUpperCase())}</span></td>
+        </tr>`;
+    }).join('');
+    this.applyAdminSearch('nd-history-search', 'nd-history-body');
+  }
+
+  renderAdminQrCodes(codes) {
+    const body = document.getElementById('admin-qr-table-body');
+    if (!body) return;
+    if (!codes.length) {
+      body.innerHTML = `<tr><td colspan="5" class="nd-empty">No QR codes uploaded</td></tr>`;
+      return;
+    }
+    body.innerHTML = codes.map(q => `
+      <tr data-qr-id="${this.escapeHtml(q.id)}">
+        <td><img class="nd-qr-thumb" src="${this.escapeHtml(this.resolveApiUrl(q.qr_url))}" alt=""></td>
+        <td><span class="nd-player-name">${this.escapeHtml(q.name)}</span><span class="nd-player-sub">${this.escapeHtml(q.note || '')}</span></td>
+        <td><code>${this.escapeHtml(q.upi_id || 'Static QR')}</code><br><span class="nd-player-sub">₹${q.min_amount || 100} – ₹${q.max_amount || 50000}</span></td>
+        <td><span class="nd-badge ${q.is_active ? 'ok' : 'bad'}">${q.is_active ? 'Active' : 'Inactive'}</span></td>
+        <td>
+          ${q.is_active ? '' : `<button class="nd-row-btn" onclick="window.adminActivateQR('${this.escapeHtml(q.id)}')">Set active</button>`}
+          <button class="nd-row-btn danger" onclick="window.adminDeleteQR('${this.escapeHtml(q.id)}')">Delete</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  renderAdminControls(data) {
+    const settings = data.platform_settings || {};
+    const deposits = document.getElementById('admin-deposits-enabled');
+    const withdrawals = document.getElementById('admin-withdrawals-enabled');
+    const min = document.getElementById('admin-withdrawal-min');
+    if (deposits) deposits.checked = Boolean(settings.deposits_enabled);
+    if (withdrawals) withdrawals.checked = Boolean(settings.withdrawals_enabled);
+    if (min && document.activeElement !== min) min.value = String(settings.withdrawal_min || 200);
+
+    const mode = (data.metrics || {}).prediction_mode || 'auto_least';
+    const modeLabel = document.getElementById('admin-kpi-current-mode');
+    if (modeLabel) modeLabel.textContent = String(mode).replace('_', ' ');
+    document.querySelectorAll('.nd-mode').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+  }
+
+  applyAdminSearch(inputId, bodyId) {
+    const term = (document.getElementById(inputId)?.value || '').trim().toLowerCase();
+    document.querySelectorAll(`#${bodyId} tr[data-search]`).forEach(row => {
+      row.hidden = Boolean(term) && !row.dataset.search.includes(term);
+    });
+  }
+
+  // ---- optimistic row helpers ----
+
+  renderUserAccessCell(userId, approvedTotal, accessEnabled) {
+    const eligible = approvedTotal >= 300;
+    const label = accessEnabled ? 'Disable' : eligible ? 'Enable all games' : '₹300 required';
+    const tone = accessEnabled ? 'enabled' : eligible ? 'eligible' : '';
+    return `<button class="nd-access-btn ${tone}" ${!accessEnabled && !eligible ? 'disabled' : ''}
+      onclick="window.adminToggleGameAccess('${this.escapeHtml(userId)}', ${accessEnabled ? 'false' : 'true'})">${label}</button>`;
+  }
+
+  findUserRow(userId) {
+    if (!userId) return null;
+    return document.querySelector(`#admin-users-table-body tr[data-user-id="${CSS.escape(String(userId))}"]`);
+  }
+
+  findRequestCard(id) {
+    if (!id) return null;
+    return document.querySelector(`#nd-queue [data-req-id="${CSS.escape(String(id))}"]`);
+  }
+
+  setRequestBusy(id, busy) {
+    this.findRequestCard(id)?.classList.toggle('is-busy', busy);
+  }
+
+  // Drop a handled request straight out of the queue and refresh the counter.
+  clearRequest(id) {
+    const card = this.findRequestCard(id);
+    if (!card) return;
+    const kind = card.dataset.kind;
+    const store = kind === 'deposit' ? 'deposits' : 'withdrawals';
+    const list = (this.adminData || {})[store] || [];
+    const record = list.find(r => r.id === id);
+    if (record) record.status = kind === 'deposit' ? 'approved' : 'paid';
+    card.remove();
+    const remaining = this.pendingRequests();
+    const badge = document.getElementById('nd-queue-count');
+    if (badge) {
+      badge.textContent = String(remaining.length);
+      badge.classList.toggle('zero', remaining.length === 0);
+    }
+    if (!document.querySelector('#nd-queue .nd-req')) this.renderAdminQueue();
+  }
+
+  bumpUserRecharge(userId, delta) {
+    const row = this.findUserRow(userId);
+    const cell = row?.querySelector('.nd-recharge');
+    if (!cell) return;
+    const next = Math.max(0, Number(cell.dataset.approvedTotal || 0) + delta);
+    cell.dataset.approvedTotal = String(next);
+    cell.textContent = `₹${next.toFixed(2)}`;
+    const accessCell = row.querySelector('.admin-game-access');
+    if (accessCell) {
+      const enabled = accessCell.querySelector('.nd-access-btn')?.classList.contains('enabled') || false;
+      accessCell.innerHTML = this.renderUserAccessCell(userId, next, enabled);
+    }
+    const record = ((this.adminData || {}).users || []).find(u => u.id === userId);
+    if (record) record.approved_deposit_total = next;
+  }
+
+  setUserAccessCell(userId, accessEnabled) {
+    const row = this.findUserRow(userId);
+    const accessCell = row?.querySelector('.admin-game-access');
+    const approved = Number(row?.querySelector('.nd-recharge')?.dataset.approvedTotal || 0);
+    if (accessCell) accessCell.innerHTML = this.renderUserAccessCell(userId, approved, accessEnabled);
+    const record = ((this.adminData || {}).users || []).find(u => u.id === userId);
+    if (record) record.game_access_enabled = accessEnabled ? 1 : 0;
+  }
+
+  refreshAdminMetricsFast() {
+    void this.loadAdmin({ silent: true });
+  }
+
+  attachAdminListeners() {
+    const gate = document.getElementById('admin-unlock-overlay');
+    gate?.querySelectorAll('.nd-gate-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        gate.querySelectorAll('.nd-gate-tab').forEach(t => t.classList.toggle('active', t === tab));
+        gate.querySelectorAll('.nd-gate-form').forEach(form => {
+          form.classList.toggle('active', form.dataset.gatePanel === tab.dataset.gate);
+        });
+      });
+    });
+
+    const persist = (storageKey, value) => {
+      const remember = document.getElementById('admin-remember')?.checked !== false;
+      (remember ? localStorage : sessionStorage).setItem(storageKey, value);
+    };
+
+    document.getElementById('admin-login-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      const phone = (document.getElementById('admin-login-phone')?.value || '').replace(/\D/g, '').slice(-10);
+      const password = document.getElementById('admin-login-password')?.value || '';
+      if (phone.length !== 10 || !password) {
+        this.showAdminGate('Enter your 10-digit phone number and password.');
+        return;
       }
-
-      // 4. Withdrawals Table
-      const wthBody = document.getElementById('admin-withdrawals-table-body');
-      if (wthBody && wthData.withdrawals) {
-        wthBody.innerHTML = wthData.withdrawals.map(w => `
-          <tr data-withdrawal-id="${this.escapeHtml(w.id)}">
-            <td><strong>${this.escapeHtml(w.user_name)}</strong></td>
-            <td>₹${w.amount}</td>
-            <td><code>${this.escapeHtml(w.upi_id)}</code></td>
-            <td>${this.escapeHtml(w.timestamp)}</td>
-            <td><span class="tag-badge ${w.status === 'paid' ? 'tag-win' : w.status === 'rejected' ? 'tag-loss' : 'tag-pending'}">${w.status.toUpperCase()}</span></td>
-            <td>
-              ${w.status === 'pending' ? `
-                <button class="btn-sm-approve" onclick="window.adminApproveWth('${w.id}')">Mark Paid</button>
-                <button class="btn-sm-reject" onclick="window.adminRejectWth('${w.id}')">Reject & Refund</button>
-              ` : '-'}
-            </td>
-          </tr>
-        `).join('');
+      button.disabled = true;
+      try {
+        let result;
+        let lastError;
+        for (const candidate of [phone, `+91${phone}`, `91${phone}`]) {
+          try {
+            result = await this.adminApi('/api/admin/login', 'POST', { phone: candidate, password });
+            break;
+          } catch (error) {
+            lastError = error;
+            if (!/invalid phone or password/i.test(error.message)) throw error;
+          }
+        }
+        if (!result) throw lastError || new Error('Invalid phone or password!');
+        this.adminToken = result.token;
+        persist('PREDICT_ADMIN_TOKEN', result.token);
+        this.hideAdminGate();
+        await this.loadAdmin();
+        this.showToast(`Welcome, ${result.admin?.name || 'Admin'}.`, 'success');
+      } catch (error) {
+        const notFound = /404|not found/i.test(error.message);
+        this.showAdminGate(notFound
+          ? 'Password sign-in is not enabled on the server yet. Use the access key tab.'
+          : error.message);
+      } finally {
+        button.disabled = false;
       }
+    });
 
-    } catch (e) {}
+    document.getElementById('admin-unlock-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const input = document.getElementById('admin-access-key');
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      const key = input?.value?.trim() || '';
+      if (!key) {
+        this.showAdminGate('Admin access key is required.');
+        input?.focus();
+        return;
+      }
+      button.disabled = true;
+      this.adminApiKey = key;
+      this.adminToken = '';
+      try {
+        await this.adminApi('/api/admin/metrics');
+        persist('PREDICT_ADMIN_API_KEY', key);
+        this.hideAdminGate();
+        if (input) input.value = '';
+        await this.loadAdmin();
+        this.showToast('Dashboard connected.', 'success');
+      } catch (error) {
+        this.adminApiKey = '';
+        this.showAdminGate(/invalid admin/i.test(error.message) ? 'That access key is not valid.' : error.message);
+        input?.focus();
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.getElementById('admin-refresh')?.addEventListener('click', () => {
+      void this.loadAdmin();
+    });
+    document.getElementById('admin-lock')?.addEventListener('click', () => {
+      this.lockAdmin();
+      this.showToast('Signed out of admin.', 'success');
+    });
+
+    document.querySelectorAll('.nd-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.nd-tab').forEach(t => t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.nd-section').forEach(section => {
+          section.classList.toggle('active', section.id === `nd-section-${tab.dataset.section}`);
+        });
+      });
+    });
+
+    document.querySelectorAll('.nd-seg-btn').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.nd-seg-btn').forEach(b => b.classList.toggle('active', b === button));
+        this.adminQueueFilter = button.dataset.queue;
+        this.renderAdminQueue();
+      });
+    });
+
+    document.getElementById('nd-user-search')?.addEventListener('input', () => {
+      this.applyAdminSearch('nd-user-search', 'admin-users-table-body');
+    });
+    document.getElementById('nd-history-search')?.addEventListener('input', () => {
+      this.applyAdminSearch('nd-history-search', 'nd-history-body');
+    });
+
+    document.querySelectorAll('.nd-mode').forEach(button => {
+      button.addEventListener('click', async () => {
+        const mode = button.dataset.mode;
+        document.querySelectorAll('.nd-mode').forEach(b => b.classList.toggle('active', b === button));
+        try {
+          await this.adminApi('/api/admin/prediction-mode', 'POST', { mode });
+          this.showToast(`Result mode set to ${mode.replace('_', ' ')}.`, 'success');
+        } catch (error) {
+          this.showToast(error.message, 'error');
+        }
+      });
+    });
+
+    document.getElementById('nd-force-apply')?.addEventListener('click', async () => {
+      const input = document.getElementById('nd-force-number');
+      const number = parseInt(input?.value, 10);
+      if (!Number.isInteger(number) || number < 0 || number > 9) {
+        this.showToast('Enter a number between 0 and 9.', 'error');
+        return;
+      }
+      try {
+        await this.adminApi('/api/admin/force-result', 'POST', { number });
+        this.showToast(`Next result forced to ${number}.`, 'success');
+        if (input) input.value = '';
+        void this.loadAdmin({ silent: true });
+      } catch (error) {
+        this.showToast(error.message, 'error');
+      }
+    });
+
+    document.getElementById('admin-payment-settings')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await this.adminApi('/api/admin/platform-settings', 'PUT', {
+          deposits_enabled: document.getElementById('admin-deposits-enabled')?.checked,
+          withdrawals_enabled: document.getElementById('admin-withdrawals-enabled')?.checked,
+          withdrawal_min: Number(document.getElementById('admin-withdrawal-min')?.value || 200)
+        });
+        this.showToast('Payment settings saved.', 'success');
+      } catch (error) {
+        this.showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.getElementById('admin-qr-upload-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const file = document.getElementById('admin-qr-file')?.files?.[0];
+      if (!file) {
+        this.showToast('Choose a QR image first.', 'error');
+        return;
+      }
+      const payload = new FormData();
+      payload.append('name', document.getElementById('admin-qr-name')?.value || 'UPI QR');
+      payload.append('upi_id', document.getElementById('admin-qr-upi')?.value || '');
+      payload.append('min_amount', document.getElementById('admin-qr-min')?.value || '100');
+      payload.append('max_amount', document.getElementById('admin-qr-max')?.value || '50000');
+      payload.append('qr_file', file);
+      button.disabled = true;
+      try {
+        const headers = this.adminHeaders();
+        delete headers['Content-Type'];   // let the browser set the multipart boundary
+        const response = await fetch(`${this.apiBaseUrl}/api/admin/qr-codes/upload`, { method: 'POST', headers, body: payload });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'QR upload failed');
+        this.showToast('QR uploaded and set active.', 'success');
+        form.reset();
+        void this.loadAdmin({ silent: true });
+        void this.syncActiveQR();
+      } catch (error) {
+        this.showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
   }
 
   attachEventListeners() {
-    // Admin Section Tabs Navigation
-    document.querySelectorAll('.admin-tab').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.admin-panel-section').forEach(s => s.classList.remove('active'));
-
-        const targetSection = e.currentTarget.dataset.section;
-        e.currentTarget.classList.add('active');
-        document.getElementById(`admin-section-${targetSection}`)?.classList.add('active');
-      });
-    });
 
     // Sound Toggle
     document.getElementById('toggle-sound')?.addEventListener('click', () => {
@@ -1417,23 +1811,6 @@ class App {
       }
     });
 
-    const qrFileInput = document.getElementById('new-qr-file');
-    qrFileInput?.addEventListener('change', async () => {
-      const file = qrFileInput.files?.[0];
-      const preview = document.getElementById('new-qr-preview');
-      const dropzone = document.querySelector('.admin-qr-dropzone');
-      if (!file || !preview) return;
-      preview.src = URL.createObjectURL(file);
-      dropzone?.classList.add('has-preview');
-      const upiInput = document.getElementById('new-qr-upi');
-      if (upiInput && !upiInput.value.trim()) {
-        const detectedUpiId = await this.readUpiIdFromQrFile(file);
-        if (detectedUpiId) {
-          upiInput.value = detectedUpiId;
-          this.showToast(`UPI ID detected: ${detectedUpiId}`, 'success');
-        }
-      }
-    });
 
     // Color Bets
     document.querySelectorAll('.btn-color').forEach(btn => {
@@ -1748,140 +2125,6 @@ class App {
     document.getElementById('withdraw-submit-button')?.addEventListener('click', submitWithdrawal);
 
     // Admin Add QR Form Submit
-    document.getElementById('form-add-qr')?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const form = e.currentTarget;
-      const uploadButton = form.querySelector('button[type="submit"]');
-      const payload = new FormData();
-      const qrFile = document.getElementById('new-qr-file')?.files?.[0];
-      if (!qrFile) return this.showToast('Choose a QR image first.', 'error');
-      const upiInput = document.getElementById('new-qr-upi');
-      let upiId = upiInput?.value?.trim() || '';
-      if (!upiId) {
-        upiId = await this.readUpiIdFromQrFile(qrFile);
-        if (upiInput && upiId) upiInput.value = upiId;
-      }
-      if (!upiId) {
-        return this.showToast('UPI ID could not be read automatically. Enter the UPI ID once to create clean changing QR codes.', 'error');
-      }
-      payload.append('name', document.getElementById('new-qr-name')?.value || '');
-      payload.append('note', document.getElementById('new-qr-note')?.value || '');
-      payload.append('upi_id', upiId);
-      payload.append('min_amount', document.getElementById('new-qr-min')?.value || '100');
-      payload.append('max_amount', document.getElementById('new-qr-max')?.value || '50000');
-      payload.append('qr_file', qrFile);
-      uploadButton.disabled = true;
-      try {
-        const headers = {};
-        if (this.adminApiKey) headers['X-Admin-Key'] = this.adminApiKey;
-        const response = await fetch(`${this.apiBaseUrl}/api/admin/qr-codes/upload`, {
-          method: 'POST',
-          headers,
-          body: payload
-        });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.detail || 'QR upload failed');
-        this.showToast('QR uploaded and activated for deposits.', 'success');
-        form.reset();
-        document.querySelector('.admin-qr-dropzone')?.classList.remove('has-preview');
-        void Promise.all([
-          this.syncAdminTables(true),
-          this.syncActiveQR()
-        ]);
-      } catch (err) {
-        this.showToast(err.message, 'error');
-      } finally {
-        uploadButton.disabled = false;
-      }
-    });
-
-    // Streamlined Admin Mode Cards
-    document.querySelectorAll('.mode-card-btn').forEach(card => {
-      card.addEventListener('click', async (e) => {
-        const mode = e.currentTarget.dataset.mode;
-        try {
-          await this.fetchApi('/api/admin/prediction-mode', 'POST', { mode });
-          this.showToast(`Prediction Mode set to ${mode.toUpperCase()}`, 'success');
-          await this.syncAdminMetrics();
-        } catch (err) {
-          this.showToast(err.message, 'error');
-        }
-      });
-    });
-
-    // Admin Forced Number Grid
-    document.querySelectorAll('.manual-num-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const number = parseInt(e.currentTarget.dataset.num, 10);
-        try {
-          await this.fetchApi('/api/admin/force-result', 'POST', { number });
-          this.showToast(`Manual result forced to Number ${number}`, 'success');
-          await this.syncAdminMetrics();
-        } catch (err) {
-          this.showToast(err.message, 'error');
-        }
-      });
-    });
-
-    document.getElementById('admin-refresh')?.addEventListener('click', async () => {
-      if (!this.adminApiKey) {
-        this.showAdminGate('Enter the admin access key to load requests.');
-        return;
-      }
-      await this.syncAdminMetrics();
-      await this.syncAdminTables(true);
-      this.showToast('Admin dashboard refreshed.', 'success');
-    });
-
-    document.getElementById('admin-lock')?.addEventListener('click', () => {
-      this.lockAdmin();
-    });
-
-    document.getElementById('admin-unlock-form')?.addEventListener('submit', async event => {
-      event.preventDefault();
-      const input = document.getElementById('admin-access-key');
-      const button = event.currentTarget.querySelector('button[type="submit"]');
-      const key = input?.value?.trim() || '';
-      if (!key) {
-        this.showAdminGate('Admin access key is required.');
-        input?.focus();
-        return;
-      }
-      button.disabled = true;
-      this.adminApiKey = key;
-      try {
-        await this.fetchApi('/api/admin/metrics');
-        sessionStorage.setItem('PREDICT_ADMIN_API_KEY', key);
-        this.hideAdminGate();
-        await this.syncAdminMetrics();
-        await this.syncAdminTables(true);
-        this.showToast('Admin dashboard connected.', 'success');
-      } catch (error) {
-        this.lockAdmin(error.message === 'Invalid admin access key' ? 'Incorrect admin access key.' : error.message);
-        input?.focus();
-      } finally {
-        button.disabled = false;
-      }
-    });
-
-    document.getElementById('admin-payment-settings')?.addEventListener('submit', async event => {
-      event.preventDefault();
-      const button = event.currentTarget.querySelector('button[type="submit"]');
-      button.disabled = true;
-      try {
-        await this.fetchApi('/api/admin/platform-settings', 'PUT', {
-          deposits_enabled: document.getElementById('admin-deposits-enabled').checked,
-          withdrawals_enabled: document.getElementById('admin-withdrawals-enabled').checked,
-          withdrawal_min: Number(document.getElementById('admin-withdrawal-min').value)
-        });
-        await this.syncActiveQR();
-        this.showToast('Payment settings saved.', 'success');
-      } catch (error) {
-        this.showToast(error.message, 'error');
-      } finally {
-        button.disabled = false;
-      }
-    });
   }
 
   openBetModal(selectType, selection) {
@@ -2333,198 +2576,101 @@ class App {
     }).join('');
   }
 
-  findAdminRow(kind, id) {
-    const attribute = {
-      deposit: 'data-deposit-id',
-      withdrawal: 'data-withdrawal-id',
-      qr: 'data-qr-id'
-    }[kind];
-    if (!attribute) return null;
-    return [...document.querySelectorAll(`[${attribute}]`)]
-      .find(row => row.getAttribute(attribute) === String(id)) || null;
-  }
-
-  setAdminRowBusy(kind, id, busy) {
-    this.findAdminRow(kind, id)?.querySelectorAll('button').forEach(button => {
-      button.disabled = busy;
-    });
-  }
-
-  updateAdminRequestRow(kind, id, status) {
-    const row = this.findAdminRow(kind, id);
-    if (!row) return;
-    const badge = row.querySelector('.tag-badge');
-    if (badge) {
-      badge.className = `tag-badge ${status === 'approved' || status === 'paid' ? 'tag-win' : status === 'rejected' ? 'tag-loss' : 'tag-pending'}`;
-      badge.textContent = status.toUpperCase();
-    }
-    const actions = row.querySelector('td:last-child');
-    if (actions && status !== 'pending') actions.textContent = '-';
-  }
-
-  updateActiveQrRow(id) {
-    document.querySelectorAll('[data-qr-id]').forEach(row => {
-      const qrId = row.getAttribute('data-qr-id');
-      const active = qrId === String(id);
-      const pill = row.querySelector('.admin-active-pill, .admin-inactive-pill');
-      if (pill) {
-        pill.className = active ? 'admin-active-pill' : 'admin-inactive-pill';
-        pill.textContent = active ? 'ACTIVE' : 'INACTIVE';
-      }
-      const actions = row.querySelector('td:last-child');
-      if (actions) {
-        actions.innerHTML = `${active ? '' : `<button class="btn-sm-approve" onclick="window.adminActivateQR('${this.escapeHtml(qrId)}')">Set Active</button>`}
-          <button class="btn-sm-reject" onclick="window.adminDeleteQR('${this.escapeHtml(qrId)}')">Delete</button>`;
-      }
-    });
-  }
-
-  renderUserAccessCell(userId, approvedTotal, accessEnabled) {
-    const eligible = approvedTotal >= 300;
-    const label = accessEnabled ? 'Disable Access' : eligible ? 'Enable Access' : '₹300 Required';
-    const tone = accessEnabled ? 'enabled' : eligible ? 'eligible' : '';
-    return `
-      <small>Recharge ₹${approvedTotal.toFixed(2)}</small>
-      <button class="btn-sm-access ${tone}" ${!accessEnabled && !eligible ? 'disabled' : ''}
-        onclick="window.adminToggleGameAccess('${this.escapeHtml(userId)}', ${accessEnabled ? 'false' : 'true'})">
-        ${label}
-      </button>`;
-  }
-
-  findUserRow(userId) {
-    if (!userId) return null;
-    return [...document.querySelectorAll('#admin-users-table-body [data-user-id]')]
-      .find(row => row.getAttribute('data-user-id') === String(userId)) || null;
-  }
-
-  // Approving a deposit changes that user's approved-recharge total, which is
-  // what unlocks "Enable Access". Patch the row straight away so the admin sees
-  // it immediately instead of waiting on a full table reload.
-  bumpUserRecharge(userId, delta) {
-    const cell = this.findUserRow(userId)?.querySelector('.admin-game-access');
-    if (!cell) return;
-    const next = Math.max(0, Number(cell.dataset.approvedTotal || 0) + delta);
-    cell.dataset.approvedTotal = String(next);
-    const enabled = cell.querySelector('.btn-sm-access')?.classList.contains('enabled') || false;
-    cell.innerHTML = this.renderUserAccessCell(userId, next, enabled);
-  }
-
-  setUserAccessCell(userId, accessEnabled) {
-    const cell = this.findUserRow(userId)?.querySelector('.admin-game-access');
-    if (!cell) return;
-    cell.innerHTML = this.renderUserAccessCell(userId, Number(cell.dataset.approvedTotal || 0), accessEnabled);
-  }
-
-  // Fire-and-forget reconcile. The optimistic patches above already gave the
-  // admin their feedback, so nothing should await this.
-  refreshAdminMetricsFast() {
-    this.lastAdminTablesSync = 0;
-    void this.syncAdminMetrics();
-  }
 }
 
 const app = new App();
 document.addEventListener('DOMContentLoaded', () => { app.init(); });
 
 // Global exposed Admin action handlers
-window.adminToggleUser = async (id, status) => {
-  await app.fetchApi(`/api/admin/users/${id}/status`, 'PUT', { status });
-  app.showToast(`User ${id} status set to ${status.toUpperCase()}`, 'success');
-  void app.syncAdminTables(true);
+// ---- Admin actions. Each repaints its own row first, then confirms. ----
+
+// Paint the result immediately, then confirm. If the server disagrees we pull
+// the real state back down, so an optimistic patch can never stick around wrong.
+const settleRequest = async (id, path, onDone, successMessage) => {
+  onDone?.();
+  app.clearRequest(id);
+  app.showToast(successMessage, 'success');
+  try {
+    await app.adminApi(path, 'POST');
+    app.refreshAdminMetricsFast();
+  } catch (error) {
+    app.showToast(error.message, 'error');
+    void app.loadAdmin();
+  }
 };
+
+window.adminApproveDep = (id) => {
+  const card = app.findRequestCard(id);
+  const userId = card?.dataset.userId;
+  const amount = Number(card?.dataset.amount || 0);
+  return settleRequest(id, `/api/admin/deposits/${id}/approve`,
+    () => app.bumpUserRecharge(userId, amount),
+    `Deposit approved. ₹${amount.toFixed(2)} credited.`);
+};
+
+window.adminRejectDep = (id) =>
+  settleRequest(id, `/api/admin/deposits/${id}/reject`, null, 'Deposit rejected.');
+
+window.adminApproveWth = (id) =>
+  settleRequest(id, `/api/admin/withdrawals/${id}/approve`, null, 'Withdrawal marked paid.');
+
+window.adminRejectWth = (id) =>
+  settleRequest(id, `/api/admin/withdrawals/${id}/reject`, null, 'Withdrawal rejected and refunded.');
 
 window.adminToggleGameAccess = async (id, enabled) => {
   app.setUserAccessCell(id, enabled);   // paint first, confirm after
   try {
-    await app.fetchApi(`/api/admin/users/${id}/game-access`, 'PUT', { enabled });
-    app.showToast(`All games ${enabled ? 'unlocked' : 'locked'} for ${id}`, 'success');
+    await app.adminApi(`/api/admin/users/${id}/game-access`, 'PUT', { enabled });
+    app.showToast(`All games ${enabled ? 'unlocked' : 'locked'} for this player.`, 'success');
   } catch (error) {
-    app.setUserAccessCell(id, !enabled);  // roll the cell back
+    app.setUserAccessCell(id, !enabled);
+    app.showToast(error.message, 'error');
+  }
+};
+
+window.adminToggleUser = async (id, status) => {
+  try {
+    await app.adminApi(`/api/admin/users/${id}/status`, 'PUT', { status });
+    app.showToast(`Player ${status === 'active' ? 'enabled' : 'disabled'}.`, 'success');
+    void app.loadAdmin({ silent: true });
+  } catch (error) {
     app.showToast(error.message, 'error');
   }
 };
 
 window.adminDeleteUser = async (id) => {
-  if (confirm(`Are you sure you want to delete user ${id}?`)) {
-    await app.fetchApi(`/api/admin/users/${id}`, 'DELETE');
-    app.findUserRow(id)?.remove();
-    app.showToast(`User ${id} deleted`, 'success');
-    void app.syncAdminTables(true);
+  if (!confirm(`Delete player ${id}? This cannot be undone.`)) return;
+  const row = app.findUserRow(id);
+  try {
+    await app.adminApi(`/api/admin/users/${id}`, 'DELETE');
+    row?.remove();
+    app.showToast('Player deleted.', 'success');
+    void app.loadAdmin({ silent: true });
+  } catch (error) {
+    app.showToast(error.message, 'error');
+  }
+};
+
+window.adminActivateQR = async (id) => {
+  try {
+    await app.adminApi(`/api/admin/qr-codes/${id}/activate`, 'POST');
+    app.showToast('Active deposit QR changed.', 'success');
+    void app.loadAdmin({ silent: true });
+    void app.syncActiveQR();
+  } catch (error) {
+    app.showToast(error.message, 'error');
   }
 };
 
 window.adminDeleteQR = async (id) => {
-  await app.fetchApi(`/api/admin/qr-codes/${id}`, 'DELETE');
-  app.findAdminRow('qr', id)?.remove();
-  app.showToast(`QR Code ${id} deleted`, 'success');
-  void app.syncAdminTables(true);
-};
-
-window.adminActivateQR = async (id) => {
-  app.setAdminRowBusy('qr', id, true);
+  if (!confirm('Delete this QR code?')) return;
   try {
-    await app.fetchApi(`/api/admin/qr-codes/${id}/activate`, 'POST');
-    app.updateActiveQrRow(id);
-    app.showToast('Active deposit QR changed', 'success');
+    await app.adminApi(`/api/admin/qr-codes/${id}`, 'DELETE');
+    app.showToast('QR code deleted.', 'success');
+    void app.loadAdmin({ silent: true });
     void app.syncActiveQR();
   } catch (error) {
     app.showToast(error.message, 'error');
-    app.setAdminRowBusy('qr', id, false);
   }
 };
 
-window.adminApproveDep = async (id) => {
-  const row = app.findAdminRow('deposit', id);
-  const userId = row?.getAttribute('data-user-id');
-  const amount = Number(row?.getAttribute('data-amount') || 0);
-  app.setAdminRowBusy('deposit', id, true);
-  try {
-    await app.fetchApi(`/api/admin/deposits/${id}/approve`, 'POST');
-    app.updateAdminRequestRow('deposit', id, 'approved');
-    app.bumpUserRecharge(userId, amount);
-    app.showToast(`Deposit approved. ₹${amount.toFixed(2)} credited.`, 'success');
-    app.refreshAdminMetricsFast();
-  } catch (error) {
-    app.showToast(error.message, 'error');
-    app.setAdminRowBusy('deposit', id, false);
-  }
-};
-
-window.adminRejectDep = async (id) => {
-  app.setAdminRowBusy('deposit', id, true);
-  try {
-    await app.fetchApi(`/api/admin/deposits/${id}/reject`, 'POST');
-    app.updateAdminRequestRow('deposit', id, 'rejected');
-    app.showToast(`Deposit ${id} Rejected`, 'error');
-    await app.refreshAdminMetricsFast();
-  } catch (error) {
-    app.showToast(error.message, 'error');
-    app.setAdminRowBusy('deposit', id, false);
-  }
-};
-
-window.adminApproveWth = async (id) => {
-  app.setAdminRowBusy('withdrawal', id, true);
-  try {
-    await app.fetchApi(`/api/admin/withdrawals/${id}/approve`, 'POST');
-    app.updateAdminRequestRow('withdrawal', id, 'paid');
-    app.showToast(`Withdrawal ${id} Marked Paid`, 'success');
-    await app.refreshAdminMetricsFast();
-  } catch (error) {
-    app.showToast(error.message, 'error');
-    app.setAdminRowBusy('withdrawal', id, false);
-  }
-};
-
-window.adminRejectWth = async (id) => {
-  app.setAdminRowBusy('withdrawal', id, true);
-  try {
-    await app.fetchApi(`/api/admin/withdrawals/${id}/reject`, 'POST');
-    app.updateAdminRequestRow('withdrawal', id, 'rejected');
-    app.showToast(`Withdrawal ${id} Rejected & Balance Refunded`, 'error');
-    await app.refreshAdminMetricsFast();
-  } catch (error) {
-    app.showToast(error.message, 'error');
-    app.setAdminRowBusy('withdrawal', id, false);
-  }
-};
