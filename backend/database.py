@@ -150,6 +150,14 @@ def _pool() -> ConnectionPool:
             # error. The schema is set per connection in _configure instead.
             kwargs={"row_factory": _row_factory, "connect_timeout": 10},
             configure=_configure,
+            # Neon scales the compute to zero when idle and drops the sockets
+            # with it. Without this check the pool hands out a dead connection
+            # and the next query fails with "server closed the connection
+            # unexpectedly"; with it, the pool discards and reconnects.
+            check=ConnectionPool.check_connection,
+            # Same reason: do not keep a connection alive for hours hoping it
+            # survives, recycle it well before Neon's idle timeout.
+            max_idle=300,
             open=True,
         )
     return _POOL

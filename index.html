@@ -1523,6 +1523,69 @@
           </table>
         </div>
 
+        <!-- GAME LIST -> pick one -> its own live data and controls -->
+        <div class="nd-panel-head"><h3>Games <small>select one to control it</small></h3></div>
+        <div id="ng-game-list" class="ng-game-list"></div>
+
+        <div id="ng-game-detail" class="ng-detail" hidden>
+          <div class="nd-panel-head">
+            <h3 id="ng-detail-title">Game</h3>
+            <button type="button" id="ng-detail-close" class="nd-icon-btn" title="Close"><i class="bi bi-x-lg"></i></button>
+          </div>
+
+          <div class="ng-kpis">
+            <div class="ng-kpi"><small>Betting now (5 min)</small><b id="ng-detail-live-players">0</b></div>
+            <div class="ng-kpi"><small>Rounds now</small><b id="ng-detail-live-rounds">0</b></div>
+            <div class="ng-kpi"><small>Staked now</small><b id="ng-detail-live-stake">₹0.00</b></div>
+            <div class="ng-kpi is-ggr"><small>Last hour staked</small><b id="ng-detail-hour-stake">₹0.00</b></div>
+          </div>
+
+          <form id="ng-controls-form" class="ng-controls">
+            <label class="nd-switch">
+              <input id="ng-ctl-enabled" type="checkbox">
+              <span>Game is live for players</span>
+            </label>
+
+            <div class="ng-ctl-row">
+              <span class="ng-ctl-label">Result mode</span>
+              <div class="nd-seg">
+                <button type="button" class="nd-seg-btn ng-mode active" data-mode="auto">Auto (RNG)</button>
+                <button type="button" class="nd-seg-btn ng-mode" data-mode="manual">Manual</button>
+              </div>
+            </div>
+
+            <div id="ng-manual-block" class="ng-ctl-row" hidden>
+              <span class="ng-ctl-label">Forced result</span>
+              <div id="ng-forced-choices" class="ng-choices"></div>
+              <input id="ng-ctl-forced" class="form-control" type="text"
+                     placeholder="or type a value" autocomplete="off">
+            </div>
+
+            <label class="ng-ctl-row">
+              <span class="ng-ctl-label">House bias <b id="ng-bias-value">0%</b></span>
+              <input id="ng-ctl-bias" type="range" min="0" max="100" step="1" value="0">
+              <small class="ng-hint">Auto mode only. Re-draws this share of winning rounds as
+                losses, which lowers the game's payout rate. 0% leaves the published odds alone.</small>
+            </label>
+
+            <div class="ng-ctl-row ng-limits">
+              <label><span class="ng-ctl-label">Min stake ₹</span>
+                <input id="ng-ctl-min" class="form-control" type="number" min="1" step="1"></label>
+              <label><span class="ng-ctl-label">Max stake ₹</span>
+                <input id="ng-ctl-max" class="form-control" type="number" min="1" step="1"></label>
+            </div>
+
+            <button class="btn-primary" type="submit"><i class="bi bi-save"></i> Save controls</button>
+          </form>
+
+          <div class="nd-table-wrap">
+            <table class="nd-table">
+              <thead><tr><th>When</th><th>Player</th><th>Stake</th><th>Payout</th><th>House</th></tr></thead>
+              <tbody id="ng-detail-rounds"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="nd-panel-head"><h3>Live feed <small id="ng-live-note">last 40 rounds</small></h3></div>
         <div class="nd-table-wrap">
           <table class="nd-table">

@@ -184,31 +184,4 @@ def spin(req: SpinRequest, current_user: dict = Depends(get_current_user)):
         biased = apply_bias(controls, payout, as_loss)
         return biased if biased is not None else (payout, outcome)
 
-    def _unused_legacy_resolve(stake):
-        pocket = WHEEL_ORDER[int(secure_unit() * len(WHEEL_ORDER))]
-        results = []
-        payout = 0.0
-        for bet, covered in placed:
-            won = pocket in covered
-            # Rounding per bet, not on the total, so what the player is told
-            # each bet returned adds up to what the wallet actually receives.
-            ret = round(bet.amount * payout_multiple(len(covered)), 2) if won else 0.0
-            payout += ret
-            results.append(
-                {
-                    "bet_type": bet.bet_type,
-                    "value": bet.value,
-                    "amount": bet.amount,
-                    "won": won,
-                    "returned": ret,
-                }
-            )
-        colour = "green" if pocket == 0 else ("red" if pocket in RED_NUMBERS else "black")
-        return round(payout, 2), {
-            "pocket": pocket,
-            "pocket_index": WHEEL_ORDER.index(pocket),
-            "colour": colour,
-            "bets": results,
-        }
-
     return play_round(current_user, GAME, total_stake, resolve)

@@ -38,6 +38,7 @@ from pydantic import BaseModel
 
 from database import get_db_connection
 from deps import get_current_user
+from game_controls import check_playable, get_controls
 from games_core import require_game_access, validate_stake
 
 router = APIRouter(prefix="/api/games/aviator", tags=["games"])
@@ -67,6 +68,28 @@ def server_seed(round_no: int) -> str:
 
 def seed_hash(round_no: int) -> str:
     return hashlib.sha256(server_seed(round_no).encode()).hexdigest()
+
+
+def _forced_crash() -> float | None:
+    """The admin's fixed crash multiplier, or None when the game is on auto.
+
+    Read once per round, when the round object is built -- never later. If it
+    were read at crash time the published seed hash would stop matching the
+    result, which is exactly the promise the fairness section makes.
+    """
+    conn = get_db_connection()
+    try:
+        controls = get_controls(conn, GAME)
+    except Exception:
+        return None
+    finally:
+        conn.close()
+    if controls["mode"] != "manual" or not controls["forced"]:
+        return None
+    try:
+        return max(1.0, min(MAX_MULTIPLIER, float(controls["forced"])))
+    except ValueError:
+        return None
 
 
 def crash_point(round_no: int) -> float:
@@ -102,7 +125,10 @@ class _Round:
     def __init__(self, number: int, betting_started: float):
         self.number = number
         self.betting_started = betting_started
-        self.crash = crash_point(number)
+        forced = _forced_crash()
+        self.crash = forced if forced is not None else crash_point(number)
+        # A forced round is not seed-derived, so it must not claim to be.
+        self.provably_fair = forced is None
         self.takeoff = betting_started + BETTING_SECONDS
         self.crashed_at = self.takeoff + flight_seconds(self.crash)
         self.ends_at = self.crashed_at + CRASHED_SECONDS
@@ -267,6 +293,9 @@ def state(current_user: dict = Depends(get_current_user)):
             "takeoff_at": rnd.takeoff,
             "seconds_left": max(0.0, round(rnd.takeoff - now, 2)) if phase == "betting" else 0.0,
             "seed_hash": seed_hash(rnd.number),
+            # False when the admin has pinned this round's crash by hand: the
+            # seed no longer explains the result, so the UI must not claim it.
+            "provably_fair": rnd.provably_fair,
             "crash": rnd.crash if phase == "crashed" else None,
             "seed": server_seed(rnd.number) if phase == "crashed" else None,
             "history": [
@@ -291,6 +320,13 @@ def state(current_user: dict = Depends(get_current_user)):
 def place_bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
     require_game_access(current_user)
     stake = validate_stake(req.amount)
+
+    conn = get_db_connection()
+    try:
+        check_playable(conn, GAME, stake)
+    finally:
+        conn.close()
+
     if req.panel not in range(MAX_PANELS):
         raise HTTPException(status_code=400, detail="Invalid bet panel.")
     if req.auto_cashout is not None and not (1.01 <= req.auto_cashout <= MAX_MULTIPLIER):

@@ -24,7 +24,7 @@ from typing import Callable
 from fastapi import HTTPException
 
 from games_core import MAX_STAKE, MIN_STAKE, secure_unit
-from settings_store import get_setting, set_setting
+from settings_store import set_setting
 
 # Every game the dashboard can steer, with the tokens its manual mode accepts.
 GAMES = {
@@ -71,10 +71,25 @@ def _key(game: str, field: str) -> str:
     return f"game:{game}:{field}"
 
 
-def get_controls(conn, game: str) -> dict:
+def load_raw(conn) -> dict:
+    """Every ``game:*`` setting in one round trip.
+
+    Reading them one key at a time meant 6 queries per game and 42 for the
+    dashboard, which over a network database took ~20 seconds to answer. One
+    query is also what keeps `check_playable` cheap on the betting hot path.
+    """
+    rows = conn.execute(
+        "SELECT key, value FROM system_settings WHERE key LIKE 'game:%'"
+    ).fetchall()
+    return {row["key"]: str(row["value"]) for row in rows}
+
+
+def get_controls(conn, game: str, raw: dict | None = None) -> dict:
     if game not in GAMES:
         raise HTTPException(status_code=404, detail=f"Unknown game: {game}")
-    raw = {field: get_setting(conn, _key(game, field), default)
+    if raw is None:
+        raw = load_raw(conn)
+    raw = {field: raw.get(_key(game, field), default)
            for field, default in DEFAULTS.items()}
     return {
         "game": game,
@@ -90,7 +105,8 @@ def get_controls(conn, game: str) -> dict:
 
 
 def get_all_controls(conn) -> list:
-    return [get_controls(conn, game) for game in GAMES]
+    raw = load_raw(conn)
+    return [get_controls(conn, game, raw) for game in GAMES]
 
 
 def _clamp_bias(value) -> float:

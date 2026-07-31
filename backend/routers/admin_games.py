@@ -10,9 +10,11 @@ GGR is stake minus payout: positive means the house is up.
 """
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from database import get_db_connection
 from deps import require_admin
+from game_controls import get_all_controls, get_controls, save_controls
 
 router = APIRouter(prefix="/api/admin/games", tags=["admin"])
 
@@ -180,6 +182,131 @@ def recent_rounds(game: str | None = None, limit: int = 50, _: bool = Depends(re
             for row in rows
         ]
     }
+
+
+class ControlsUpdate(BaseModel):
+    mode: str | None = None
+    forced: str | None = None
+    house_bias: float | None = None
+    enabled: bool | None = None
+    min_stake: float | None = None
+    max_stake: float | None = None
+
+
+@router.get("/controls")
+def list_controls(_: bool = Depends(require_admin)):
+    """Every game with its current auto/manual settings and its live activity."""
+    conn = get_db_connection()
+    try:
+        controls = get_all_controls(conn)
+        live = _live_activity(conn)
+    finally:
+        conn.close()
+
+    for entry in controls:
+        entry.update(live.get(entry["game"], _EMPTY_LIVE.copy()))
+    return {"games": controls}
+
+
+@router.get("/controls/{game}")
+def read_controls(game: str, _: bool = Depends(require_admin)):
+    conn = get_db_connection()
+    try:
+        controls = get_controls(conn, game)
+        controls.update(_live_activity(conn).get(game, _EMPTY_LIVE.copy()))
+        recent = conn.execute(
+            """
+            SELECT r.id, r.stake, r.payout, r.created_at, u.username
+            FROM game_rounds r JOIN users u ON u.id = r.user_id
+            WHERE r.game = ? ORDER BY r.created_at DESC LIMIT 20
+            """,
+            (game,),
+        ).fetchall()
+    finally:
+        conn.close()
+    controls["recent"] = [
+        {**dict(row), "profit": round(float(row["payout"]) - float(row["stake"]), 2)}
+        for row in recent
+    ]
+    return controls
+
+
+@router.put("/controls/{game}")
+def update_controls(game: str, req: ControlsUpdate, _: bool = Depends(require_admin)):
+    payload = {key: value for key, value in req.model_dump().items() if value is not None}
+    conn = get_db_connection()
+    try:
+        return save_controls(conn, game, payload)
+    finally:
+        conn.close()
+
+
+_EMPTY_LIVE = {
+    "live_players": 0,
+    "live_rounds": 0,
+    "live_stake": 0.0,
+    "hour_players": 0,
+    "hour_rounds": 0,
+    "hour_stake": 0.0,
+}
+
+
+def _live_activity(conn) -> dict:
+    """Who is playing right now, per game.
+
+    "Now" is the last 5 minutes of settled rounds -- these games settle in one
+    request, so there is no open-bet table to count. The hour window sits
+    beside it to show whether a quiet 5 minutes is a lull or a dead game.
+    """
+    now_rows = conn.execute(
+        """
+        SELECT game, COUNT(DISTINCT user_id) AS players, COUNT(*) AS rounds,
+               SUM(stake) AS stake
+        FROM game_rounds
+        WHERE created_at >= NOW() - INTERVAL '5 minutes'
+        GROUP BY game
+        """
+    ).fetchall()
+    hour_rows = conn.execute(
+        """
+        SELECT game, COUNT(DISTINCT user_id) AS players, COUNT(*) AS rounds,
+               SUM(stake) AS stake
+        FROM game_rounds
+        WHERE created_at >= NOW() - INTERVAL '1 hour'
+        GROUP BY game
+        """
+    ).fetchall()
+
+    live = {}
+    for row in now_rows:
+        live[row["game"]] = {
+            "live_players": int(row["players"]),
+            "live_rounds": int(row["rounds"]),
+            "live_stake": round(float(row["stake"] or 0), 2),
+            "hour_players": 0, "hour_rounds": 0, "hour_stake": 0.0,
+        }
+    for row in hour_rows:
+        entry = live.setdefault(row["game"], _EMPTY_LIVE.copy())
+        entry["hour_players"] = int(row["players"])
+        entry["hour_rounds"] = int(row["rounds"])
+        entry["hour_stake"] = round(float(row["stake"] or 0), 2)
+
+    # WinGo keeps its bets open until the round timer expires, so its live
+    # figure is the pending bets, not a settled-rounds count.
+    wingo = conn.execute(
+        """
+        SELECT COUNT(DISTINCT user_id) AS players, COUNT(*) AS rounds,
+               SUM(total_stake) AS stake
+        FROM bets WHERE status = 'pending'
+        """
+    ).fetchone()
+    if wingo and wingo["rounds"]:
+        entry = live.setdefault("wingo", _EMPTY_LIVE.copy())
+        entry["live_players"] = int(wingo["players"])
+        entry["live_rounds"] = int(wingo["rounds"])
+        entry["live_stake"] = round(float(wingo["stake"] or 0), 2)
+
+    return live
 
 
 @router.get("/players")
