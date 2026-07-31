@@ -2,7 +2,9 @@
 
 import asyncio
 import math
-import random
+import secrets
+import sqlite3
+import threading
 import time
 from datetime import datetime
 
@@ -22,6 +24,7 @@ class PythonGameEngine:
         now = time.time()
         self.active_room = "parity"
         self.qr_rotation_secs = 60
+        self._tick_lock = threading.Lock()
         self.rooms = {}
 
         for room, config in ROOM_CONFIG.items():
@@ -81,18 +84,21 @@ class PythonGameEngine:
         return status["betting_open"]
 
     def tick(self):
-        now = time.time()
-        for room, state in self.rooms.items():
-            if now >= state["next_close"]:
-                self.resolve_room(room)
-                duration = state["duration"]
-                while state["next_close"] <= now:
-                    state["next_close"] += duration
-                state["period"] = self._make_period(room, int(state["next_close"] // duration) - 1)
+        # Every status read calls tick(), so without this lock two concurrent
+        # requests could both resolve the same period and pay every winner twice.
+        with self._tick_lock:
+            now = time.time()
+            for room, state in self.rooms.items():
+                if now >= state["next_close"]:
+                    self.resolve_room(room)
+                    duration = state["duration"]
+                    while state["next_close"] <= now:
+                        state["next_close"] += duration
+                    state["period"] = self._make_period(room, int(state["next_close"] // duration) - 1)
 
-        self.qr_rotation_secs -= 1
-        if self.qr_rotation_secs <= 0:
-            self.qr_rotation_secs = 60
+            self.qr_rotation_secs -= 1
+            if self.qr_rotation_secs <= 0:
+                self.qr_rotation_secs = 60
 
     def get_number_details(self, number):
         if number in (0, 5):
@@ -107,27 +113,77 @@ class PythonGameEngine:
             "size": "Big" if number >= 5 else "Small",
         }
 
-    def calculate_winning_outcome(self):
-        return self.get_number_details(random.randint(0, 9))
+    def payout_multiplier_for(self, bet, number):
+        """Payout multiplier this bet would earn if `number` came out, else 0."""
+        selection = bet["selection"]
+        select_type = bet["select_type"]
+        size = "Big" if number >= 5 else "Small"
+
+        if select_type == "color":
+            if selection == "green":
+                if number in (1, 3, 7, 9):
+                    return 1.96
+                if number == 5:
+                    return 1.5
+            elif selection == "red":
+                if number in (2, 4, 6, 8):
+                    return 1.96
+                if number == 0:
+                    return 1.5
+            elif selection == "violet" and number in (0, 5):
+                return 4.5
+        elif select_type == "number":
+            try:
+                if int(selection) == number:
+                    return 8.82
+            except (TypeError, ValueError):
+                return 0.0
+        elif select_type == "size" and selection == size:
+            return 1.96
+        return 0.0
+
+    def calculate_winning_outcome(self, bets=None, settings=None):
+        settings = settings or {}
+        mode = (settings.get("prediction_mode") or "random").lower()
+
+        if mode == "manual":
+            try:
+                forced = int(settings.get("forced_number", 7))
+            except (TypeError, ValueError):
+                forced = 7
+            if 0 <= forced <= 9:
+                return self.get_number_details(forced)
+
+        if mode == "auto_least" and bets:
+            # Pick whichever number costs the house the least this round.
+            liabilities = {
+                n: sum(
+                    float(b["total_stake"]) * self.payout_multiplier_for(b, n)
+                    for b in bets
+                )
+                for n in range(10)
+            }
+            lowest = min(liabilities.values())
+            candidates = [n for n, total in liabilities.items() if total == lowest]
+            return self.get_number_details(secrets.choice(candidates))
+
+        return self.get_number_details(secrets.randbelow(10))
+
+    def _read_settings(self, conn):
+        return {
+            row["key"]: row["value"]
+            for row in conn.execute(
+                "SELECT key, value FROM system_settings WHERE key IN ('prediction_mode', 'forced_number')"
+            ).fetchall()
+        }
 
     def resolve_room(self, room):
         state = self.rooms[room]
         period = state["period"]
-        result = self.calculate_winning_outcome()
-        number = result["number"]
-        color = result["color"]
-        size = result["size"]
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO rounds
-                (period, room, winning_number, winning_color, winning_size, status)
-            VALUES (?, ?, ?, ?, ?, 'completed')
-            """,
-            (period, room, number, color, size),
-        )
+        cursor.execute("BEGIN IMMEDIATE")
 
         bets = [
             dict(row)
@@ -137,30 +193,33 @@ class PythonGameEngine:
             ).fetchall()
         ]
 
+        result = self.calculate_winning_outcome(bets, self._read_settings(conn))
+        number = result["number"]
+        color = result["color"]
+        size = result["size"]
+
+        # `period` is the primary key, so this INSERT is the claim. If another
+        # worker process already resolved this round the insert fails and we
+        # leave its payouts untouched instead of paying every winner twice.
+        try:
+            cursor.execute(
+                """
+                INSERT INTO rounds
+                    (period, room, winning_number, winning_color, winning_size, status)
+                VALUES (?, ?, ?, ?, ?, 'completed')
+                """,
+                (period, room, number, color, size),
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            conn.close()
+            return
+
         for bet in bets:
             stake = float(bet["total_stake"])
-            selection = bet["selection"]
-            select_type = bet["select_type"]
-            won = False
-            payout_multiplier = 0.0
+            payout_multiplier = self.payout_multiplier_for(bet, number)
 
-            if select_type == "color":
-                if selection == "green" and number in (1, 3, 7, 9):
-                    won, payout_multiplier = True, 1.96
-                elif selection == "green" and number == 5:
-                    won, payout_multiplier = True, 1.5
-                elif selection == "red" and number in (2, 4, 6, 8):
-                    won, payout_multiplier = True, 1.96
-                elif selection == "red" and number == 0:
-                    won, payout_multiplier = True, 1.5
-                elif selection == "violet" and number in (0, 5):
-                    won, payout_multiplier = True, 4.5
-            elif select_type == "number" and int(selection) == number:
-                won, payout_multiplier = True, 8.82
-            elif select_type == "size" and selection == size:
-                won, payout_multiplier = True, 1.96
-
-            if won:
+            if payout_multiplier:
                 payout = round(stake * payout_multiplier, 2)
                 cursor.execute(
                     "UPDATE bets SET status = 'win', payout = ? WHERE id = ?",

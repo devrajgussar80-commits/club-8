@@ -1,7 +1,6 @@
 """FastAPI server entrypoint for the Club 8 REST API."""
 
 import asyncio
-import hashlib
 import hmac
 import io
 import os
@@ -26,8 +25,15 @@ UPLOAD_ROOT = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
 QR_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "qr")
 PUBLIC_API_URL = os.environ.get("PUBLIC_API_URL", "").rstrip("/")
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
-FIXED_ADMIN_KEY_HASH = "9f70286bbd0f20020776b088d5273c2f42d4bcf5c158789807fde1a48a75999e"
-ALLOW_DEMO_USER = os.environ.get("ALLOW_DEMO_USER", "false").lower() == "true"
+APP_ENV = os.environ.get("APP_ENV", "development").lower()
+IS_PRODUCTION = APP_ENV == "production"
+if IS_PRODUCTION and not ADMIN_API_KEY:
+    raise RuntimeError("ADMIN_API_KEY is not set. Refusing to expose the admin API without a key.")
+# The demo fallback hands out a real account to unauthenticated callers, so it
+# can never be on in production regardless of how the env var is set.
+ALLOW_DEMO_USER = (
+    os.environ.get("ALLOW_DEMO_USER", "false").lower() == "true" and not IS_PRODUCTION
+)
 SERVE_FRONTEND = os.environ.get("SERVE_FRONTEND", "true").lower() == "true"
 FRONTEND_ORIGINS = [
     origin.strip().rstrip("/")
@@ -106,11 +112,11 @@ def get_current_user(authorization: Optional[str] = Header(None)):
     return user_dict
 
 def require_admin(x_admin_key: Optional[str] = Header(None)):
-    supplied_key = x_admin_key or ""
-    supplied_hash = hashlib.sha256(supplied_key.encode("utf-8")).hexdigest()
-    matches_runtime_key = bool(ADMIN_API_KEY) and hmac.compare_digest(supplied_key, ADMIN_API_KEY)
-    matches_fixed_key = hmac.compare_digest(supplied_hash, FIXED_ADMIN_KEY_HASH)
-    if not (matches_runtime_key or matches_fixed_key):
+    # Only the configured key is accepted. There is deliberately no build-time
+    # fallback key: one shipped in the source would survive every rotation.
+    if not ADMIN_API_KEY:
+        raise HTTPException(status_code=503, detail="Admin API is not configured on this server")
+    if not hmac.compare_digest(x_admin_key or "", ADMIN_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid admin access key")
     return True
 
@@ -152,7 +158,9 @@ def register_user(req: RegisterRequest):
         conn.close()
         raise HTTPException(status_code=400, detail="Phone number is already registered!")
 
-    user_id = f"USR{conn.execute('SELECT COUNT(*) FROM users').fetchone()[0] + 1001}"
+    # COUNT(*) reuses an id after any deletion, which would hand a new account
+    # the previous holder's bets and deposits.
+    user_id = f"USR{uuid.uuid4().hex[:10].upper()}"
     pwd_hash = auth.hash_password(req.password)
 
     cursor.execute("""
@@ -176,11 +184,22 @@ def login_user(req: LoginRequest):
         raise HTTPException(status_code=400, detail="Invalid phone or password!")
 
     user_dict = dict(user)
-    if not auth.verify_password(req.password, user_dict["password_hash"]) and user_dict["password_hash"] != "demo_pass_hash":
+    if not auth.verify_password(req.password, user_dict["password_hash"]):
         raise HTTPException(status_code=400, detail="Invalid phone or password!")
 
     if user_dict["status"] == "disabled":
         raise HTTPException(status_code=403, detail="Account suspended by Admin!")
+
+    # Transparently move legacy SHA-256 records onto PBKDF2 now that we have the
+    # plaintext in hand.
+    if auth.needs_rehash(user_dict["password_hash"]):
+        conn = get_db_connection()
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (auth.hash_password(req.password), user_dict["id"]),
+        )
+        conn.commit()
+        conn.close()
 
     token = auth.create_access_token({"user_id": user_dict["id"], "phone": user_dict["phone"]})
     return {
@@ -280,15 +299,22 @@ def place_bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    total_stake = req.amount * req.multiplier
-    if current_user["balance"] < total_stake:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Insufficient demo balance.")
+    total_stake = round(req.amount * req.multiplier, 2)
 
-    # Deduct balance
+    # Re-read the balance under a write lock. The snapshot on current_user is
+    # stale, so checking it alone let concurrent bets overdraw the wallet.
+    cursor.execute("BEGIN IMMEDIATE")
+    latest = cursor.execute(
+        "SELECT balance FROM users WHERE id = ?", (current_user["id"],)
+    ).fetchone()
+    if not latest or float(latest["balance"]) < total_stake:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=400, detail="Insufficient balance.")
+
     cursor.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (total_stake, current_user["id"]))
-    
-    bet_id = f"BET-{conn.execute('SELECT COUNT(*) FROM bets').fetchone()[0] + 1001}"
+
+    bet_id = f"BET-{uuid.uuid4().hex[:10].upper()}"
     cursor.execute("""
     INSERT INTO bets (id, user_id, period, select_type, selection, amount, multiplier, total_stake, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
@@ -754,7 +780,7 @@ class AddQRReq(BaseModel):
 @app.post("/api/admin/qr-codes")
 def add_admin_qr_code(req: AddQRReq, _: bool = Depends(require_admin)):
     conn = get_db_connection()
-    qr_id = f"QR-{conn.execute('SELECT COUNT(*) FROM qr_codes').fetchone()[0] + 101}"
+    qr_id = f"QR-{uuid.uuid4().hex[:8].upper()}"
     conn.execute("UPDATE qr_codes SET is_active = 0")
     conn.execute(
         """INSERT INTO qr_codes

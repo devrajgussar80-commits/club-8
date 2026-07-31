@@ -39,6 +39,30 @@ This repository contains two deployable surfaces:
 - The PythonAnywhere WSGI process did not reliably keep the FastAPI background clock task alive. `game_engine.py` now advances lazily on status reads, while the frontend uses a deterministic clock as a display fallback.
 - Direct Vercel routes previously returned 404; their rewrites now target the SPA root.
 
+## Required production environment
+
+`APP_ENV=production` makes the server refuse to start unless `JWT_SECRET_KEY`
+and `ADMIN_API_KEY` are set, and it forces `ALLOW_DEMO_USER` off. Set all of
+`JWT_SECRET_KEY`, `PASSWORD_SALT`, `ADMIN_API_KEY`, `FRONTEND_ORIGINS` and
+`PUBLIC_API_URL` on the host before reloading.
+
+There is no build-time admin key any more. `X-Admin-Key` is compared only
+against `ADMIN_API_KEY`, so rotating that variable fully revokes old access.
+
+## Game access
+
+One admin switch per user unlocks every game, WinGo included. The switch can
+only be turned on once the user has ≥ ₹300 of *approved* deposits, and
+`/api/game/bet` re-checks it on the server, so the gate cannot be bypassed by
+calling the API directly. The frontend re-syncs `/api/auth/me` on a poll and on
+window focus, so a grant applies without a re-login.
+
+## Passwords
+
+Stored as PBKDF2-HMAC-SHA256 with a per-user random salt. Accounts predating
+this still carry a legacy unsalted SHA-256 digest; those verify normally and are
+rewritten to the new format on the next successful login.
+
 ## Payment and admin workflow
 
 - The backend is the source of truth for deposit, withdrawal, and wallet balances.

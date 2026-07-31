@@ -220,13 +220,14 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)", (k, v))
     conn.commit()
 
-    # Seed Demo Player User if empty
+    # Seed Demo Player User if empty. The placeholder hash matches no password;
+    # 'demo_pass_hash' used to be accepted as a login bypass for this account.
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         cursor.execute("""
         INSERT INTO users (id, phone, username, password_hash, balance, status, referral_code)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, ('USR9842', '+91 98765 43210', 'Lucky Player', 'demo_pass_hash', 1000.0, 'active', 'REF9842'))
+        """, ('USR9842', '+91 98765 43210', 'Lucky Player', '!no-login', 1000.0, 'active', 'REF9842'))
         conn.commit()
 
     conn.close()
