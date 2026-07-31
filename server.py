@@ -1,6 +1,7 @@
 """FastAPI server entrypoint for the Club 8 REST API."""
 
 import asyncio
+import hashlib
 import hmac
 import io
 import os
@@ -111,14 +112,58 @@ def get_current_user(authorization: Optional[str] = Header(None)):
 
     return user_dict
 
+def _rotated_admin_key_hash() -> str:
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT value FROM system_settings WHERE key = 'admin_api_key_hash'"
+        ).fetchone()
+        return str(row[0]) if row else ""
+    finally:
+        conn.close()
+
+
 def require_admin(x_admin_key: Optional[str] = Header(None)):
     # Only the configured key is accepted. There is deliberately no build-time
     # fallback key: one shipped in the source would survive every rotation.
     if not ADMIN_API_KEY:
         raise HTTPException(status_code=503, detail="Admin API is not configured on this server")
-    if not hmac.compare_digest(x_admin_key or "", ADMIN_API_KEY):
+    supplied_key = x_admin_key or ""
+    rotated_hash = _rotated_admin_key_hash()
+    supplied_hash = hashlib.sha256(supplied_key.encode("utf-8")).hexdigest()
+    if rotated_hash:
+        if not hmac.compare_digest(supplied_hash, rotated_hash):
+            raise HTTPException(status_code=401, detail="Invalid admin access key")
+        return True
+    if not hmac.compare_digest(supplied_key, ADMIN_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid admin access key")
     return True
+
+
+class AdminKeyRotationRequest(BaseModel):
+    api_key: str
+
+
+@app.post("/api/admin/rotate-access-key")
+def rotate_admin_access_key(
+    req: AdminKeyRotationRequest,
+    _: bool = Depends(require_admin),
+):
+    """One-time authenticated rotation without storing the key in plaintext."""
+    if len(req.api_key.strip()) < 24:
+        raise HTTPException(status_code=400, detail="Admin access key must be at least 24 characters")
+    key_hash = hashlib.sha256(req.api_key.encode("utf-8")).hexdigest()
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "INSERT INTO system_settings (key, value) VALUES ('admin_api_key_hash', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key_hash,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "message": "Admin access key rotated"}
 
 @app.get("/api/health")
 def health_check():
