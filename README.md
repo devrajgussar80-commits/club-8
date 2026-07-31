@@ -112,3 +112,5 @@ The following are intentionally ignored or local-only:
 - preview logs and screenshots
 
 Do not delete `color_prediction.db` or `uploads/` during routine cleanup; they may contain local user and QR data.
+
+# Deploy target: Vercel (frontend) + Render (API at club-8-et75.onrender.com)
