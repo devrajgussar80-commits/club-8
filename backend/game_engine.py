@@ -155,10 +155,17 @@ class PythonGameEngine:
 
         if mode == "auto_least" and bets:
             # Pick whichever number costs the house the least this round.
+            # Rounded to paise before comparing: these are sums of floats, so
+            # two numbers costing the same rupee amount can differ by ~1e-15
+            # and an exact `==` would silently drop one from the tie, always
+            # steering the result to the same number instead of a random tie.
             liabilities = {
-                n: sum(
-                    float(b["total_stake"]) * self.payout_multiplier_for(b, n)
-                    for b in bets
+                n: round(
+                    sum(
+                        float(b["total_stake"]) * self.payout_multiplier_for(b, n)
+                        for b in bets
+                    ),
+                    2,
                 )
                 for n in range(10)
             }
@@ -169,12 +176,30 @@ class PythonGameEngine:
         return self.get_number_details(secrets.randbelow(10))
 
     def _read_settings(self, conn):
-        return {
+        """Resolution settings, with the games dashboard taking precedence.
+
+        WinGo predates the per-game control panel and still has its own
+        `prediction_mode`/`forced_number` keys. Both now feed the same
+        decision: if an admin sets WinGo to manual in the games panel, that is
+        what wins, otherwise the older keys keep working exactly as before.
+        Without this the panel's WinGo card would show a mode that changed
+        nothing.
+        """
+        settings = {
             row["key"]: row["value"]
             for row in conn.execute(
-                "SELECT key, value FROM system_settings WHERE key IN ('prediction_mode', 'forced_number')"
+                """
+                SELECT key, value FROM system_settings
+                 WHERE key IN ('prediction_mode', 'forced_number',
+                               'game:wingo:mode', 'game:wingo:forced')
+                """
             ).fetchall()
         }
+        forced = str(settings.get("game:wingo:forced", "")).strip()
+        if settings.get("game:wingo:mode") == "manual" and forced.isdigit():
+            settings["prediction_mode"] = "manual"
+            settings["forced_number"] = forced
+        return settings
 
     def resolve_room(self, room):
         state = self.rooms[room]

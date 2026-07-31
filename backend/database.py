@@ -254,6 +254,13 @@ CREATE TABLE IF NOT EXISTS qr_codes (
     last_used_at TIMESTAMPTZ
 );
 
+-- Uploaded QR images live in the database, not on the host's filesystem.
+-- Render (and most PaaS free tiers) wipe the disk on every deploy, which
+-- would silently take the deposit QR down and break payments until an admin
+-- noticed and re-uploaded it. Postgres is the one place that survives.
+ALTER TABLE qr_codes ADD COLUMN IF NOT EXISTS image_data BYTEA;
+ALTER TABLE qr_codes ADD COLUMN IF NOT EXISTS image_type TEXT;
+
 CREATE TABLE IF NOT EXISTS deposit_orders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

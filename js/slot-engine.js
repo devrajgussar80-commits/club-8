@@ -15,6 +15,13 @@
 
 const money = value => Number(value || 0).toFixed(2);
 
+// Symbols per reel strip. Long enough that a spin travels a convincing
+// distance before the result rolls into the window.
+const STRIP_LEN = 14;
+// Reels stop left to right; each one runs this much longer than the last.
+const REEL_STAGGER_MS = 260;
+const SPIN_MS = 900;
+
 export class SlotEngine {
   /**
    * @param {object} options       shared bridge (toast, canPlay, api, ...)
@@ -59,24 +66,72 @@ export class SlotEngine {
     this.render();
   }
 
+  /**
+   * A real reel, not a grid of cells that swap glyphs.
+   *
+   * Each reel is a window (`.slot-reel`) with a tall strip inside it. The
+   * strip holds STRIP_LEN symbols; sliding it up by whole symbol-heights and
+   * then snapping back to the top is what makes a continuous spin. The three
+   * visible symbols are the LAST `rows` on the strip, so when the strip
+   * finishes its travel the result is already sitting in the window.
+   */
   buildGrid() {
     const { reels, rows } = this.config;
     this.grid.style.setProperty('--slot-reels', reels);
+    this.grid.style.setProperty('--slot-rows', rows);
     this.grid.innerHTML = '';
     this.cells = [];
+    this.strips = [];
+
     for (let reel = 0; reel < reels; reel += 1) {
-      const column = document.createElement('div');
-      column.className = 'slot-reel';
-      const columnCells = [];
-      for (let row = 0; row < rows; row += 1) {
+      const window_ = document.createElement('div');
+      window_.className = 'slot-reel';
+      const strip = document.createElement('div');
+      strip.className = 'slot-strip';
+
+      for (let index = 0; index < STRIP_LEN; index += 1) {
         const cell = document.createElement('span');
         cell.className = 'slot-cell';
         cell.textContent = '❔';
-        column.appendChild(cell);
-        columnCells.push(cell);
+        strip.appendChild(cell);
       }
-      this.grid.appendChild(column);
-      this.cells.push(columnCells);
+      window_.appendChild(strip);
+      this.grid.appendChild(window_);
+      this.strips.push(strip);
+      // The visible window is the tail of the strip.
+      this.cells.push([...strip.children].slice(-rows));
+    }
+  }
+
+  /**
+   * Distance from one symbol to the next, in px.
+   *
+   * Measured between two real cells rather than computed from a height, so
+   * the 6px CSS gap is included. Using the bare cell height here drifted the
+   * reel by one gap per symbol and the result landed misaligned.
+   */
+  pitch() {
+    const cells = this.strips[0]?.children;
+    if (!cells || cells.length < 2) return 0;
+    return cells[1].getBoundingClientRect().top - cells[0].getBoundingClientRect().top;
+  }
+
+  /** Total travel from the top of the strip to its resting position. */
+  travel() {
+    return (STRIP_LEN - this.config.rows) * this.pitch();
+  }
+
+  /** At rest the strip sits at translateY(0); CSS bottom-anchors it. */
+  resetStrip(strip) {
+    strip.style.transition = 'none';
+    strip.style.transform = 'translateY(0px)';
+  }
+
+  /** Fill everything above the visible window with fresh random symbols. */
+  reseedStrip(reel) {
+    const cells = [...this.strips[reel].children];
+    for (let index = 0; index < cells.length - this.config.rows; index += 1) {
+      cells[index].textContent = this.randomSymbol();
     }
   }
 
@@ -113,7 +168,10 @@ export class SlotEngine {
   }
 
   fillRandom() {
-    this.cells.forEach(column => column.forEach(cell => { cell.textContent = this.randomSymbol(); }));
+    this.strips.forEach(strip => {
+      [...strip.children].forEach(cell => { cell.textContent = this.randomSymbol(); });
+      this.resetStrip(strip);
+    });
   }
 
   setAmount(value) {
@@ -137,17 +195,42 @@ export class SlotEngine {
     if (this.winEl) this.winEl.textContent = '';
   }
 
+  /**
+   * Free-run the reels while the server round is in flight.
+   *
+   * The strip slides up by one symbol every tick and snaps back to the top
+   * without a transition, so the motion never stops or shows a seam. A CSS
+   * animation could not be used here because the spin has to keep going for
+   * however long the network takes, which is not known up front.
+   */
   startCycling() {
-    // Plain interval rather than requestAnimationFrame: this still ticks when
-    // the tab is throttled, so a spin can never appear to hang mid-flight.
     clearInterval(this.cycler);
-    this.cells.forEach(column => column.forEach(cell => cell.classList.add('is-spinning')));
+    const pitch = this.pitch();
+    const limit = STRIP_LEN - this.config.rows;
+    this.offsets = this.strips.map(() => 0);
+    this.grid.classList.add('is-spinning');
+
     this.cycler = setInterval(() => {
-      this.cells.forEach((column, reel) => {
+      this.strips.forEach((strip, reel) => {
         if (this.settled > reel) return;
-        column.forEach(cell => { cell.textContent = this.randomSymbol(); });
+        this.offsets[reel] += 1;
+        if (this.offsets[reel] > limit) {
+          // Snap back to rest with fresh symbols above, no transition, so the
+          // wrap is invisible and the reel reads as endless.
+          this.offsets[reel] = 0;
+          this.reseedStrip(reel);
+          strip.style.transition = 'none';
+        } else {
+          strip.style.transition = 'transform 70ms linear';
+        }
+        strip.style.transform = `translateY(${this.offsets[reel] * pitch}px)`;
       });
     }, 70);
+  }
+
+  stopCycling() {
+    clearInterval(this.cycler);
+    this.grid.classList.remove('is-spinning');
   }
 
   async spin() {
@@ -161,19 +244,24 @@ export class SlotEngine {
     this.render();
     this.startCycling();
 
+    // The reels always spin for at least this long, even on a fast reply --
+    // a spin that resolves in 80ms reads as a broken machine, not a fast one.
+    const floor = new Promise(resolve => setTimeout(resolve, SPIN_MS));
+
     let result;
     try {
       result = await this.api(`/api/games/${this.config.game}/spin`, 'POST', { amount: this.amount });
     } catch (error) {
-      clearInterval(this.cycler);
-      this.cells.forEach(column => column.forEach(cell => cell.classList.remove('is-spinning')));
+      this.stopCycling();
+      this.fillRandom();
       this.busy = false;
       this.render();
       return this.toast(error.message || 'Spin failed.', 'error');
     }
+    await floor;
 
     await this.settleReels(result);
-    clearInterval(this.cycler);
+    this.stopCycling();
     this.busy = false;
 
     // The server's balance is authoritative -- take it rather than doing the
@@ -184,20 +272,45 @@ export class SlotEngine {
     this.render();
   }
 
+  /**
+   * Bring the reels to rest on the result, left to right.
+   *
+   * The winning symbols are written into the tail of the strip *before* the
+   * final slide, so the reel decelerates into them rather than snapping.
+   */
   settleReels(result) {
-    // Reels stop left to right, 260ms apart, the way a physical machine does.
+    const travel = this.travel();
+
     return new Promise(resolve => {
       const stop = reel => {
-        if (reel >= this.cells.length) return resolve();
+        if (reel >= this.strips.length) return setTimeout(resolve, 220);
+
+        const strip = this.strips[reel];
+        const cells = [...strip.children];
+
+        // Land the result in the window and fill the run-up above it.
         result.reels[reel].forEach((symbol, row) => {
-          const cell = this.cells[reel][row];
-          cell.textContent = this.emoji?.[symbol] || symbol;
-          cell.classList.remove('is-spinning');
-          cell.classList.add('is-landing');
-          setTimeout(() => cell.classList.remove('is-landing'), 320);
+          cells[cells.length - this.config.rows + row].textContent =
+            this.emoji?.[symbol] || symbol;
         });
+        for (let index = 0; index < cells.length - this.config.rows; index += 1) {
+          cells[index].textContent = this.randomSymbol();
+        }
+
+        // Jump to the top of the strip, then ease the whole way back down to
+        // rest: the long travel plus the slight overshoot in the easing is
+        // what gives the reel its weight.
+        strip.style.transition = 'none';
+        strip.style.transform = `translateY(${travel}px)`;
+        void strip.offsetHeight;  // force the jump to land before the ease
+        strip.style.transition = 'transform 620ms cubic-bezier(.18,.9,.24,1.06)';
+        strip.style.transform = 'translateY(0px)';
+
         this.settled = reel + 1;
-        setTimeout(() => stop(reel + 1), 260);
+        strip.parentElement.classList.add('is-landing');
+        setTimeout(() => strip.parentElement.classList.remove('is-landing'), 700);
+
+        setTimeout(() => stop(reel + 1), REEL_STAGGER_MS);
       };
       stop(0);
     });

@@ -481,19 +481,28 @@ async def upload_admin_qr_code(
     if not content or len(content) > config.QR_UPLOAD_MAX_BYTES:
         raise HTTPException(status_code=400, detail="QR image must be smaller than 5 MB")
 
-    filename = f"qr-{uuid.uuid4().hex}{extension}"
-    os.makedirs(config.QR_UPLOAD_DIR, exist_ok=True)
-    with open(os.path.join(config.QR_UPLOAD_DIR, filename), "wb") as output:
-        output.write(content)
-
+    # Stored as bytes in Postgres rather than written to disk: the host's
+    # filesystem does not survive a deploy, and a missing QR means players
+    # cannot pay at all. See the qr_codes columns in database.py.
     conn = get_db_connection()
     qr_id = f"QR-{uuid.uuid4().hex[:8].upper()}"
-    qr_url = config.qr_public_url(filename)
+    qr_url = config.qr_public_url(qr_id)
     conn.execute(
         """INSERT INTO qr_codes
-        (id, name, note, qr_url, upi_id, min_amount, max_amount, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1)""",
-        (qr_id, name.strip(), note.strip(), qr_url, upi_id.strip(), min_amount, max_amount),
+        (id, name, note, qr_url, upi_id, min_amount, max_amount, is_active,
+         image_data, image_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+        (
+            qr_id,
+            name.strip(),
+            note.strip(),
+            qr_url,
+            upi_id.strip(),
+            min_amount,
+            max_amount,
+            content,
+            qr_file.content_type,
+        ),
     )
     conn.commit()
     conn.close()

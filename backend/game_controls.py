@@ -26,35 +26,57 @@ from fastapi import HTTPException
 from games_core import MAX_STAKE, MIN_STAKE, secure_unit
 from settings_store import set_setting
 
-# Every game the dashboard can steer, with the tokens its manual mode accepts.
+# Every game the dashboard can steer.
+#
+# `can_force` says whether mode/forced/house_bias actually reach the game. It
+# is not decoration: a game whose result is decided in the browser cannot be
+# steered from here, and showing an admin a switch that changes nothing is
+# worse than showing no switch. Only `enabled` and the stake limits apply
+# everywhere the server sees the round.
 GAMES = {
     "slots": {
         "label": "Lucky Reels",
+        "can_force": True,
         "forced_choices": ["lose", "small_win", "big_win", "jackpot"],
     },
     "megaslots": {
         "label": "Mega Slots",
+        "can_force": True,
         "forced_choices": ["lose", "small_win", "big_win", "jackpot"],
     },
     "roulette": {
         "label": "Roulette",
+        "can_force": True,
         # Plus any pocket number 0-36, typed straight into the box.
         "forced_choices": ["lose", "win"],
     },
     "aviator": {
         "label": "Aviator",
+        "can_force": True,
         # A multiplier typed in as text, e.g. "1.00" for an instant bust.
         "forced_choices": ["1.00", "1.50", "2.00", "5.00", "10.00"],
     },
     "wingo": {
         "label": "WinGo",
+        "can_force": True,
         "forced_choices": [str(n) for n in range(10)],
+    },
+    "lottery": {
+        "label": "Daily Lottery",
+        # The result is the admin's own winning-number entry on the lottery
+        # desk, so there is nothing here to force.
+        "can_force": False,
+        "note": "Winner is picked on the lottery desk below.",
+        "forced_choices": [],
     },
     "chicken-road": {
         "label": "Chicken Road",
-        "forced_choices": ["lose", "win"],
+        # Runs entirely in the browser: the server never sees a round, so a
+        # forced result here would be ignored.
+        "can_force": False,
+        "note": "Runs in the browser — server cannot steer its results yet.",
+        "forced_choices": [],
     },
-    "lottery": {"label": "Daily Lottery", "forced_choices": []},
 }
 
 DEFAULTS = {
@@ -101,6 +123,8 @@ def get_controls(conn, game: str, raw: dict | None = None) -> dict:
         "min_stake": float(raw["min_stake"]),
         "max_stake": float(raw["max_stake"]),
         "forced_choices": GAMES[game]["forced_choices"],
+        "can_force": GAMES[game]["can_force"],
+        "note": GAMES[game].get("note", ""),
     }
 
 
@@ -121,6 +145,17 @@ def save_controls(conn, game: str, payload: dict) -> dict:
     """Validate and persist. Unknown fields are ignored, not an error."""
     if game not in GAMES:
         raise HTTPException(status_code=404, detail=f"Unknown game: {game}")
+
+    if not GAMES[game]["can_force"]:
+        # Refuse rather than store-and-ignore: a saved "manual" that never
+        # takes effect is the failure mode this flag exists to prevent.
+        for field in ("mode", "forced", "house_bias"):
+            if payload.get(field) not in (None, "", 0, 0.0, "auto"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{GAMES[game]['label']} cannot be steered from here. "
+                           f"{GAMES[game].get('note', '')}".strip(),
+                )
 
     if "mode" in payload:
         if payload["mode"] not in ("auto", "manual"):

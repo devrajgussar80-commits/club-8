@@ -18,7 +18,14 @@ IS_PRODUCTION = APP_ENV == "production"
 UPLOAD_ROOT = os.environ.get("UPLOAD_DIR", os.path.join(BACKEND_DIR, "uploads"))
 QR_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "qr")
 
-PUBLIC_API_URL = os.environ.get("PUBLIC_API_URL", "").rstrip("/")
+# Render injects RENDER_EXTERNAL_URL with the service's own public URL, so
+# there is nothing to set by hand there. PUBLIC_API_URL stays as the override
+# for hosts that do not, or for a custom domain.
+PUBLIC_API_URL = (
+    os.environ.get("PUBLIC_API_URL")
+    or os.environ.get("RENDER_EXTERNAL_URL")
+    or ""
+).rstrip("/")
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 
 if IS_PRODUCTION and not ADMIN_API_KEY:
@@ -62,8 +69,8 @@ QR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
 QR_UPLOAD_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 
 
-def qr_public_url(filename: str) -> str:
-    """Absolute URL for an uploaded QR when the API knows its own origin."""
+def qr_public_url(qr_id: str) -> str:
+    """Absolute URL that serves an uploaded QR out of the database."""
     if PUBLIC_API_URL:
-        return f"{PUBLIC_API_URL}/uploads/qr/{filename}"
-    return f"/uploads/qr/{filename}"
+        return f"{PUBLIC_API_URL}/api/qr-image/{qr_id}"
+    return f"/api/qr-image/{qr_id}"

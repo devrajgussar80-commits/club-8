@@ -1333,6 +1333,132 @@ class App {
       : '<tr><td colspan="7" class="nd-empty">No rounds in this window</td></tr>';
 
     this.loadAdminGameFeed();
+    this.loadAdminGameList();
+  }
+
+  /** The game picker: one card per game with its live activity. */
+  async loadAdminGameList() {
+    const list = document.getElementById('ng-game-list');
+    if (!list) return;
+    let games;
+    try {
+      ({ games } = await this.fetchApi('/api/admin/games/controls'));
+    } catch (error) {
+      list.innerHTML = `<div class="nd-empty">${error.message}</div>`;
+      return;
+    }
+    this.adminGameControls = games;
+
+    list.innerHTML = games.map(game => `
+      <button type="button" class="ng-game-card${game.enabled ? '' : ' is-off'}" data-game="${game.game}">
+        <b>${game.label}</b>
+        <span class="ng-game-mode is-${game.mode}">${game.mode === 'manual' ? 'MANUAL' : 'AUTO'}</span>
+        <span class="ng-game-live">
+          <i class="${game.live_players ? 'is-live' : ''}"></i>
+          ${game.live_players} betting now
+        </span>
+        <small>${game.hour_rounds} rounds · ₹${Number(game.hour_stake).toFixed(0)} staked (1h)</small>
+        ${game.enabled ? '' : '<em class="ng-game-off">OFFLINE</em>'}
+      </button>`).join('');
+
+    list.querySelectorAll('[data-game]').forEach(card =>
+      card.addEventListener('click', () => this.openAdminGame(card.dataset.game)));
+
+    // Keep the open detail panel in step with the refreshed numbers.
+    if (this.adminGameOpen) this.openAdminGame(this.adminGameOpen);
+  }
+
+  async openAdminGame(game) {
+    const panel = document.getElementById('ng-game-detail');
+    if (!panel) return;
+    this.adminGameOpen = game;
+
+    let data;
+    try {
+      data = await this.fetchApi(`/api/admin/games/controls/${game}`);
+    } catch (error) {
+      return this.showToast(error.message, 'error');
+    }
+    panel.hidden = false;
+
+    const money = value => `₹${Number(value || 0).toFixed(2)}`;
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    set('ng-detail-title', data.label);
+    set('ng-detail-live-players', data.live_players);
+    set('ng-detail-live-rounds', data.live_rounds);
+    set('ng-detail-live-stake', money(data.live_stake));
+    set('ng-detail-hour-stake', money(data.hour_stake));
+
+    document.getElementById('ng-ctl-enabled').checked = data.enabled;
+    document.getElementById('ng-ctl-forced').value = data.forced || '';
+    document.getElementById('ng-ctl-bias').value = data.house_bias;
+    set('ng-bias-value', `${data.house_bias}%`);
+    document.getElementById('ng-ctl-min').value = data.min_stake;
+    document.getElementById('ng-ctl-max').value = data.max_stake;
+
+    document.querySelectorAll('.nd-seg-btn.ng-mode').forEach(button => {
+      button.classList.toggle('active', button.dataset.mode === data.mode);
+      // A game the server cannot steer gets its result controls locked, not
+      // hidden behind a switch that would silently do nothing.
+      button.disabled = !data.can_force;
+    });
+    document.getElementById('ng-ctl-bias').disabled = !data.can_force;
+    document.getElementById('ng-manual-block').hidden = data.mode !== 'manual' || !data.can_force;
+
+    const note = document.getElementById('ng-ctl-note');
+    if (note) {
+      note.textContent = data.can_force ? '' : data.note;
+      note.hidden = data.can_force;
+    }
+
+    const choices = document.getElementById('ng-forced-choices');
+    choices.innerHTML = data.forced_choices.map(choice =>
+      `<button type="button" class="ng-choice${choice === data.forced ? ' is-active' : ''}"
+               data-forced="${choice}">${choice.replace(/_/g, ' ')}</button>`).join('')
+      || '<small class="ng-hint">This game has no forced results.</small>';
+    choices.querySelectorAll('[data-forced]').forEach(button =>
+      button.addEventListener('click', () => {
+        document.getElementById('ng-ctl-forced').value = button.dataset.forced;
+        choices.querySelectorAll('[data-forced]').forEach(b => b.classList.toggle('is-active', b === button));
+      }));
+
+    const body = document.getElementById('ng-detail-rounds');
+    body.innerHTML = data.recent.length
+      ? data.recent.map(round => `
+          <tr>
+            <td>${new Date(round.created_at).toLocaleTimeString()}</td>
+            <td>${round.username}</td>
+            <td>${money(round.stake)}</td>
+            <td>${money(round.payout)}</td>
+            <td class="${round.profit <= 0 ? 'ng-up' : 'ng-down'}">${money(-round.profit)}</td>
+          </tr>`).join('')
+      : '<tr><td colspan="5" class="nd-empty">No rounds yet</td></tr>';
+  }
+
+  async saveAdminGameControls() {
+    const game = this.adminGameOpen;
+    if (!game) return;
+    const canForce = this.adminGameControls?.find(g => g.game === game)?.can_force;
+    const body = {
+      enabled: document.getElementById('ng-ctl-enabled').checked,
+      min_stake: Number(document.getElementById('ng-ctl-min').value),
+      max_stake: Number(document.getElementById('ng-ctl-max').value)
+    };
+    if (canForce) {
+      body.mode = document.querySelector('.nd-seg-btn.ng-mode.active')?.dataset.mode || 'auto';
+      body.forced = document.getElementById('ng-ctl-forced').value.trim();
+      body.house_bias = Number(document.getElementById('ng-ctl-bias').value);
+    }
+    try {
+      await this.fetchApi(`/api/admin/games/controls/${game}`, 'PUT', body);
+      this.showToast('Game controls saved.', 'success');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+    this.loadAdminGameList();
   }
 
   async loadAdminGameFeed() {
@@ -1884,6 +2010,28 @@ class App {
     });
 
     document.getElementById('ng-lottery-date')?.addEventListener('change', () => this.loadAdminLottery());
+
+    document.querySelectorAll('.nd-seg-btn.ng-mode').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.nd-seg-btn.ng-mode')
+          .forEach(b => b.classList.toggle('active', b === button));
+        document.getElementById('ng-manual-block').hidden = button.dataset.mode !== 'manual';
+      });
+    });
+
+    document.getElementById('ng-ctl-bias')?.addEventListener('input', event => {
+      document.getElementById('ng-bias-value').textContent = `${event.target.value}%`;
+    });
+
+    document.getElementById('ng-detail-close')?.addEventListener('click', () => {
+      this.adminGameOpen = null;
+      document.getElementById('ng-game-detail').hidden = true;
+    });
+
+    document.getElementById('ng-controls-form')?.addEventListener('submit', event => {
+      event.preventDefault();
+      this.saveAdminGameControls();
+    });
 
     document.getElementById('ng-draw-form')?.addEventListener('submit', async event => {
       event.preventDefault();

@@ -55,6 +55,10 @@ def create_app() -> FastAPI:
     @application.middleware("http")
     async def disable_local_preview_cache(request, call_next):
         response = await call_next(request)
+        # QR images are immutable per id and are loaded on every deposit
+        # screen, so they keep the cache headers their route already set.
+        if request.url.path.startswith("/api/qr-image/"):
+            return response
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"
         return response

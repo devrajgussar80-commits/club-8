@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from database import UniqueViolation, get_db_connection
 from deps import get_current_user, require_admin
+from game_controls import check_playable
 
 router = APIRouter(tags=["lottery"])
 
@@ -123,6 +124,10 @@ def buy_ticket(req: BuyTicketRequest, current_user: dict = Depends(get_current_u
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # The dashboard's on/off switch has to reach ticket sales, otherwise
+        # turning the lottery off would only hide it and still take money.
+        check_playable(conn, GAME, float(TICKET_PRICE))
+
         draw = _ensure_draw(cursor, draw_date)
         if draw["status"] != "open":
             raise HTTPException(status_code=400, detail="Today's draw is closed.")

@@ -6749,10 +6749,31 @@ body[data-club-page="game"] .mobile-frame {
   background: radial-gradient(120% 100% at 50% 0%, #2a1a4d, #140b26);
   box-shadow: inset 0 0 0 2px rgba(255, 215, 106, .35), 0 10px 30px rgba(0, 0, 0, .45);
 }
-.slot-reel { display: grid; gap: 6px; }
+/* A reel is a fixed-height WINDOW; the strip inside it is taller than the
+   window and slides. Without overflow:hidden the whole strip would show and
+   there would be no reel at all, just a long column of symbols. */
+.slot-reel {
+  position: relative;
+  overflow: hidden;
+  /* Exactly `rows` symbols tall, including the gaps between them. */
+  height: calc(var(--slot-cell-h) * var(--slot-rows, 3) + 6px * (var(--slot-rows, 3) - 1));
+  border-radius: 12px;
+}
+/* Anchored to the BOTTOM of the window, so "at rest" is translateY(0) and the
+   last `rows` symbols are the visible ones with no measuring required. The
+   engine only has to measure while it is animating, which is the one time the
+   page is guaranteed to be on screen -- measuring a display:none page returns
+   zero and used to park the reel on the wrong symbols. */
+.slot-strip {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: grid;
+  gap: 6px;
+  will-change: transform;
+}
 .slot-cell {
   display: flex; align-items: center; justify-content: center;
-  aspect-ratio: 1 / 1;
+  height: var(--slot-cell-h);
   border-radius: 12px;
   background: linear-gradient(180deg, #efe6ff, #cbb9ee);
   /* Viewport-relative, not fixed px: the emoji scales with the cell, so a
@@ -6760,14 +6781,36 @@ body[data-club-page="game"] .mobile-frame {
   font-size: clamp(18px, 7vw, 34px);
   line-height: 1;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .18);
-  transition: transform .18s ease, box-shadow .18s ease;
+  transition: box-shadow .18s ease;
 }
+.slot-grid { --slot-cell-h: clamp(46px, 19vw, 86px); }
+.slot-page-mega .slot-grid { --slot-cell-h: clamp(38px, 12.5vw, 62px); }
 .slot-page-mega .slot-cell { font-size: clamp(14px, 4.6vw, 26px); }
-.slot-cell.is-spinning { filter: blur(1px); opacity: .85; }
-.slot-cell.is-landing { transform: scale(1.12); }
+
+/* Motion blur belongs on the moving strip, not on each symbol -- blurring 42
+   individual cells is what made the old spin stutter on a phone. */
+.slot-grid.is-spinning .slot-strip { filter: blur(1.4px); }
+.slot-reel.is-landing { animation: slot-reel-thud .34s ease; }
+@keyframes slot-reel-thud {
+  0%, 100% { transform: translateY(0); }
+  38% { transform: translateY(4px); }
+}
+
 .slot-cell.is-win {
   background: linear-gradient(180deg, #fff3c4, #ffd76a);
   box-shadow: 0 0 0 2px #ffb300, 0 0 18px rgba(255, 200, 60, .8);
+}
+
+/* The window's own gloss: darker at the edges so the strip reads as curving
+   away, which is what makes a flat div look like a physical reel. */
+.slot-reel::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  border-radius: 12px;
+  background: linear-gradient(180deg,
+    rgba(0, 0, 0, .42), rgba(0, 0, 0, 0) 26%,
+    rgba(0, 0, 0, 0) 74%, rgba(0, 0, 0, .42));
 }
 
 .slot-win {
@@ -7095,4 +7138,64 @@ body[data-club-page="game"] .mobile-frame {
   background: conic-gradient(from 0deg, rgba(90, 190, 255, .75), rgba(90, 190, 255, 0) 70%);
   opacity: .55;
 }
+
+
+/* ------------------------------------------- admin: per-game control panel */
+
+.ng-game-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px; margin: 12px 0;
+}
+.ng-game-card {
+  position: relative; display: grid; gap: 5px; text-align: left;
+  padding: 12px 14px; border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .05); color: inherit;
+}
+.ng-game-card:hover { border-color: rgba(255, 215, 106, .5); }
+.ng-game-card.is-off { opacity: .55; }
+.ng-game-card b { font-size: 14px; }
+.ng-game-card small { font-size: 11px; opacity: .6; }
+.ng-game-mode {
+  justify-self: start; padding: 2px 7px; border-radius: 999px;
+  font-size: 9px; font-weight: 800; letter-spacing: .08em;
+}
+/* Manual is the state an operator must never leave on by accident, so it is
+   the one that shouts. */
+.ng-game-mode.is-auto { background: rgba(126, 240, 164, .18); color: #7ef0a4; }
+.ng-game-mode.is-manual { background: rgba(255, 123, 107, .2); color: #ff9d8f; }
+.ng-game-live { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.ng-game-live i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(255, 255, 255, .25);
+}
+.ng-game-live i.is-live { background: #7ef0a4; box-shadow: 0 0 8px #7ef0a4; }
+.ng-game-off {
+  position: absolute; top: 10px; right: 10px;
+  font-size: 9px; font-style: normal; font-weight: 800; color: #ff7b6b;
+}
+
+.ng-detail {
+  margin: 14px 0; padding: 14px; border-radius: 14px;
+  border: 1px solid rgba(255, 215, 106, .3);
+  background: rgba(255, 255, 255, .04);
+}
+.ng-controls { display: grid; gap: 14px; margin: 12px 0 16px; }
+.ng-ctl-row { display: grid; gap: 8px; }
+.ng-ctl-label { font-size: 12px; opacity: .75; }
+.ng-ctl-label b { color: #ffd76a; }
+.ng-hint { font-size: 11px; opacity: .55; line-height: 1.45; }
+.ng-limits { grid-template-columns: 1fr 1fr; gap: 10px; }
+.ng-limits label { display: grid; gap: 6px; }
+
+.ng-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.ng-choice {
+  padding: 6px 11px; border-radius: 9px; text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(255, 255, 255, .06); color: #fff;
+  font-size: 11px; font-weight: 700;
+}
+.ng-choice.is-active { border-color: #ffd76a; background: rgba(255, 215, 106, .2); color: #ffd76a; }
+
+.ng-controls input[type="range"] { width: 100%; accent-color: #ffd76a; }
 
