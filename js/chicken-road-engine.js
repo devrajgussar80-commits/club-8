@@ -48,12 +48,19 @@ const CAR_COLORS = ['#e34b4b', '#3da7ea', '#efc94b', '#8b62d2', '#32b17c', '#ef7
 const laneCenter = index => ROAD_START + LANE_WIDTH * index + LANE_WIDTH / 2;
 
 export class ChickenRoadEngine {
-  constructor({ getBalance, changeBalance, toast, canPlay, denyPlay }) {
+  constructor({ getBalance, setBalance, api, toast, canPlay, denyPlay }) {
     this.getBalance = getBalance;
-    this.changeBalance = changeBalance;
+    // Server-authoritative now: the backend debits the stake, draws the bust
+    // lane and reveals each jump. This engine only animates the verdict and
+    // stores the real balance the server returns -- it never moves money
+    // itself, which is what let the old build bet with money that wasn't there.
+    this.setBalance = setBalance;
+    this.api = api;
     this.toast = toast;
     this.canPlay = canPlay || (() => true);
     this.denyPlay = denyPlay || (() => {});
+    this.roundId = null;
+    this._pending = null;
     this.amount = 1;
     this.active = false;
     this.busy = false;
@@ -267,15 +274,32 @@ export class ChickenRoadEngine {
     this.render();
   }
 
-  start() {
+  async start() {
     if (!this.canPlay()) return this.denyPlay();
+    if (this.busy) return;
     if (this.amount > this.getBalance()) return this.toast('Wallet balance kam hai.', 'error');
 
-    this.changeBalance(-this.amount);
+    this.busy = true;
+    this.render();
+    let res;
+    try {
+      res = await this.api('/api/games/chicken/bet', 'POST', {
+        amount: this.amount,
+        mode: this.mode.value
+      });
+    } catch (error) {
+      this.busy = false;
+      this.render();
+      return this.toast(error.message || 'Bet nahi lag paya.', 'error');
+    }
+
+    this.roundId = res.round_id;
+    this.setBalance(res.balance);   // real wallet, straight from the server
     this.active = true;
+    this.busy = false;
     this.lane = 0;
     this.multiplier = 1;
-    document.getElementById('chicken-bet-id').textContent = `CR${Date.now().toString().slice(-8)}`;
+    document.getElementById('chicken-bet-id').textContent = res.round_id;
     this.message.textContent = 'Road ready — jump ya stake cash out karo.';
     this.badge.textContent = '';
     this.stage.className = 'chicken-stage active';
@@ -286,7 +310,7 @@ export class ChickenRoadEngine {
     this.render();
   }
 
-  jump() {
+  async jump() {
     if (!this.active || this.busy) return;
     this.busy = true;
     this.play.disabled = true;
@@ -294,10 +318,22 @@ export class ChickenRoadEngine {
     this.stage.classList.remove('is-hit');
     this.message.textContent = 'Chicken jumping…';
 
+    // The verdict comes from the server, before a single frame runs; the
+    // animation is then steered to show whatever the server decided.
+    let res;
+    try {
+      res = await this.api('/api/games/chicken/jump', 'POST', { round_id: this.roundId });
+    } catch (error) {
+      this.busy = false;
+      this.play.disabled = false;
+      this.stage.classList.remove('is-playing');
+      return this.toast(error.message || 'Jump fail ho gaya.', 'error');
+    }
+    this._pending = res;
+
     const targetLane = this.lane;
     const flight = 760;
-    // The verdict is drawn here, before a single frame of animation runs.
-    const safe = secureUnit() < MODES[this.mode.value].safe;
+    const safe = res.result !== 'hit';
     this.stageTrafficFor(targetLane, !safe, flight);
 
     const fromX = this.chickenScreenX();
@@ -349,49 +385,82 @@ export class ChickenRoadEngine {
   settleJump(safe) {
     this.busy = false;
     this.stage.classList.remove('is-playing');
-    if (!safe) return this.finish(false);
+    const res = this._pending || {};
+    this._pending = null;
 
-    this.lane += 1;
-    this.multiplier = Number(this.laneMultiplier(this.lane - 1).toFixed(2));
+    if (!safe) {
+      if (res.balance != null) this.setBalance(res.balance);
+      return this.finish(false);
+    }
+
+    // Trust the server's lane and multiplier, not a local recompute.
+    this.lane = res.lane != null ? res.lane : this.lane + 1;
+    this.multiplier = Number((res.multiplier != null ? res.multiplier : this.laneMultiplier(this.lane - 1)).toFixed(2));
     this.updateCarVisibility();
     this.paintTargets();
     this.badge.textContent = 'SAFE';
     setTimeout(() => { if (this.active) this.badge.textContent = ''; }, 700);
 
-    if (this.lane >= LANES) {
+    if (res.result === 'cleared' || this.lane >= LANES) {
+      if (res.balance != null) this.setBalance(res.balance);
       this.message.textContent = 'Road cleared — full payout!';
-      return this.finish(true);
+      return this.finishWithPayout(res.payout != null ? res.payout : this.amount * this.multiplier);
     }
     this.message.textContent = `Safe lane ${this.lane}! ₹${money(this.amount * this.multiplier)} available.`;
     this.render();
   }
 
-  finish(cashedOut) {
+  /** Manual cash-out button: ask the server to pay out the current round. */
+  async finish(cashedOut) {
     if (!this.active) return;
+
+    // The hit path (cashedOut === false) is settled by the jump response; only
+    // a manual cash-out needs its own server call.
+    if (cashedOut) {
+      if (this.busy) return;
+      this.busy = true;
+      this.render();
+      let res;
+      try {
+        res = await this.api('/api/games/chicken/cashout', 'POST', { round_id: this.roundId });
+      } catch (error) {
+        this.busy = false;
+        this.render();
+        return this.toast(error.message || 'Cash out fail ho gaya.', 'error');
+      }
+      this.setBalance(res.balance);
+      this.multiplier = Number((res.multiplier || this.multiplier).toFixed(2));
+      return this.finishWithPayout(res.payout);
+    }
+
     this.active = false;
     this.busy = false;
+    this.roundId = null;
     this.stage.classList.remove('is-playing', 'active');
     this.paintTargets();
+    this.message.textContent = `Chicken hit on lane ${this.lane + 1}. Bet lost.`;
+    this.badge.textContent = 'HIT!';
+    this.stage.classList.add('is-hit');
+    this.toast('Chicken hit — active bet lost.', 'error');
+    setTimeout(() => {
+      this.stage.classList.remove('is-hit');
+      this.lane = 0;
+      this.updateCarVisibility();
+      this.resetChicken();
+      this.paintTargets();
+    }, 1100);
+    this.render();
+  }
 
-    if (cashedOut) {
-      const payout = this.amount * this.multiplier;
-      this.changeBalance(payout);
-      this.message.textContent = `Cashed out ₹${money(payout)} at ${this.multiplier.toFixed(2)}x.`;
-      this.badge.textContent = 'CASHED OUT';
-      this.toast(`Chicken Road payout ₹${money(payout)}`, 'success');
-    } else {
-      this.message.textContent = `Chicken hit on lane ${this.lane + 1}. Bet lost.`;
-      this.badge.textContent = 'HIT!';
-      this.stage.classList.add('is-hit');
-      this.toast('Chicken hit — active bet lost.', 'error');
-      setTimeout(() => {
-        this.stage.classList.remove('is-hit');
-        this.lane = 0;
-        this.updateCarVisibility();
-        this.resetChicken();
-        this.paintTargets();
-      }, 1100);
-    }
+  finishWithPayout(payout) {
+    this.active = false;
+    this.busy = false;
+    this.roundId = null;
+    this.stage.classList.remove('is-playing', 'active');
+    this.paintTargets();
+    this.message.textContent = `Cashed out ₹${money(payout)} at ${this.multiplier.toFixed(2)}x.`;
+    this.badge.textContent = 'CASHED OUT';
+    this.toast(`Chicken Road payout ₹${money(payout)}`, 'success');
     this.render();
   }
 

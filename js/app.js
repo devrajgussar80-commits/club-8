@@ -12,6 +12,7 @@ import { RouletteEngine } from './roulette-engine.js?v=1';
 import { DiceEngine } from './dice-engine.js?v=1';
 import { LotteryEngine } from './lottery.js?v=1';
 import { VisitorTracker } from './tracker.js?v=1';
+import { initInteractions } from './interactions.js?v=1';
 
 class App {
   constructor() {
@@ -84,25 +85,11 @@ class App {
     ];
   }
 
-  getArcadeBalanceDelta(userId = appState.getState().user.id) {
-    try {
-      const ledger = JSON.parse(localStorage.getItem('CLUB8_ARCADE_BALANCE_LEDGER') || '{}');
-      return Number(ledger[userId] || 0);
-    } catch {
-      return 0;
-    }
-  }
-
-  addArcadeBalanceDelta(amount, userId = appState.getState().user.id) {
-    let ledger = {};
-    try {
-      ledger = JSON.parse(localStorage.getItem('CLUB8_ARCADE_BALANCE_LEDGER') || '{}');
-    } catch {
-      ledger = {};
-    }
-    ledger[userId] = Number((Number(ledger[userId] || 0) + Number(amount || 0)).toFixed(2));
-    localStorage.setItem('CLUB8_ARCADE_BALANCE_LEDGER', JSON.stringify(ledger));
-    return ledger[userId];
+  // A leftover local "arcade balance ledger" used to be layered on top of the
+  // real balance; it is gone now that all games settle on the server. Wipe any
+  // stale copy so a returning player is not shown inflated money one last time.
+  clearLegacyArcadeLedger() {
+    try { localStorage.removeItem('CLUB8_ARCADE_BALANCE_LEDGER'); } catch {}
   }
 
   async readUpiIdFromQrFile(file) {
@@ -593,6 +580,9 @@ class App {
       this.tracker.watchAuthScreen();
     }
 
+    // One delegated listener, so buttons rendered later still get feedback.
+    initInteractions();
+
     this.handleRouting();
     window.openClubPage = (page) => {
       this.closeClubBonus();
@@ -635,6 +625,19 @@ class App {
     const mineCount = document.getElementById('mines-count');
     if (!grid || !betButton || !betInput || !mineCount) return;
 
+    // Server-authoritative now: the backend debits the stake, hides the mines
+    // and reveals each tile. This code only draws what the server returns and
+    // stores the real balance -- the old build never touched the wallet, so it
+    // was free money.
+    const walletEl = document.getElementById('mines-balance');
+    const applyBalance = value => {
+      const state = appState.getState();
+      state.user.balance = Number(Number(value).toFixed(2));
+      appState.saveState();
+      this.refreshArcadeWallets();
+      if (walletEl) walletEl.textContent = Number(state.user.balance).toFixed(2);
+    };
+
     const renderGrid = () => {
       grid.innerHTML = Array.from({ length: 25 }, (_, index) =>
         `<button type="button" class="mine-tile" data-mine-tile="${index}" aria-label="Tile ${index + 1}"><span></span></button>`
@@ -644,65 +647,114 @@ class App {
       const output = document.getElementById('mines-message');
       if (output) output.textContent = message;
     };
-    const setGameId = () => {
+    const setGameId = (id) => {
       const output = document.getElementById('mines-game-id');
-      if (output) output.textContent = String(Date.now()).slice(-8);
+      if (output) output.textContent = id || String(Date.now()).slice(-8);
     };
     const updateNext = () => {
       const bet = Math.max(1, Number(betInput.value) || 1);
       const next = document.getElementById('mines-next-win');
-      if (next) next.textContent = `${(bet * this.minesMultiplier * 1.102).toFixed(2)} INR`;
+      if (next) next.textContent = `${(bet * this.minesMultiplier).toFixed(2)} INR`;
     };
-    const finishRound = (lost = false) => {
-      if (!this.minesRound) return;
+    const revealLayout = (mines) => {
+      if (!Array.isArray(mines)) return;
       grid.querySelectorAll('.mine-tile').forEach((tile, index) => {
-        if (this.minesRound.mines.has(index)) tile.classList.add('mine-reveal');
+        if (mines.includes(index)) tile.classList.add('mine-reveal');
       });
+    };
+    const endRound = (message) => {
       betButton.classList.remove('cashout');
       betButton.querySelector('span').textContent = 'BET';
-      setMessage(lost ? 'Boom! Mine found. Start a new round.' : 'Round cashed out successfully.');
+      setMessage(message);
       this.minesRound = null;
       this.minesMultiplier = 1;
       updateNext();
     };
-    const startRound = () => {
-      if (!this.canEnterPremiumGames()) {
-        this.showGameAccessModal();
-        return;
+
+    const startRound = async () => {
+      if (!this.canEnterPremiumGames()) return this.showGameAccessModal();
+      const amount = Math.max(1, Number(betInput.value) || 1);
+      if (amount > Number(appState.getState().user.balance || 0)) {
+        return this.showToast('Wallet balance kam hai.', 'error');
       }
-      const count = Math.max(1, Math.min(10, Number(mineCount.value) || 3));
-      const mines = new Set();
-      while (mines.size < count) mines.add(Math.floor(Math.random() * 25));
-      this.minesRound = { mines, opened: new Set() };
-      this.minesMultiplier = 1;
-      renderGrid();
-      setGameId();
-      betButton.classList.add('cashout');
-      betButton.querySelector('span').textContent = 'CASH OUT';
-      setMessage('Round active — reveal a safe tile or cash out.');
-      updateNext();
+      betButton.disabled = true;
+      try {
+        const res = await this.fetchApi('/api/games/mines/bet', 'POST', {
+          amount, mines: Math.max(1, Math.min(10, Number(mineCount.value) || 3))
+        });
+        this.minesRound = { id: res.round_id };
+        this.minesMultiplier = 1;
+        applyBalance(res.balance);
+        renderGrid();
+        setGameId(res.round_id);
+        betButton.classList.add('cashout');
+        betButton.querySelector('span').textContent = 'CASH OUT';
+        setMessage('Round active — reveal a safe tile or cash out.');
+        updateNext();
+      } catch (error) {
+        this.showToast(error.message || 'Bet nahi lag paya.', 'error');
+      } finally {
+        betButton.disabled = false;
+      }
+    };
+
+    const cashOut = async () => {
+      if (!this.minesRound) return;
+      betButton.disabled = true;
+      try {
+        const res = await this.fetchApi('/api/games/mines/cashout', 'POST', { round_id: this.minesRound.id });
+        applyBalance(res.balance);
+        revealLayout(res.mines);
+        endRound(`Cashed out ₹${Number(res.payout).toFixed(2)} at ${Number(res.multiplier).toFixed(2)}×.`);
+        this.showToast(`Mines payout ₹${Number(res.payout).toFixed(2)}`, 'success');
+      } catch (error) {
+        this.showToast(error.message || 'Cash out fail ho gaya.', 'error');
+      } finally {
+        betButton.disabled = false;
+      }
     };
 
     renderGrid();
     setGameId();
     updateNext();
-    grid.addEventListener('click', event => {
+
+    grid.addEventListener('click', async event => {
       const tile = event.target.closest('[data-mine-tile]');
-      if (!tile || !this.minesRound || tile.classList.contains('revealed')) return;
+      if (!tile || !this.minesRound || tile.classList.contains('revealed') || tile.dataset.busy) return;
       const index = Number(tile.dataset.mineTile);
-      tile.classList.add('revealed');
-      if (this.minesRound.mines.has(index)) {
-        tile.classList.add('mine-hit');
-        finishRound(true);
-        return;
+      tile.dataset.busy = '1';
+      try {
+        const res = await this.fetchApi('/api/games/mines/reveal', 'POST', {
+          round_id: this.minesRound.id, tile: index
+        });
+        tile.classList.add('revealed');
+        if (res.result === 'boom') {
+          tile.classList.add('mine-hit');
+          applyBalance(res.balance);
+          revealLayout(res.mines);
+          endRound('Boom! Mine found. Start a new round.');
+          this.showToast('Mine hit — bet lost.', 'error');
+          return;
+        }
+        tile.classList.add('safe-hit');
+        this.minesMultiplier = Number(res.multiplier);
+        if (res.result === 'cleared') {
+          applyBalance(res.balance);
+          revealLayout(res.mines);
+          endRound(`All safe tiles cleared — ₹${Number(res.payout).toFixed(2)} paid!`);
+          this.showToast(`Mines payout ₹${Number(res.payout).toFixed(2)}`, 'success');
+          return;
+        }
+        setMessage(`Safe! ${res.opened} tile${res.opened === 1 ? '' : 's'} opened · ${this.minesMultiplier.toFixed(2)}×`);
+        updateNext();
+      } catch (error) {
+        this.showToast(error.message || 'Reveal fail ho gaya.', 'error');
+      } finally {
+        delete tile.dataset.busy;
       }
-      tile.classList.add('safe-hit');
-      this.minesRound.opened.add(index);
-      this.minesMultiplier = Number((this.minesMultiplier + 0.12 + Number(mineCount.value) * 0.025).toFixed(3));
-      setMessage(`Safe! ${this.minesRound.opened.size} tile${this.minesRound.opened.size === 1 ? '' : 's'} opened · ${this.minesMultiplier.toFixed(2)}×`);
-      updateNext();
     });
-    betButton.addEventListener('click', () => this.minesRound ? finishRound(false) : startRound());
+
+    betButton.addEventListener('click', () => this.minesRound ? cashOut() : startRound());
     document.getElementById('mines-minus')?.addEventListener('click', () => {
       betInput.value = Math.max(1, (Number(betInput.value) || 10) - 1).toFixed(2);
       updateNext();
@@ -712,6 +764,7 @@ class App {
       updateNext();
     });
     document.getElementById('mines-random')?.addEventListener('click', () => {
+      if (this.minesRound) return;
       mineCount.value = String(1 + Math.floor(Math.random() * 5));
       setMessage(`${mineCount.value} mines selected randomly.`);
       updateNext();
@@ -758,23 +811,16 @@ class App {
       });
     });
 
+    this.clearLegacyArcadeLedger();
     const gameOptions = {
       getBalance: () => appState.getState().user.balance,
-      changeBalance: delta => {
-        const state = appState.getState();
-        this.addArcadeBalanceDelta(delta, state.user.id);
-        state.user.balance = Math.max(0, Number((state.user.balance + delta).toFixed(2)));
-        appState.saveState();
-        this.aviatorEngine?.renderWallet();
-        this.chickenRoadEngine?.render();
-      },
       toast: (message, type) => this.showToast(message, type),
       canPlay: () => this.canEnterPremiumGames(),
       denyPlay: () => this.showGameAccessModal(),
 
-      // The server-settled games use these two instead of changeBalance:
-      // they post a stake, and the response carries the authoritative
-      // balance, so the client stores it rather than recomputing it.
+      // Every game is server-settled: it posts a stake, and the response
+      // carries the authoritative balance, which the client just stores. No
+      // client-side balance arithmetic, so nothing can drift or inflate.
       api: (url, method, body) => this.fetchApi(url, method, body),
       setBalance: value => {
         const state = appState.getState();
@@ -1077,7 +1123,11 @@ class App {
         roomState.timeRemaining = clock.timeRemaining;
         roomState.isFrozen = clock.timeRemaining <= 5;
       }
-      state.user.balance = Number((data.user_balance + this.getArcadeBalanceDelta(state.user.id)).toFixed(2));
+      // The server balance is the whole truth now that every arcade game
+      // settles on the backend. It used to have a local "arcade delta" added
+      // on top, which is exactly how chicken-road/mines wins inflated the
+      // wallet with money that was never really there.
+      state.user.balance = Number(Number(data.user_balance).toFixed(2));
 
       appState.saveState();
       this.syncHistoryAndOrders(requestedRoom);

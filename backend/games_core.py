@@ -143,3 +143,77 @@ def play_round(user: dict, game: str, stake: float, resolve):
         "balance": round(float(new_balance), 2),
         **outcome,
     }
+
+
+# ----------------------------------------------------- step games (chicken, mines)
+#
+# Crash-style games where the stake is taken up front and the player cashes out
+# later (or busts). They cannot use play_round, which settles in one shot, so
+# they debit with hold_stake and later credit with settle_held. Both take the
+# user row's FOR UPDATE lock, so the wallet can never be overdrawn or paid twice
+# by two requests racing -- which is exactly the bug these replaced, where the
+# game trusted a client-side balance and let bets ride on money that was not
+# there.
+
+
+def hold_stake(user: dict, stake: float) -> dict:
+    """Debit the stake to open a round. Rejects if the wallet cannot cover it."""
+    require_game_access(user)
+    stake = validate_stake(stake)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        locked = cursor.execute(
+            "SELECT balance FROM users WHERE id = ? FOR UPDATE", (user["id"],)
+        ).fetchone()
+        if not locked or float(locked["balance"]) < stake:
+            raise HTTPException(status_code=400, detail="Insufficient balance.")
+        new_balance = cursor.execute(
+            "UPDATE users SET balance = balance - ? WHERE id = ? RETURNING balance",
+            (stake, user["id"]),
+        ).fetchone()["balance"]
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return {"stake": stake, "balance": round(float(new_balance), 2)}
+
+
+def settle_held(user_id: str, game: str, stake: float, payout: float, outcome: dict) -> dict:
+    """Credit the payout (0 on a bust) and record the finished round."""
+    payout = round(max(0.0, float(payout)), 2)
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # The stake was already taken by hold_stake, so only the payout moves.
+        new_balance = cursor.execute(
+            "UPDATE users SET balance = balance + ? WHERE id = ? RETURNING balance",
+            (payout, user_id),
+        ).fetchone()["balance"]
+        cursor.execute(
+            """
+            INSERT INTO game_rounds (id, game, user_id, stake, payout, outcome)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"{game.upper()[:3]}-{uuid.uuid4().hex[:10].upper()}",
+                game,
+                user_id,
+                stake,
+                payout,
+                json.dumps(outcome),
+            ),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return {"payout": payout, "balance": round(float(new_balance), 2)}

@@ -26,7 +26,16 @@ from routers import (
     referrals,
     wallet,
 )
-from routers.games import aviator, dice, lottery, megaslots, roulette, slots
+from routers.games import (
+    aviator,
+    chicken,
+    dice,
+    lottery,
+    megaslots,
+    mines,
+    roulette,
+    slots,
+)
 
 
 @contextlib.asynccontextmanager
@@ -89,6 +98,8 @@ def create_app() -> FastAPI:
     application.include_router(megaslots.router)
     application.include_router(roulette.router)
     application.include_router(dice.router)
+    application.include_router(chicken.router)
+    application.include_router(mines.router)
     application.include_router(lottery.router)
 
     application.mount(
