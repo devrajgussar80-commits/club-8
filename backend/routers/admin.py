@@ -7,7 +7,6 @@ session token or the `X-Admin-Key` shared key.
 import hashlib
 import os
 import subprocess
-import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -24,7 +23,6 @@ from schemas import (
     AdminCredentialsRequest,
     AdminKeyRotationRequest,
     AdminLoginRequest,
-    DeployHooksRequest,
     LocalPushRequest,
     ForceResultReq,
     GrantAdminRequest,
@@ -35,7 +33,6 @@ from schemas import (
 )
 from settings_store import (
     get_approved_deposit_total,
-    get_setting,
     get_settings,
     get_wallet_settings,
     set_setting,
@@ -198,82 +195,9 @@ def change_admin_credentials(
 
 
 # ----------------- DEPLOY -----------------
-# Only these hosts may be called by the redeploy button, so the stored URL
-# cannot be abused to make the server POST to somewhere arbitrary.
-_DEPLOY_HOOK_HOSTS = ("api.vercel.com", "api.render.com")
-
-
-def _valid_hook(url: str) -> bool:
-    url = url.strip()
-    if not url:
-        return True  # empty clears the hook
-    if not url.startswith("https://"):
-        return False
-    host = url.split("/", 3)[2].split("@")[-1].split(":")[0].lower()
-    return any(host == h or host.endswith("." + h) for h in _DEPLOY_HOOK_HOSTS)
-
-
-@router.get("/deploy/hooks")
-def get_deploy_hooks(_: bool = Depends(require_admin)):
-    conn = get_db_connection()
-    try:
-        return {
-            "vercel_deploy_hook": get_setting(conn, "vercel_deploy_hook", ""),
-            "render_deploy_hook": get_setting(conn, "render_deploy_hook", ""),
-        }
-    finally:
-        conn.close()
-
-
-@router.post("/deploy/hooks")
-def save_deploy_hooks(req: DeployHooksRequest, _: bool = Depends(require_admin)):
-    if not _valid_hook(req.vercel_deploy_hook):
-        raise HTTPException(status_code=400, detail="Vercel hook must be an https api.vercel.com URL")
-    if not _valid_hook(req.render_deploy_hook):
-        raise HTTPException(status_code=400, detail="Render hook must be an https api.render.com URL")
-    conn = get_db_connection()
-    try:
-        set_setting(conn, "vercel_deploy_hook", req.vercel_deploy_hook.strip())
-        set_setting(conn, "render_deploy_hook", req.render_deploy_hook.strip())
-        conn.commit()
-    finally:
-        conn.close()
-    return {"status": "success"}
-
-
-def _fire_hook(url: str) -> dict:
-    """POST a deploy hook. The build runs async on the host; a 2xx just means
-    the trigger was accepted."""
-    try:
-        req = urllib.request.Request(url, method="POST", data=b"")
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return {"ok": 200 <= resp.status < 300, "status": resp.status}
-    except Exception as exc:  # network error, bad URL, host down
-        return {"ok": False, "error": str(exc)[:200]}
-
-
-@router.post("/deploy/trigger")
-def trigger_deploy(_: bool = Depends(require_admin)):
-    """Fire whichever deploy hooks are configured, from the server side."""
-    conn = get_db_connection()
-    try:
-        vercel = get_setting(conn, "vercel_deploy_hook", "")
-        render = get_setting(conn, "render_deploy_hook", "")
-    finally:
-        conn.close()
-
-    if not vercel and not render:
-        raise HTTPException(
-            status_code=400,
-            detail="No deploy hooks saved yet. Paste your Vercel/Render hook URLs first.",
-        )
-
-    result = {}
-    if vercel:
-        result["vercel"] = _fire_hook(vercel)
-    if render:
-        result["render"] = _fire_hook(render)
-    return {"status": "success", "results": result}
+# No deploy-hook plumbing here on purpose: a push to GitHub already triggers a
+# Vercel + Render redeploy, so the only button that adds anything is the local
+# commit+push below.
 
 
 def _git(args, cwd):

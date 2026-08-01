@@ -1934,58 +1934,18 @@ class App {
     }
   }
 
-  async loadDeployHooks() {
-    // The local commit+push button only makes sense on the dev machine, where
-    // this backend has the git repo. Ask the backend and reveal it if so.
+  async loadDeployState() {
+    // The one-click commit+push only works on the dev machine, where this
+    // backend has the git repo. Reveal it there; on the live site show the
+    // note instead (a push already redeploys, so there's nothing to click).
     const box = document.getElementById('admin-local-deploy');
-    if (box) {
-      try {
-        const { available } = await this.adminApi('/api/admin/deploy/local-available');
-        box.hidden = !available;
-      } catch (error) { box.hidden = true; }
-    }
-    return this._loadDeployHookFields();
-  }
-
-  async _loadDeployHookFields() {
+    const note = document.getElementById('admin-deploy-live-note');
+    let available = false;
     try {
-      const data = await this.adminApi('/api/admin/deploy/hooks');
-      const v = document.getElementById('admin-hook-vercel');
-      const r = document.getElementById('admin-hook-render');
-      if (v) v.value = data.vercel_deploy_hook || '';
-      if (r) r.value = data.render_deploy_hook || '';
-    } catch (error) { /* leave fields as-is */ }
-  }
-
-  async saveDeployHooks() {
-    try {
-      await this.adminApi('/api/admin/deploy/hooks', 'POST', {
-        vercel_deploy_hook: document.getElementById('admin-hook-vercel')?.value.trim() || '',
-        render_deploy_hook: document.getElementById('admin-hook-render')?.value.trim() || ''
-      });
-      this.showToast('Deploy hooks saved.', 'success');
-    } catch (error) {
-      this.showToast(error.message, 'error');
-    }
-  }
-
-  async triggerRedeploy() {
-    const button = document.getElementById('admin-deploy-now');
-    const out = document.getElementById('admin-deploy-result');
-    if (button) button.disabled = true;
-    if (out) out.textContent = 'Triggering redeploy…';
-    try {
-      const data = await this.adminApi('/api/admin/deploy/trigger', 'POST');
-      const parts = Object.entries(data.results || {}).map(([host, r]) =>
-        `${host}: ${r.ok ? 'triggered ✓' : 'failed — ' + (r.error || r.status)}`);
-      if (out) out.textContent = parts.join('  ·  ') || 'Done.';
-      this.showToast('Redeploy triggered. Build chalu ho gaya, 1-2 min me live.', 'success');
-    } catch (error) {
-      if (out) out.textContent = error.message;
-      this.showToast(error.message, 'error');
-    } finally {
-      if (button) button.disabled = false;
-    }
+      ({ available } = await this.adminApi('/api/admin/deploy/local-available'));
+    } catch (error) { /* treat as not available */ }
+    if (box) box.hidden = !available;
+    if (note) note.hidden = available;
   }
 
   async commitAndDeploy() {
@@ -2424,7 +2384,7 @@ class App {
         // Referrals are their own endpoint, not part of the dashboard payload,
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
-        if (tab.dataset.section === 'security') { void this.loadAppInfo(); void this.loadDeployHooks(); }
+        if (tab.dataset.section === 'security') { void this.loadAppInfo(); void this.loadDeployState(); }
       });
     });
 
@@ -2454,13 +2414,6 @@ class App {
     document.getElementById('admin-key-form')?.addEventListener('submit', e => {
       e.preventDefault();
       void this.submitAdminKeyRotation();
-    });
-    document.getElementById('admin-deploy-hooks-form')?.addEventListener('submit', e => {
-      e.preventDefault();
-      void this.saveDeployHooks();
-    });
-    document.getElementById('admin-deploy-now')?.addEventListener('click', () => {
-      void this.triggerRedeploy();
     });
     document.getElementById('admin-commit-push')?.addEventListener('click', () => {
       void this.commitAndDeploy();

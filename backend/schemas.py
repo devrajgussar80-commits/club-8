@@ -44,12 +44,6 @@ class LocalPushRequest(BaseModel):
     message: str = Field(default="", max_length=300)
 
 
-class DeployHooksRequest(BaseModel):
-    # Deploy-hook URLs from Vercel and Render. Empty string clears one.
-    vercel_deploy_hook: str = Field(default="", max_length=500)
-    render_deploy_hook: str = Field(default="", max_length=500)
-
-
 class AdminCredentialsRequest(BaseModel):
     # The current password gates every change, so a hijacked session token
     # alone cannot lock the real admin out.
