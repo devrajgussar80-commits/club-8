@@ -533,6 +533,73 @@ def reject_referral(referral_id: str, _: bool = Depends(require_admin)):
     return {"status": "success", "referral_id": referral_id}
 
 
+# ----------------- ANDROID APP -----------------
+@router.post("/app/upload")
+async def upload_app(
+    version: str = Form(""),
+    apk_file: UploadFile = File(...),
+    _: bool = Depends(require_admin),
+):
+    """Replace the downloadable APK. Stored in Postgres so it survives deploys."""
+    name = (apk_file.filename or "").lower()
+    if not name.endswith(".apk"):
+        raise HTTPException(status_code=400, detail="Upload a .apk file")
+
+    content = await apk_file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="The file is empty")
+    if len(content) > config.APK_UPLOAD_MAX_BYTES:
+        limit_mb = config.APK_UPLOAD_MAX_BYTES // (1024 * 1024)
+        raise HTTPException(status_code=400, detail=f"APK must be smaller than {limit_mb} MB")
+
+    conn = get_db_connection()
+    try:
+        # One row, id = 'current'. Upsert so a new upload cleanly replaces the
+        # old bytes instead of piling up versions in the table.
+        conn.execute(
+            """
+            INSERT INTO app_downloads (id, filename, version, content_type, size_bytes, data, uploaded_at)
+            VALUES ('current', ?, ?, ?, ?, ?, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                filename = EXCLUDED.filename,
+                version = EXCLUDED.version,
+                content_type = EXCLUDED.content_type,
+                size_bytes = EXCLUDED.size_bytes,
+                data = EXCLUDED.data,
+                uploaded_at = NOW()
+            """,
+            (
+                apk_file.filename,
+                version.strip() or None,
+                config.APK_CONTENT_TYPE,
+                len(content),
+                content,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {
+        "status": "success",
+        "filename": apk_file.filename,
+        "version": version.strip() or None,
+        "size_bytes": len(content),
+    }
+
+
+@router.delete("/app")
+def delete_app(_: bool = Depends(require_admin)):
+    """Take the app down: removes the stored APK so the button hides itself."""
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM app_downloads WHERE id = 'current'")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success"}
+
+
 # ----------------- WITHDRAWALS -----------------
 @router.get("/withdrawals")
 def get_admin_withdrawals(_: bool = Depends(require_admin)):

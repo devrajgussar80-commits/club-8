@@ -578,10 +578,19 @@ class App {
   }
 
   init() {
-    // Before routing, so the landing screen a stranger actually saw first is
-    // the one recorded, not whatever the router redirects them to.
-    this.tracker.start(this.currentPage || location.pathname);
-    this.tracker.watchAuthScreen();
+    // Before routing, so a visit still registers even if routing throws. The
+    // landing path is the URL they actually opened -- using the router's
+    // default screen id here recorded everyone as landing on "home" even when
+    // what they saw was the login page. The first page_view below, emitted by
+    // the router, is what names the real first screen.
+    //
+    // Not on /admin: the dashboard runs this same bundle, so every time an
+    // admin opened or refreshed it, it counted itself as another unknown
+    // visitor and inflated the very numbers being read on that screen.
+    if (!location.pathname.startsWith('/admin')) {
+      this.tracker.start(location.pathname);
+      this.tracker.watchAuthScreen();
+    }
 
     this.handleRouting();
     window.openClubPage = (page) => {
@@ -606,6 +615,10 @@ class App {
     appState.subscribe((state) => this.render(state));
     this.startBackendSync();
     this.render(appState.getState());
+    // Sets the download button's href and shows/hides it based on whether an
+    // APK has been uploaded. Public endpoint, so it runs whether or not the
+    // user is signed in.
+    void this.loadAppInfo();
     if (this.authToken) void this.syncUserAccess();
     if (appState.getState().viewMode === 'admin') {
       document.body.dataset.view = 'admin';
@@ -1353,6 +1366,143 @@ class App {
     this.renderAdminControls(data);
     this.loadAdminGames();
     this.loadAdminLottery();
+    this.loadAdminVisitors();
+  }
+
+  // -------------------------------------------------------------- visitors
+
+  /** Everyone who landed on the site, including those who never signed up. */
+  async loadAdminVisitors() {
+    const body = document.getElementById('nv-sessions-body');
+    if (!body) return;
+    const hours = this.adminVisitorHours || 24;
+    const outcome = this.adminVisitorOutcome || '';
+
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+
+    let summary;
+    try {
+      summary = await this.adminApi(`/api/admin/visitors/summary?hours=${hours}`);
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="7" class="nd-empty">${error.message}</td></tr>`;
+      return;
+    }
+
+    set('nv-visitors', summary.visitors);
+    set('nv-sessions', summary.sessions);
+    set('nv-anonymous', summary.still_anonymous);
+    set('nv-converted', summary.registered + summary.logged_in);
+    set('nv-conversion', summary.conversion_rate === null ? '—' : `${summary.conversion_rate}%`);
+    set('nv-avg-time', this.formatDuration(summary.avg_seconds));
+    set('nv-bounced', summary.bounced);
+
+    // Each step as a share of the one before it, because "40% of the people
+    // who saw the form started typing" is the number that says where to fix
+    // something; a share of the original total hides which step is leaking.
+    const f = summary.funnel;
+    const steps = [
+      ['Landed on the site', f.landed, f.landed],
+      ['Saw login / register', f.saw_auth, f.landed],
+      ['Started filling the form', f.started_typing, f.saw_auth],
+      ['Pressed register', f.tried_register, f.started_typing],
+      ['Pressed login', f.tried_login, f.started_typing],
+      ['Got in', f.converted, f.started_typing]
+    ];
+    const funnelEl = document.getElementById('nv-funnel');
+    if (funnelEl) {
+      funnelEl.innerHTML = steps.map(([label, value, base]) => {
+        const pct = f.landed ? Math.round(value / f.landed * 100) : 0;
+        const rel = base ? Math.round(value / base * 100) : 0;
+        return `<li>
+            <span class="nv-step-bar" style="--w:${pct}%"></span>
+            <b>${label}</b><em>${value}</em><small>${rel}% of previous</small>
+          </li>`;
+      }).join('') + (f.had_failure
+        ? `<li class="nv-step-fail"><b>Hit an error on the form</b><em>${f.had_failure}</em></li>`
+        : '');
+    }
+
+    let sessions;
+    try {
+      const query = `hours=${hours}${outcome ? `&outcome=${outcome}` : ''}`;
+      ({ sessions } = await this.adminApi(`/api/admin/visitors?${query}`));
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="7" class="nd-empty">${error.message}</td></tr>`;
+      return;
+    }
+
+    const labels = { browsing: 'left without signing up', registered: 'registered', logged_in: 'logged in' };
+    body.innerHTML = sessions.length
+      ? sessions.map(s => `
+          <tr class="nv-row" data-session="${s.id}">
+            <td>${new Date(s.started_at).toLocaleString()}</td>
+            <td><code>${s.visitor_id.slice(0, 8)}</code>${s.username ? `<br><small>${s.username}</small>` : ''}</td>
+            <td><code>${s.ip || '—'}</code></td>
+            <td>${s.device || '—'}<br><small>${s.browser || ''} · ${s.os || ''}</small></td>
+            <td>${s.landing_path || '—'} → <b>${s.last_path || '—'}</b><br><small>${s.page_views} screens</small></td>
+            <td>${this.formatDuration(s.active_seconds)}</td>
+            <td class="nv-outcome is-${s.outcome}">${labels[s.outcome] || s.outcome}</td>
+          </tr>`).join('')
+      : '<tr><td colspan="7" class="nd-empty">No visits in this window</td></tr>';
+
+    body.querySelectorAll('.nv-row').forEach(row =>
+      row.addEventListener('click', () => this.openVisitorTimeline(row.dataset.session)));
+  }
+
+  formatDuration(seconds) {
+    const total = Math.max(0, Math.round(Number(seconds) || 0));
+    if (total < 60) return `${total}s`;
+    const minutes = Math.floor(total / 60);
+    return `${minutes}m ${total % 60}s`;
+  }
+
+  async openVisitorTimeline(sessionId) {
+    const panel = document.getElementById('nv-timeline-panel');
+    if (!panel) return;
+    panel.hidden = false;
+    document.getElementById('nv-timeline').innerHTML = '<li class="nd-empty">Loading…</li>';
+
+    let data;
+    try {
+      data = await this.adminApi(`/api/admin/visitors/${sessionId}`);
+    } catch (error) {
+      document.getElementById('nv-timeline').innerHTML = `<li class="nd-empty">${error.message}</li>`;
+      return;
+    }
+
+    const s = data.session;
+    document.getElementById('nv-timeline-title').textContent =
+      s.username ? `${s.username} (was anonymous)` : `Anonymous ${s.visitor_id.slice(0, 8)}`;
+    document.getElementById('nv-timeline-meta').textContent =
+      [`IP ${s.ip || 'unknown'}`, `${s.browser} on ${s.os} (${s.device})`,
+       `from ${s.referrer || 'direct'}`, `${this.formatDuration(s.active_seconds)} on site`,
+       `${s.page_views} screens`].join(' · ');
+
+    const start = new Date(s.started_at).getTime();
+    document.getElementById('nv-timeline').innerHTML = data.events.map(event => {
+      const offset = Math.max(0, Math.round((new Date(event.created_at).getTime() - start) / 1000));
+      const meta = event.meta && Object.keys(event.meta).length
+        ? `<small>${Object.entries(event.meta).map(([k, v]) => `${k}: ${v}`).join(' · ')}</small>` : '';
+      return `<li class="nv-ev is-${event.name}">
+          <span class="nv-ev-at">+${this.formatDuration(offset)}</span>
+          <b>${event.name.replace(/_/g, ' ')}</b>
+          ${event.path ? `<code>${event.path}</code>` : ''}${meta}
+        </li>`;
+    }).join('') || '<li class="nd-empty">No events</li>';
+
+    const other = document.getElementById('nv-other-visits');
+    other.innerHTML = data.other_visits.length
+      ? `<h4>Same browser, other visits</h4>` + data.other_visits.map(v =>
+          `<button type="button" class="nv-other-visit" data-session="${v.id}">
+             ${new Date(v.started_at).toLocaleString()} · ${v.outcome} ·
+             ${this.formatDuration(v.active_seconds)}
+           </button>`).join('')
+      : '';
+    other.querySelectorAll('[data-session]').forEach(button =>
+      button.addEventListener('click', () => this.openVisitorTimeline(button.dataset.session)));
   }
 
   // ---------------------------------------------------------------- games
@@ -2196,6 +2346,7 @@ class App {
         // Referrals are their own endpoint, not part of the dashboard payload,
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
+        if (tab.dataset.section === 'security') void this.loadAppInfo();
       });
     });
 
@@ -2248,6 +2399,28 @@ class App {
     });
 
     document.getElementById('ng-lottery-date')?.addEventListener('change', () => this.loadAdminLottery());
+
+    document.querySelectorAll('.nd-seg-btn.nv-range').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.nd-seg-btn.nv-range')
+          .forEach(b => b.classList.toggle('active', b === button));
+        this.adminVisitorHours = Number(button.dataset.hours);
+        this.loadAdminVisitors();
+      });
+    });
+
+    document.querySelectorAll('.nd-seg-btn.nv-filter').forEach(button => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.nd-seg-btn.nv-filter')
+          .forEach(b => b.classList.toggle('active', b === button));
+        this.adminVisitorOutcome = button.dataset.outcome;
+        this.loadAdminVisitors();
+      });
+    });
+
+    document.getElementById('nv-timeline-close')?.addEventListener('click', () => {
+      document.getElementById('nv-timeline-panel').hidden = true;
+    });
 
     document.querySelectorAll('.nd-seg-btn.ng-mode').forEach(button => {
       button.addEventListener('click', () => {
@@ -2374,6 +2547,84 @@ class App {
         button.disabled = false;
       }
     });
+
+    document.getElementById('admin-app-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      const file = document.getElementById('admin-app-file')?.files?.[0];
+      if (!file) return this.showToast('Choose an APK file first.', 'error');
+      if (!file.name.toLowerCase().endsWith('.apk')) return this.showToast('That is not a .apk file.', 'error');
+
+      const payload = new FormData();
+      payload.append('version', document.getElementById('admin-app-version')?.value || '');
+      payload.append('apk_file', file);
+
+      const progress = document.getElementById('admin-app-progress');
+      button.disabled = true;
+      if (progress) progress.hidden = false;
+      try {
+        const headers = this.adminHeaders();
+        delete headers['Content-Type'];
+        const response = await fetch(`${this.apiBaseUrl}/api/admin/app/upload`, { method: 'POST', headers, body: payload });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'APK upload failed');
+        this.showToast(`App uploaded (${(result.size_bytes / 1048576).toFixed(1)} MB). Download is live.`, 'success');
+        form.reset();
+        void this.loadAppInfo();
+      } catch (error) {
+        this.showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+        if (progress) progress.hidden = true;
+      }
+    });
+
+    document.getElementById('admin-app-delete')?.addEventListener('click', async () => {
+      if (!window.confirm('Remove the current app? The download button will hide until you upload again.')) return;
+      try {
+        await this.adminApi('/api/admin/app', 'DELETE');
+        this.showToast('App removed.', 'success');
+        void this.loadAppInfo();
+      } catch (error) {
+        this.showToast(error.message, 'error');
+      }
+    });
+  }
+
+  /** Refresh the admin app card and the public download button from /api/app/info. */
+  async loadAppInfo() {
+    let info;
+    try {
+      info = await this.fetchApi('/api/app/info');
+    } catch (error) {
+      return;
+    }
+    this.appInfo = info;
+
+    // Admin card state (only present on the dashboard).
+    const status = document.getElementById('admin-app-status');
+    const del = document.getElementById('admin-app-delete');
+    if (status) {
+      if (info.available) {
+        const mb = (info.size_bytes / 1048576).toFixed(1);
+        const when = info.uploaded_at ? new Date(info.uploaded_at).toLocaleString() : '';
+        status.textContent = `Live: ${info.filename}${info.version ? ' v' + info.version : ''} · ${mb} MB · ${when}`;
+      } else {
+        status.textContent = 'No app uploaded yet.';
+      }
+    }
+    if (del) del.hidden = !info.available;
+
+    // Public download entry points: point at the backend and hide when absent.
+    const href = `${this.apiBaseUrl}/api/app/download`;
+    const link = document.getElementById('app-download-link');
+    if (link) {
+      link.href = href;
+      link.style.display = info.available ? '' : 'none';
+    }
+    const share = document.getElementById('btn-share-app');
+    if (share) share.style.display = info.available ? '' : 'none';
   }
 
   attachEventListeners() {

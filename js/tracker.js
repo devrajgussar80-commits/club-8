@@ -57,6 +57,14 @@ export class VisitorTracker {
     this.pendingSeconds = 0;
     this.lastPath = null;
     this.started = false;
+    // Events are posted one at a time, chained on this promise.
+    //
+    // Fire-and-forget looked fine and was not: the requests raced, so whichever
+    // one the server happened to receive first created the session row and set
+    // its landing path. A visit that started at "/" and walked to the login
+    // screen could be recorded as landing on "auth" and ending at "/", i.e.
+    // exactly backwards. Analytics that reorders itself is worse than none.
+    this.chain = Promise.resolve();
   }
 
   /** Seconds the tab has been visible since the last report, then reset. */
@@ -71,6 +79,12 @@ export class VisitorTracker {
   }
 
   send(event, { path = null, meta = null, beacon = false } = {}) {
+    // Nothing is reported until start() runs. Callers all over the app fire
+    // events blind, and on screens where tracking is deliberately off (the
+    // admin dashboard) those would otherwise create a session with no
+    // beginning.
+    if (!this.started && event !== 'session_start') return;
+
     const body = JSON.stringify({
       visitor_id: this.visitorId,
       session_id: this.sessionId,
@@ -83,7 +97,7 @@ export class VisitorTracker {
     // `keepalive` is what lets the exit report survive the page going away.
     // A normal fetch is cancelled on unload, which is why exits used to be
     // the one event that never arrived.
-    fetch(`${this.base}${ENDPOINT}`, {
+    const post = () => fetch(`${this.base}${ENDPOINT}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -91,6 +105,14 @@ export class VisitorTracker {
     }).catch(() => {
       // Analytics must never break the app or spam the console for a player.
     });
+
+    // The exit report jumps the queue: the page is going away and anything
+    // still waiting behind an earlier request would simply be lost.
+    if (beacon) {
+      post();
+      return;
+    }
+    this.chain = this.chain.then(post, post);
   }
 
   start(path) {
@@ -106,7 +128,10 @@ export class VisitorTracker {
         returning: this.isReturning()
       }
     });
-    this.send('page_view');
+    // No page_view here on purpose. session_start already carries the landing
+    // path, and the router emits the first real screen a moment later; sending
+    // both raced (neither call is awaited) and left the timeline out of order
+    // while counting the landing twice in page_views.
 
     this.timer = setInterval(() => {
       if (document.visibilityState !== 'visible') return;

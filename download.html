@@ -62,14 +62,17 @@
   <p class="tag">WinGo · Aviator · Slots · Roulette · Lottery</p>
 
   <div class="card">
-    <a class="dl-btn" href="/downloads/club8.apk" download>
+    <a id="dl-btn" class="dl-btn" href="#" download>
       <span>⬇</span> Download App
     </a>
     <div class="meta">
-      <span><b>Android</b>5.0+</span>
-      <span><b>Free</b>to install</span>
+      <span><b id="dl-size">Android</b>5.0+</span>
+      <span><b id="dl-version">Free</b>to install</span>
       <span><b>APK</b>direct</span>
     </div>
+    <p id="dl-unavailable" style="margin-top:14px;color:#f16d78;font-size:13px;display:none">
+      The app is not published yet. Please check back soon.
+    </p>
   </div>
 
   <div class="steps">
@@ -86,5 +89,23 @@
   </p>
 
   <p class="play-link">Prefer the browser? <a href="/">Play on the web →</a></p>
+
+  <script>
+    // This page is served statically by Vercel, but the APK lives on the
+    // backend (uploaded from the admin dashboard). Point the button there and
+    // fill in the real version/size, hiding the button if nothing is published.
+    var API = 'https://club-8-et75.onrender.com';
+    var btn = document.getElementById('dl-btn');
+    btn.href = API + '/api/app/download';
+    fetch(API + '/api/app/info').then(function (r) { return r.json(); }).then(function (info) {
+      if (!info.available) {
+        btn.style.display = 'none';
+        document.getElementById('dl-unavailable').style.display = 'block';
+        return;
+      }
+      if (info.version) document.getElementById('dl-version').textContent = 'v' + info.version;
+      if (info.size_bytes) document.getElementById('dl-size').textContent = (info.size_bytes / 1048576).toFixed(1) + ' MB';
+    }).catch(function () { /* leave the button pointing at the backend */ });
+  </script>
 </body>
 </html>

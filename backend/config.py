@@ -68,6 +68,11 @@ USER_STATUSES = ("active", "disabled")
 QR_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
 QR_UPLOAD_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 
+# Android app. Browsers send several content types for an .apk (or none), so
+# the extension is the real check; the type list is only a hint.
+APK_UPLOAD_MAX_BYTES = 60 * 1024 * 1024
+APK_CONTENT_TYPE = "application/vnd.android.package-archive"
+
 
 def qr_public_url(qr_id: str) -> str:
     """Absolute URL that serves an uploaded QR out of the database."""

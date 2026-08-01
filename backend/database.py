@@ -11,6 +11,7 @@ per request without pooling is what makes an app there feel slow.
 """
 
 import os
+import time
 
 import env_file  # noqa: F401  -- loads .env.local before DATABASE_URL is read
 
@@ -258,6 +259,20 @@ CREATE TABLE IF NOT EXISTS qr_codes (
     last_used_at TIMESTAMPTZ
 );
 
+-- The Android APK, uploaded from the admin dashboard and served from here.
+-- Kept in Postgres (not on disk) for the same reason as the QR images: the
+-- host wipes its filesystem on every deploy. A single row, id = 'current',
+-- holds whatever the admin last uploaded.
+CREATE TABLE IF NOT EXISTS app_downloads (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    version TEXT,
+    content_type TEXT,
+    size_bytes BIGINT,
+    data BYTEA NOT NULL,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Referrals. `referral_code` is repurposed to be each user's OWN unique
 -- share code (backfilled below); `referred_by` records the code they entered
 -- at signup. The join between them lives in the referrals table so a reward
@@ -443,18 +458,39 @@ DEFAULT_SETTINGS = {
 }
 
 
+# Boot happens once; a suspended Neon compute can take the best part of a
+# minute to wake, and how long varies with how long it has been idle. Retrying
+# is what makes that a slow start instead of a failed deploy -- chasing it by
+# raising the timeout just moves the cliff.
+BOOT_ATTEMPTS = 3
+BOOT_BACKOFF_SECONDS = 5
+
+
 def init_db():
-    try:
-        conn = get_db_connection()
-    except PoolTimeout as exc:
-        # By the time the pool gives up here it has already waited out a Neon
-        # cold start, so this really is a wrong or unreachable URL rather than
-        # a sleeping compute. Say so, rather than letting a bare PoolTimeout
-        # reach the deploy logs.
+    conn = None
+    last_error = None
+    for attempt in range(1, BOOT_ATTEMPTS + 1):
+        try:
+            conn = get_db_connection()
+            break
+        except PoolTimeout as exc:
+            last_error = exc
+            if attempt < BOOT_ATTEMPTS:
+                print(
+                    f"Postgres not ready (attempt {attempt}/{BOOT_ATTEMPTS}); "
+                    f"retrying in {BOOT_BACKOFF_SECONDS}s — this is normal for a "
+                    f"Neon compute waking from idle."
+                )
+                time.sleep(BOOT_BACKOFF_SECONDS)
+
+    if conn is None:
+        # Every attempt waited out a full cold start, so this really is a wrong
+        # or unreachable URL rather than a sleeping compute. Say so, rather
+        # than letting a bare PoolTimeout reach the deploy logs.
         raise RuntimeError(
             "Could not reach Postgres. Check DATABASE_URL — it should be the "
             "pooled Neon string ending in ?sslmode=require."
-        ) from exc
+        ) from last_error
 
     cursor = conn.cursor()
 

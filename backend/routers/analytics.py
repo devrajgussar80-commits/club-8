@@ -208,6 +208,10 @@ def track(
             ),
         )
 
+        # `session_start` is excluded from last_path: it carries the landing
+        # path, and a late one would otherwise drag the "furthest screen
+        # reached" back to where the visit began.
+        advances_path = None if req.event == "session_start" else path
         cursor.execute(
             """
             UPDATE visitor_sessions
@@ -217,8 +221,19 @@ def track(
                    active_seconds = active_seconds + ?
              WHERE id = ?
             """,
-            (path, 1 if req.event == "page_view" else 0, seconds, req.session_id),
+            (advances_path, 1 if req.event == "page_view" else 0, seconds, req.session_id),
         )
+
+        # The landing path is whatever `session_start` says, never whichever
+        # request happened to arrive first. The client serialises its events,
+        # but a retry or a slow network can still reorder them, and a session
+        # that reports landing on the page it *finished* on is worse than
+        # useless -- it inverts the journey the dashboard is meant to show.
+        if req.event == "session_start" and path:
+            cursor.execute(
+                "UPDATE visitor_sessions SET landing_path = ? WHERE id = ?",
+                (path, req.session_id),
+            )
 
         if req.event in OUTCOMES:
             # Only ever moves forward: a later page_view must not knock a

@@ -824,7 +824,7 @@
           </div>
 
           <div class="account-menu">
-            <a class="account-download" href="/downloads/club8.apk" download><i class="bi bi-android2"></i><span>Download Android App</span><b class="account-download-tag">APK</b></a>
+            <a id="app-download-link" class="account-download" href="#" download style="display:none"><i class="bi bi-android2"></i><span>Download Android App</span><b class="account-download-tag">APK</b></a>
             <button id="btn-share-app" type="button"><i class="bi bi-share-fill"></i><span>Share app link</span><b>›</b></button>
             <button type="button" onclick="window.openClubPage('notification')"><i class="bi bi-envelope-heart-fill"></i><span>Notification</span><b>›</b></button>
             <button type="button"><i class="bi bi-gift-fill"></i><span>Gifts</span><b>›</b></button>
@@ -1471,6 +1471,7 @@
         <button type="button" class="nd-tab active" data-section="users"><i class="bi bi-people-fill"></i> Players</button>
         <button type="button" class="nd-tab" data-section="history"><i class="bi bi-clock-history"></i> History</button>
         <button type="button" class="nd-tab" data-section="games"><i class="bi bi-controller"></i> Games</button>
+        <button type="button" class="nd-tab" data-section="visitors"><i class="bi bi-people"></i> Visitors</button>
         <button type="button" class="nd-tab" data-section="referrals"><i class="bi bi-people-fill"></i> Referrals</button>
         <button type="button" class="nd-tab" data-section="qr"><i class="bi bi-qr-code"></i> Payment QR</button>
         <button type="button" class="nd-tab" data-section="controls"><i class="bi bi-sliders"></i> Controls</button>
@@ -1639,6 +1640,60 @@
         </div>
       </section>
 
+      <!-- VISITORS: everyone who landed, including the ones who never signed up -->
+      <section id="nd-section-visitors" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Visitors <small>anonymous traffic, before and after signup</small></h3>
+          <div class="nd-seg" role="tablist">
+            <button type="button" class="nd-seg-btn nv-range active" data-hours="24">24h</button>
+            <button type="button" class="nd-seg-btn nv-range" data-hours="168">7d</button>
+            <button type="button" class="nd-seg-btn nv-range" data-hours="720">30d</button>
+          </div>
+        </div>
+
+        <div class="ng-kpis">
+          <div class="ng-kpi"><small>Unique visitors</small><b id="nv-visitors">0</b></div>
+          <div class="ng-kpi"><small>Visits</small><b id="nv-sessions">0</b></div>
+          <div class="ng-kpi"><small>Never signed up</small><b id="nv-anonymous">0</b></div>
+          <div class="ng-kpi is-ggr"><small>Signed up / in</small><b id="nv-converted">0</b></div>
+          <div class="ng-kpi"><small>Conversion</small><b id="nv-conversion">—</b></div>
+          <div class="ng-kpi"><small>Avg time on site</small><b id="nv-avg-time">0s</b></div>
+          <div class="ng-kpi"><small>Left immediately</small><b id="nv-bounced">0</b></div>
+        </div>
+
+        <div class="nd-panel-head"><h3>Signup funnel <small>where strangers drop off</small></h3></div>
+        <ul id="nv-funnel" class="nv-funnel"></ul>
+
+        <div class="nd-panel-head">
+          <h3>Visits</h3>
+          <div class="nd-seg" role="tablist">
+            <button type="button" class="nd-seg-btn nv-filter active" data-outcome="">All</button>
+            <button type="button" class="nd-seg-btn nv-filter" data-outcome="browsing">Anonymous</button>
+            <button type="button" class="nd-seg-btn nv-filter" data-outcome="registered">Registered</button>
+            <button type="button" class="nd-seg-btn nv-filter" data-outcome="logged_in">Logged in</button>
+          </div>
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr>
+              <th>When</th><th>Visitor</th><th>IP</th><th>Device</th>
+              <th>Landed → last screen</th><th>Time</th><th>Outcome</th>
+            </tr></thead>
+            <tbody id="nv-sessions-body"></tbody>
+          </table>
+        </div>
+
+        <div id="nv-timeline-panel" class="ng-detail" hidden>
+          <div class="nd-panel-head">
+            <h3 id="nv-timeline-title">Visit</h3>
+            <button type="button" id="nv-timeline-close" class="nd-icon-btn" title="Close"><i class="bi bi-x-lg"></i></button>
+          </div>
+          <p id="nv-timeline-meta" class="ng-hint"></p>
+          <ol id="nv-timeline" class="nv-timeline"></ol>
+          <div id="nv-other-visits" class="nv-other"></div>
+        </div>
+      </section>
+
       <section id="nd-section-qr" class="nd-panel nd-section">
         <div class="nd-panel-head">
           <h3>Deposit QR codes</h3>
@@ -1737,6 +1792,26 @@
                 <input id="admin-sec-key" class="form-control" type="text" placeholder="Long random string" autocomplete="off" minlength="24">
               </label>
               <button class="btn-primary" type="submit"><i class="bi bi-arrow-repeat"></i> Rotate key</button>
+            </form>
+          </div>
+
+          <div class="nd-control-card">
+            <h4><i class="bi bi-android2"></i> Android app (APK)</h4>
+            <p class="nd-hint" id="admin-app-status">No app uploaded yet.</p>
+            <form id="admin-app-form" class="nd-settings">
+              <label class="nd-field">
+                <span>Version label (optional)</span>
+                <input id="admin-app-version" class="form-control" type="text" placeholder="e.g. 1.0.0" autocomplete="off">
+              </label>
+              <label class="nd-field">
+                <span>APK file</span>
+                <input id="admin-app-file" class="form-control" type="file" accept=".apk,application/vnd.android.package-archive" required>
+              </label>
+              <div class="nd-app-actions">
+                <button class="btn-primary" type="submit"><i class="bi bi-upload"></i> Upload APK</button>
+                <button id="admin-app-delete" class="btn-ghost" type="button" hidden><i class="bi bi-trash"></i> Remove</button>
+              </div>
+              <div id="admin-app-progress" class="nd-app-progress" hidden><i></i></div>
             </form>
           </div>
         </div>

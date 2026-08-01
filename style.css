@@ -6602,6 +6602,19 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
 .nd-controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .nd-control-card { background: var(--bg-card-hover); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 15px; }
 .nd-settings { display: grid; gap: 12px; }
+.nd-app-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 14px; border: 1px solid var(--border-color); border-radius: 10px;
+  background: transparent; color: var(--text-secondary); font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.btn-ghost:hover { color: #f16d78; border-color: #f16d78; }
+/* Indeterminate stripe shown while a (possibly large) APK uploads. */
+.nd-app-progress { height: 4px; border-radius: 3px; overflow: hidden; background: #ffffff1a; }
+.nd-app-progress i { display: block; height: 100%; width: 40%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--gold, #f0b429), #f0a92a);
+  animation: nd-app-load 1s linear infinite; }
+@keyframes nd-app-load { from { margin-left: -40%; } to { margin-left: 100%; } }
 .nd-switch { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
 .nd-switch input { width: 17px; height: 17px; accent-color: var(--color-green); }
 .nd-field { display: grid; gap: 6px; font-size: 12px; color: var(--text-secondary); }
@@ -7289,4 +7302,69 @@ body[data-club-page="game"] .mobile-frame {
 .ng-choice.is-active { border-color: #ffd76a; background: rgba(255, 215, 106, .2); color: #ffd76a; }
 
 .ng-controls input[type="range"] { width: 100%; accent-color: #ffd76a; }
+
+
+/* -------------------------------------------------- admin: visitor tracking */
+
+.nv-funnel { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 6px; }
+.nv-funnel li {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, .05);
+  overflow: hidden;
+}
+/* The bar is the share of everyone who landed, drawn behind the label so the
+   drop-off between steps is readable at a glance instead of by comparing
+   numbers. */
+.nv-step-bar {
+  position: absolute; inset: 0 auto 0 0;
+  width: var(--w, 0%);
+  background: linear-gradient(90deg, rgba(126, 240, 164, .22), rgba(126, 240, 164, .06));
+}
+.nv-funnel li b, .nv-funnel li em, .nv-funnel li small { position: relative; }
+.nv-funnel li b { font-size: 13px; font-weight: 600; }
+.nv-funnel li em { margin-left: auto; font-style: normal; font-size: 15px; font-weight: 800; }
+.nv-funnel li small { font-size: 10px; opacity: .6; min-width: 96px; text-align: right; }
+.nv-step-fail { background: rgba(255, 123, 107, .12); }
+.nv-step-fail b { color: #ff9d8f; }
+
+.nv-row { cursor: pointer; }
+.nv-row:hover td { background: rgba(255, 255, 255, .05); }
+.nv-row code { font-size: 11px; opacity: .85; }
+.nv-row small { opacity: .55; font-size: 10px; }
+
+.nv-outcome { font-size: 11px; font-weight: 700; }
+.nv-outcome.is-browsing { color: #ffd76a; }
+.nv-outcome.is-registered { color: #7ef0a4; }
+.nv-outcome.is-logged_in { color: #9be7ff; }
+
+.nv-timeline { list-style: none; margin: 12px 0; padding: 0 0 0 14px; display: grid; gap: 4px; }
+.nv-ev {
+  position: relative; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 7px 10px; border-radius: 8px;
+  background: rgba(255, 255, 255, .05); font-size: 12px;
+}
+/* The spine: makes the list read as one visit in order rather than as rows. */
+.nv-ev::before {
+  content: ''; position: absolute; left: -9px; top: 0; bottom: -4px;
+  border-left: 1px solid rgba(255, 255, 255, .12);
+}
+.nv-ev:last-child::before { bottom: 50%; }
+.nv-ev-at { min-width: 56px; font-size: 10px; opacity: .55; }
+.nv-ev b { font-weight: 600; }
+.nv-ev code { font-size: 11px; opacity: .8; }
+.nv-ev small { width: 100%; padding-left: 64px; font-size: 10px; opacity: .5; }
+.nv-ev.is-register_success b, .nv-ev.is-login_success b { color: #7ef0a4; }
+.nv-ev.is-register_failed b, .nv-ev.is-login_failed b { color: #ff9d8f; }
+.nv-ev.is-exit b { color: rgba(255, 255, 255, .5); }
+
+.nv-other { margin-top: 12px; }
+.nv-other h4 { margin: 0 0 8px; font-size: 12px; opacity: .7; }
+.nv-other-visit {
+  display: block; width: 100%; text-align: left;
+  padding: 8px 10px; margin-bottom: 4px; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(255, 255, 255, .04); color: inherit; font-size: 12px;
+}
+.nv-other-visit:hover { border-color: rgba(255, 215, 106, .45); }
 
