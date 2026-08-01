@@ -6508,11 +6508,24 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
    table. Used by the Players and Visitors sections. */
 .nd-daily { display: grid; gap: 16px; }
 .nd-day { border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; }
+/* Collapsible: the day head is the <summary> toggle. */
 .nd-day-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  flex-wrap: wrap; padding: 11px 14px; background: var(--bg-card-hover);
-  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap; padding: 11px 38px 11px 14px; background: var(--bg-card-hover);
+  cursor: pointer; list-style: none; position: relative; user-select: none;
 }
+.nd-day[open] .nd-day-head { border-bottom: 1px solid var(--border-color); }
+.nd-day-head::-webkit-details-marker { display: none; }
+/* Chevron on the right, rotates when the day is open. */
+.nd-day-head::after {
+  content: ""; position: absolute; right: 15px; top: 50%;
+  width: 8px; height: 8px; margin-top: -5px;
+  border-right: 2px solid var(--text-secondary, #9aa6c6);
+  border-bottom: 2px solid var(--text-secondary, #9aa6c6);
+  transform: rotate(45deg); transition: transform .15s ease;
+}
+.nd-day[open] .nd-day-head::after { transform: rotate(-135deg); }
+.nd-day-head:hover { background: var(--bg-card, #1a1a22); }
 .nd-day-head h4 { margin: 0; font-size: 14px; color: var(--text-primary, #fff); }
 .nd-day-sum { font-size: 12px; color: var(--text-secondary, #9aa6c6); font-weight: 700; }
 .nd-day .nd-table-wrap { margin: 0; }

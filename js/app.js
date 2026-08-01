@@ -1528,14 +1528,14 @@ class App {
     }
     const dur = s => this.formatDuration(s);
     const labels = { browsing: 'anon', registered: 'registered', logged_in: 'logged in' };
-    host.innerHTML = days.map(day => `
-      <div class="nd-day">
-        <div class="nd-day-head">
+    host.innerHTML = days.map((day, i) => `
+      <details class="nd-day"${i === 0 ? ' open' : ''}>
+        <summary class="nd-day-head">
           <h4>${this.escapeHtml(day.label)}</h4>
           <span class="nd-day-sum">
             ${day.visitors} visitors · ${day.sessions} visits · ${day.registered + day.logged_in} joined · ${day.bounced} bounced · avg ${dur(day.avg_seconds)}
           </span>
-        </div>
+        </summary>
         <div class="nd-table-wrap">
           <table class="nd-table">
             <thead><tr><th>Time</th><th>Visitor</th><th>IP</th><th>Device</th><th>Journey</th><th>Time on site</th><th>Outcome</th></tr></thead>
@@ -1553,7 +1553,7 @@ class App {
             </tbody>
           </table>
         </div>
-      </div>`).join('');
+      </details>`).join('');
   }
 
   formatDuration(seconds) {
@@ -2187,14 +2187,15 @@ class App {
       return;
     }
     const money = v => `₹${Number(v || 0).toFixed(2)}`;
-    host.innerHTML = days.map(day => `
-      <div class="nd-day">
-        <div class="nd-day-head">
+    // <details>: each day collapses on its own. Newest day open, rest closed.
+    host.innerHTML = days.map((day, i) => `
+      <details class="nd-day"${i === 0 ? ' open' : ''}>
+        <summary class="nd-day-head">
           <h4>${this.escapeHtml(day.label)}</h4>
           <span class="nd-day-sum">
             ${day.signups} signups · ${day.with_deposit} deposited · recharge ${money(day.total_deposits)} · balance ${money(day.total_balance)}
           </span>
-        </div>
+        </summary>
         <div class="nd-table-wrap">
           <table class="nd-table">
             <thead><tr><th>Time</th><th>Player</th><th>Phone</th><th>Balance</th><th>Recharge</th><th>Access</th><th>Status</th></tr></thead>
@@ -2212,7 +2213,7 @@ class App {
             </tbody>
           </table>
         </div>
-      </div>`).join('');
+      </details>`).join('');
   }
 
   renderAdminUsers(users) {
