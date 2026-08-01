@@ -6506,6 +6506,11 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
 
 /* Day-wise breakdown: one dated card per day, each with its own summary and
    table. Used by the Players and Visitors sections. */
+/* Visits table: show ~10 rows, then scroll inside the box. The header stays
+   pinned so the columns stay readable while scrolling. ~44px per row + header. */
+.nd-scroll-rows { max-height: 484px; overflow-y: auto; }
+.nd-scroll-rows thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-card-hover, #1a1a22); }
+
 .nd-daily { display: grid; gap: 16px; }
 .nd-day { border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; }
 /* Collapsible: the day head is the <summary> toggle. */
