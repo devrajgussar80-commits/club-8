@@ -6,6 +6,8 @@ session token or the `X-Admin-Key` shared key.
 
 import hashlib
 import os
+import subprocess
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -22,6 +24,8 @@ from schemas import (
     AdminCredentialsRequest,
     AdminKeyRotationRequest,
     AdminLoginRequest,
+    DeployHooksRequest,
+    LocalPushRequest,
     ForceResultReq,
     GrantAdminRequest,
     PlatformSettingsReq,
@@ -31,6 +35,7 @@ from schemas import (
 )
 from settings_store import (
     get_approved_deposit_total,
+    get_setting,
     get_settings,
     get_wallet_settings,
     set_setting,
@@ -189,6 +194,152 @@ def change_admin_credentials(
         "status": "success",
         "phone": req.new_phone or admin["phone"],
         "password_changed": bool(req.new_password),
+    }
+
+
+# ----------------- DEPLOY -----------------
+# Only these hosts may be called by the redeploy button, so the stored URL
+# cannot be abused to make the server POST to somewhere arbitrary.
+_DEPLOY_HOOK_HOSTS = ("api.vercel.com", "api.render.com")
+
+
+def _valid_hook(url: str) -> bool:
+    url = url.strip()
+    if not url:
+        return True  # empty clears the hook
+    if not url.startswith("https://"):
+        return False
+    host = url.split("/", 3)[2].split("@")[-1].split(":")[0].lower()
+    return any(host == h or host.endswith("." + h) for h in _DEPLOY_HOOK_HOSTS)
+
+
+@router.get("/deploy/hooks")
+def get_deploy_hooks(_: bool = Depends(require_admin)):
+    conn = get_db_connection()
+    try:
+        return {
+            "vercel_deploy_hook": get_setting(conn, "vercel_deploy_hook", ""),
+            "render_deploy_hook": get_setting(conn, "render_deploy_hook", ""),
+        }
+    finally:
+        conn.close()
+
+
+@router.post("/deploy/hooks")
+def save_deploy_hooks(req: DeployHooksRequest, _: bool = Depends(require_admin)):
+    if not _valid_hook(req.vercel_deploy_hook):
+        raise HTTPException(status_code=400, detail="Vercel hook must be an https api.vercel.com URL")
+    if not _valid_hook(req.render_deploy_hook):
+        raise HTTPException(status_code=400, detail="Render hook must be an https api.render.com URL")
+    conn = get_db_connection()
+    try:
+        set_setting(conn, "vercel_deploy_hook", req.vercel_deploy_hook.strip())
+        set_setting(conn, "render_deploy_hook", req.render_deploy_hook.strip())
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success"}
+
+
+def _fire_hook(url: str) -> dict:
+    """POST a deploy hook. The build runs async on the host; a 2xx just means
+    the trigger was accepted."""
+    try:
+        req = urllib.request.Request(url, method="POST", data=b"")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return {"ok": 200 <= resp.status < 300, "status": resp.status}
+    except Exception as exc:  # network error, bad URL, host down
+        return {"ok": False, "error": str(exc)[:200]}
+
+
+@router.post("/deploy/trigger")
+def trigger_deploy(_: bool = Depends(require_admin)):
+    """Fire whichever deploy hooks are configured, from the server side."""
+    conn = get_db_connection()
+    try:
+        vercel = get_setting(conn, "vercel_deploy_hook", "")
+        render = get_setting(conn, "render_deploy_hook", "")
+    finally:
+        conn.close()
+
+    if not vercel and not render:
+        raise HTTPException(
+            status_code=400,
+            detail="No deploy hooks saved yet. Paste your Vercel/Render hook URLs first.",
+        )
+
+    result = {}
+    if vercel:
+        result["vercel"] = _fire_hook(vercel)
+    if render:
+        result["render"] = _fire_hook(render)
+    return {"status": "success", "results": result}
+
+
+def _git(args, cwd):
+    """Run a git command in the repo, no shell (so the commit message is one
+    safe argument, never interpreted)."""
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=180
+    )
+
+
+@router.get("/deploy/local-available")
+def local_deploy_available(_: bool = Depends(require_admin)):
+    """Whether the one-click local push can run here. False on the deployed
+    host, so the dashboard only shows the button during local development."""
+    return {"available": not config.IS_PRODUCTION}
+
+
+@router.post("/deploy/local-push")
+def local_push(req: LocalPushRequest, _: bool = Depends(require_admin)):
+    """Commit and push the working tree from the LOCAL dev machine.
+
+    Only runs when this backend is the local dev server: the deployed host has
+    no git repo or push credentials, and must never try. Pushing to GitHub is
+    what makes Vercel and Render redeploy, so this one call is the whole
+    'commit + push + redeploy' the button promises.
+    """
+    if config.IS_PRODUCTION:
+        raise HTTPException(
+            status_code=403,
+            detail="This runs only on your local machine, not on the live server.",
+        )
+
+    repo = config.FRONTEND_DIR  # project root; the backend lives one level in
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        raise HTTPException(status_code=400, detail="This project folder is not a git repository.")
+
+    message = req.message.strip() or f"Site update {datetime.now():%Y-%m-%d_%H:%M}"
+
+    _git(["add", "-A"], repo)
+
+    # Nothing staged -> nothing to deploy.
+    if _git(["diff", "--cached", "--quiet"], repo).returncode == 0:
+        return {"status": "noop", "detail": "No changes to deploy — already up to date."}
+
+    commit = _git(
+        [
+            "-c", "user.email=devrajgussar80@gmail.com",
+            "-c", "user.name=devrajgussar80-commits",
+            "commit", "-m", message,
+        ],
+        repo,
+    )
+    if commit.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"commit failed: {commit.stderr[:300]}")
+
+    push = _git(["push"], repo)
+    if push.returncode != 0:
+        detail = push.stderr[:400] or "git push failed"
+        if "could not read Username" in push.stderr or "Authentication" in push.stderr:
+            detail = "Push failed — run 'gh auth login' once in a terminal, then retry."
+        raise HTTPException(status_code=500, detail=detail)
+
+    return {
+        "status": "success",
+        "message": message,
+        "detail": "Pushed to GitHub. Vercel and Render will redeploy automatically.",
     }
 
 

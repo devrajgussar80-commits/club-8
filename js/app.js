@@ -1934,6 +1934,84 @@ class App {
     }
   }
 
+  async loadDeployHooks() {
+    // The local commit+push button only makes sense on the dev machine, where
+    // this backend has the git repo. Ask the backend and reveal it if so.
+    const box = document.getElementById('admin-local-deploy');
+    if (box) {
+      try {
+        const { available } = await this.adminApi('/api/admin/deploy/local-available');
+        box.hidden = !available;
+      } catch (error) { box.hidden = true; }
+    }
+    return this._loadDeployHookFields();
+  }
+
+  async _loadDeployHookFields() {
+    try {
+      const data = await this.adminApi('/api/admin/deploy/hooks');
+      const v = document.getElementById('admin-hook-vercel');
+      const r = document.getElementById('admin-hook-render');
+      if (v) v.value = data.vercel_deploy_hook || '';
+      if (r) r.value = data.render_deploy_hook || '';
+    } catch (error) { /* leave fields as-is */ }
+  }
+
+  async saveDeployHooks() {
+    try {
+      await this.adminApi('/api/admin/deploy/hooks', 'POST', {
+        vercel_deploy_hook: document.getElementById('admin-hook-vercel')?.value.trim() || '',
+        render_deploy_hook: document.getElementById('admin-hook-render')?.value.trim() || ''
+      });
+      this.showToast('Deploy hooks saved.', 'success');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async triggerRedeploy() {
+    const button = document.getElementById('admin-deploy-now');
+    const out = document.getElementById('admin-deploy-result');
+    if (button) button.disabled = true;
+    if (out) out.textContent = 'Triggering redeploy…';
+    try {
+      const data = await this.adminApi('/api/admin/deploy/trigger', 'POST');
+      const parts = Object.entries(data.results || {}).map(([host, r]) =>
+        `${host}: ${r.ok ? 'triggered ✓' : 'failed — ' + (r.error || r.status)}`);
+      if (out) out.textContent = parts.join('  ·  ') || 'Done.';
+      this.showToast('Redeploy triggered. Build chalu ho gaya, 1-2 min me live.', 'success');
+    } catch (error) {
+      if (out) out.textContent = error.message;
+      this.showToast(error.message, 'error');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async commitAndDeploy() {
+    const button = document.getElementById('admin-commit-push');
+    const out = document.getElementById('admin-local-deploy-result');
+    const msg = document.getElementById('admin-commit-msg')?.value.trim() || '';
+    if (button) button.disabled = true;
+    if (out) out.textContent = 'Committing and pushing…';
+    try {
+      const data = await this.adminApi('/api/admin/deploy/local-push', 'POST', { message: msg }, { timeout: 200000 });
+      if (out) out.textContent = data.detail || 'Done.';
+      if (data.status === 'noop') {
+        this.showToast('Kuch naya nahi tha — already up to date.', 'success');
+      } else {
+        this.showToast('Pushed! Vercel + Render redeploy ho rahe hain.', 'success');
+        const field = document.getElementById('admin-commit-msg');
+        if (field) field.value = '';
+      }
+    } catch (error) {
+      if (out) out.textContent = error.message;
+      this.showToast(error.message, 'error');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
   async submitAdminKeyRotation() {
     const key = document.getElementById('admin-sec-key')?.value.trim();
     if (!key || key.length < 24) return this.showToast('Access key kam se kam 24 characters ka ho.', 'error');
@@ -2346,7 +2424,7 @@ class App {
         // Referrals are their own endpoint, not part of the dashboard payload,
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
-        if (tab.dataset.section === 'security') void this.loadAppInfo();
+        if (tab.dataset.section === 'security') { void this.loadAppInfo(); void this.loadDeployHooks(); }
       });
     });
 
@@ -2376,6 +2454,16 @@ class App {
     document.getElementById('admin-key-form')?.addEventListener('submit', e => {
       e.preventDefault();
       void this.submitAdminKeyRotation();
+    });
+    document.getElementById('admin-deploy-hooks-form')?.addEventListener('submit', e => {
+      e.preventDefault();
+      void this.saveDeployHooks();
+    });
+    document.getElementById('admin-deploy-now')?.addEventListener('click', () => {
+      void this.triggerRedeploy();
+    });
+    document.getElementById('admin-commit-push')?.addEventListener('click', () => {
+      void this.commitAndDeploy();
     });
 
     // The queue filter and the games range share the .nd-seg-btn look, so each

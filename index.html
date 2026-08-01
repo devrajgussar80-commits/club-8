@@ -1796,6 +1796,37 @@
           </div>
 
           <div class="nd-control-card">
+            <h4><i class="bi bi-rocket-takeoff-fill"></i> Redeploy site</h4>
+            <p class="nd-hint">Trigger a fresh build on Vercel and Render from the latest GitHub code. Paste each host's Deploy Hook URL once (Vercel: Settings → Git → Deploy Hooks; Render: Settings → Deploy Hook).</p>
+            <form id="admin-deploy-hooks-form" class="nd-settings">
+              <label class="nd-field">
+                <span>Vercel deploy hook</span>
+                <input id="admin-hook-vercel" class="form-control" type="url" placeholder="https://api.vercel.com/v1/integrations/deploy/…" autocomplete="off">
+              </label>
+              <label class="nd-field">
+                <span>Render deploy hook</span>
+                <input id="admin-hook-render" class="form-control" type="url" placeholder="https://api.render.com/deploy/srv-…" autocomplete="off">
+              </label>
+              <button class="btn-ghost" type="submit"><i class="bi bi-save"></i> Save hooks</button>
+            </form>
+            <div class="nd-app-actions" style="margin-top:12px">
+              <button id="admin-deploy-now" class="btn-primary" type="button"><i class="bi bi-rocket-takeoff-fill"></i> Redeploy now</button>
+            </div>
+            <p id="admin-deploy-result" class="nd-hint" style="margin-top:10px"></p>
+
+            <div id="admin-local-deploy" hidden style="border-top:1px solid var(--border-color);margin-top:14px;padding-top:14px">
+              <h4 style="margin-bottom:6px"><i class="bi bi-cloud-upload-fill"></i> Commit &amp; deploy (local)</h4>
+              <p class="nd-hint">You're running locally. This pushes your code changes to GitHub in one click; Vercel and Render then redeploy on their own.</p>
+              <label class="nd-field">
+                <span>What changed? (optional)</span>
+                <input id="admin-commit-msg" class="form-control" type="text" placeholder="e.g. Updated payout table" autocomplete="off">
+              </label>
+              <button id="admin-commit-push" class="btn-primary" type="button"><i class="bi bi-cloud-upload-fill"></i> Commit &amp; Deploy</button>
+              <p id="admin-local-deploy-result" class="nd-hint" style="margin-top:10px"></p>
+            </div>
+          </div>
+
+          <div class="nd-control-card">
             <h4><i class="bi bi-android2"></i> Android app (APK)</h4>
             <p class="nd-hint" id="admin-app-status">No app uploaded yet.</p>
             <form id="admin-app-form" class="nd-settings">
