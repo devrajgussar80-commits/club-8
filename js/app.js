@@ -10,6 +10,7 @@ import { ChickenRoadEngine } from './chicken-road-engine.js?v=road-1';
 import { SlotEngine } from './slot-engine.js?v=1';
 import { RouletteEngine } from './roulette-engine.js?v=1';
 import { LotteryEngine } from './lottery.js?v=1';
+import { VisitorTracker } from './tracker.js?v=1';
 
 class App {
   constructor() {
@@ -34,6 +35,9 @@ class App {
     this.adminToken = localStorage.getItem('PREDICT_ADMIN_TOKEN')
       || sessionStorage.getItem('PREDICT_ADMIN_TOKEN') || '';
     this.adminData = null;
+    // Started as early as possible: the visits worth measuring are the ones
+    // that leave before anything else on this page has finished loading.
+    this.tracker = new VisitorTracker(this.apiBaseUrl);
     this.adminQueueFilter = 'all';
     this.adminLoadInFlight = false;
     this.adminDashboardUnavailable = false;
@@ -574,6 +578,11 @@ class App {
   }
 
   init() {
+    // Before routing, so the landing screen a stranger actually saw first is
+    // the one recorded, not whatever the router redirects them to.
+    this.tracker.start(this.currentPage || location.pathname);
+    this.tracker.watchAuthScreen();
+
     this.handleRouting();
     window.openClubPage = (page) => {
       this.closeClubBonus();
@@ -2190,6 +2199,25 @@ class App {
       });
     });
 
+    document.getElementById('btn-share-app')?.addEventListener('click', async () => {
+      // Share the /download landing page, not the raw .apk, so the recipient
+      // gets install instructions rather than a file their browser may block.
+      const url = `${window.location.origin}/download`;
+      const shareData = { title: 'Club 8 App', text: 'Download the Club 8 Android app:', url };
+      try {
+        if (navigator.share) {
+          await navigator.share(shareData);
+        } else {
+          await navigator.clipboard.writeText(url);
+          this.showToast('Download link copied — ab kisi ko bhi bhej do.', 'success');
+        }
+      } catch (error) {
+        // User dismissing the share sheet lands here too; only toast on a real
+        // copy fallback failure.
+        if (error?.name !== 'AbortError') this.showToast(`Download link: ${url}`, 'success');
+      }
+    });
+
     document.getElementById('admin-credentials-form')?.addEventListener('submit', e => {
       e.preventDefault();
       void this.submitAdminCredentials();
@@ -2675,6 +2703,7 @@ class App {
       const phone = (document.getElementById('login-phone')?.value || '').replace(/\D/g, '').slice(-10);
       const password = document.getElementById('login-password')?.value;
 
+      this.tracker?.event('login_submit');
       try {
         if (phone.length !== 10) throw new Error('Please enter a valid 10-digit phone number.');
         let res;
@@ -2691,10 +2720,15 @@ class App {
         if (!res) throw lastError || new Error('Invalid phone or password!');
         this.authToken = res.token;
         localStorage.setItem('PREDICT_AUTH_TOKEN', res.token);
+        this.tracker?.event('login_success');
+        this.tracker?.identify(res.user?.id);
         await this.syncUserAccess();
         this.showToast(`Welcome back, ${res.user.name}!`, 'success');
         this.switchSubPage('home', { record: false });
       } catch (err) {
+        // The reason matters: "wrong password" and "invalid phone" are very
+        // different stories about why people are not getting in.
+        this.tracker?.event('login_failed', { reason: err.message.slice(0, 120) });
         this.showToast(err.message, 'error');
       }
     });
@@ -2709,6 +2743,7 @@ class App {
       const otp = document.getElementById('reg-otp')?.value;
       const ref = document.getElementById('reg-referral')?.value;
 
+      this.tracker?.event('register_submit', { has_referral: Boolean(ref) });
       try {
         if (phone.length !== 10) throw new Error('Please enter a valid 10-digit phone number.');
         if (!this.generatedOtp || otp !== this.generatedOtp) throw new Error('Send and verify the 6-digit code first.');
@@ -2716,12 +2751,17 @@ class App {
         const res = await this.fetchApi('/api/auth/register', 'POST', { username, phone, password, referral_code: ref });
         this.authToken = res.token;
         localStorage.setItem('PREDICT_AUTH_TOKEN', res.token);
+        this.tracker?.event('register_success');
+        this.tracker?.identify(res.user?.id);
         this.gameAccessEnabled = false;
         this.approvedDepositTotal = 0;
         await this.syncUserAccess();
         this.showToast(`Account created! ₹100 signup bonus added for WinGo.`, 'success');
         this.switchSubPage('home', { record: false });
       } catch (err) {
+        // Records the drop-offs that never reach the server at all: a failed
+        // OTP or a password mismatch throws before the register call.
+        this.tracker?.event('register_failed', { reason: err.message.slice(0, 120) });
         this.showToast(err.message, 'error');
       }
     });
@@ -2986,6 +3026,12 @@ class App {
 
     document.querySelectorAll('.sub-page').forEach(p => p.classList.remove('active'));
     target.classList.add('active');
+
+    // This app never changes URL, so every screen change has to be reported
+    // by hand -- otherwise "kis page tak aaya" would always read "/".
+    this.tracker?.pageView(pageId);
+    if (pageId === 'auth') this.tracker?.event('auth_view');
+
     if (pageId === 'deposit-history' || pageId === 'withdraw-history') {
       this.syncWalletHistory();
     }

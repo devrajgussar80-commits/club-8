@@ -360,6 +360,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_lottery_tickets_utr
 CREATE INDEX IF NOT EXISTS idx_game_rounds_game_time ON game_rounds(game, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_game_rounds_user ON game_rounds(user_id, created_at DESC);
 
+-- Anonymous visitor tracking. A row appears the moment someone lands on the
+-- site, long before they have an account, so `user_id` stays NULL until they
+-- register or log in -- that transition is exactly what the funnel measures.
+CREATE TABLE IF NOT EXISTS visitor_sessions (
+    -- Both ids come from the browser: `id` is per visit (sessionStorage),
+    -- `visitor_id` survives across visits (localStorage), which is what makes
+    -- a returning stranger recognisable without an account.
+    id TEXT PRIMARY KEY,
+    visitor_id TEXT NOT NULL,
+    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    ip TEXT,
+    user_agent TEXT,
+    browser TEXT,
+    os TEXT,
+    device TEXT,
+    referrer TEXT,
+    landing_path TEXT,
+    last_path TEXT,
+    page_views INTEGER DEFAULT 0,
+    -- Seconds the tab was actually VISIBLE, summed from client heartbeats.
+    -- Wall-clock between first and last event would count a tab left open in
+    -- the background as engagement, which is the number people misread most.
+    active_seconds INTEGER DEFAULT 0,
+    -- browsing | registered | logged_in | abandoned
+    outcome TEXT DEFAULT 'browsing',
+    started_at TIMESTAMPTZ DEFAULT NOW(),
+    last_seen_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS visitor_events (
+    id BIGSERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES visitor_sessions(id) ON DELETE CASCADE,
+    visitor_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    path TEXT,
+    meta JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_visitor_sessions_seen
+    ON visitor_sessions(last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_visitor_sessions_visitor
+    ON visitor_sessions(visitor_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_visitor_events_session
+    ON visitor_events(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_visitor_events_visitor
+    ON visitor_events(visitor_id, created_at DESC);
+
 -- One deposit per order. This is what stops a player submitting the same
 -- order twice and getting credited twice.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_upi_deposits_order_id

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Download Club 8 App</title>
+  <meta name="theme-color" content="#0b0b0f">
+  <meta property="og:title" content="Club 8 — Official Android App">
+  <meta property="og:description" content="Download the Club 8 app for Android and play WinGo, Aviator and more.">
+  <meta property="og:type" content="website">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --gold: #f0b429; --red: #e50539; --card: #16161c; --bg: #0b0b0f;
+      --pad-top: max(env(safe-area-inset-top, 0px), 24px);
+      --pad-bottom: max(env(safe-area-inset-bottom, 0px), 24px);
+    }
+    body {
+      min-height: 100vh; background: radial-gradient(120% 80% at 50% 0%, #1c1320 0%, var(--bg) 60%);
+      color: #fff; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      padding: calc(var(--pad-top) + 20px) 20px calc(var(--pad-bottom) + 20px);
+      text-align: center;
+    }
+    .logo {
+      width: 96px; height: 96px; border-radius: 24px; margin-bottom: 18px;
+      background: linear-gradient(150deg, var(--gold), var(--red));
+      display: grid; place-items: center; font-size: 44px; font-weight: 900; color: #1a0d00;
+      box-shadow: 0 12px 40px rgba(240, 180, 41, .35);
+    }
+    h1 { font-size: 26px; letter-spacing: -.5px; }
+    .tag { color: #9aa0ad; margin: 6px 0 26px; font-size: 14px; }
+    .card {
+      width: 100%; max-width: 380px; background: var(--card); border: 1px solid #24242d;
+      border-radius: 20px; padding: 22px; margin-bottom: 18px;
+    }
+    .dl-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 16px; border: 0; border-radius: 14px; cursor: pointer;
+      background: linear-gradient(180deg, #ffd35a, #f0a92a); color: #2a1600;
+      font-size: 18px; font-weight: 800; text-decoration: none;
+      box-shadow: 0 8px 24px rgba(240, 169, 42, .3);
+    }
+    .dl-btn:active { transform: scale(.98); }
+    .meta { display: flex; justify-content: center; gap: 22px; margin-top: 16px; color: #8b909c; font-size: 12px; }
+    .meta b { display: block; color: #fff; font-size: 14px; margin-bottom: 2px; }
+    .steps { max-width: 380px; width: 100%; text-align: left; margin-top: 6px; }
+    .steps h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--gold); margin-bottom: 12px; }
+    .step { display: flex; gap: 12px; margin-bottom: 14px; font-size: 14px; color: #c7cad2; }
+    .step i {
+      flex: 0 0 24px; height: 24px; border-radius: 50%; background: #24242d;
+      display: grid; place-items: center; font-style: normal; font-size: 12px; font-weight: 800; color: var(--gold);
+    }
+    .note { max-width: 380px; margin-top: 18px; font-size: 12px; color: #6c7080; line-height: 1.5; }
+    .play-link { margin-top: 22px; color: #9aa0ad; font-size: 13px; }
+    .play-link a { color: var(--gold); text-decoration: none; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="logo">C8</div>
+  <h1>Club 8 for Android</h1>
+  <p class="tag">WinGo · Aviator · Slots · Roulette · Lottery</p>
+
+  <div class="card">
+    <a class="dl-btn" href="/downloads/club8.apk" download>
+      <span>⬇</span> Download App
+    </a>
+    <div class="meta">
+      <span><b>Android</b>5.0+</span>
+      <span><b>Free</b>to install</span>
+      <span><b>APK</b>direct</span>
+    </div>
+  </div>
+
+  <div class="steps">
+    <h3>How to install</h3>
+    <div class="step"><i>1</i><span>Tap <b>Download App</b> above and wait for the file to finish.</span></div>
+    <div class="step"><i>2</i><span>Open the downloaded file. If Android asks, allow <b>"Install from unknown sources"</b> for your browser.</span></div>
+    <div class="step"><i>3</i><span>Tap <b>Install</b>, then open Club 8 and log in.</span></div>
+  </div>
+
+  <p class="note">
+    This app is distributed directly as an APK, not through the Play Store, so
+    Android will ask you to confirm the install once. That is normal for direct
+    downloads.
+  </p>
+
+  <p class="play-link">Prefer the browser? <a href="/">Play on the web →</a></p>
+</body>
+</html>
