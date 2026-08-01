@@ -257,55 +257,52 @@ def _live_activity(conn) -> dict:
     "Now" is the last 5 minutes of settled rounds -- these games settle in one
     request, so there is no open-bet table to count. The hour window sits
     beside it to show whether a quiet 5 minutes is a lull or a dead game.
+
+    ONE query, deliberately. This ran as three separate statements and, against
+    a network database, three round trips per panel refresh is most of the
+    delay the admin actually feels. FILTER does the 5-minute window inside the
+    hour scan, and the UNION picks up WinGo, whose live number comes from
+    pending bets rather than settled rounds.
     """
-    now_rows = conn.execute(
+    rows = conn.execute(
         """
-        SELECT game, COUNT(DISTINCT user_id) AS players, COUNT(*) AS rounds,
-               SUM(stake) AS stake
-        FROM game_rounds
-        WHERE created_at >= NOW() - INTERVAL '5 minutes'
-        GROUP BY game
-        """
-    ).fetchall()
-    hour_rows = conn.execute(
-        """
-        SELECT game, COUNT(DISTINCT user_id) AS players, COUNT(*) AS rounds,
-               SUM(stake) AS stake
+        SELECT game,
+               COUNT(DISTINCT user_id) FILTER (WHERE created_at >= NOW() - INTERVAL '5 minutes') AS live_players,
+               COUNT(*)                FILTER (WHERE created_at >= NOW() - INTERVAL '5 minutes') AS live_rounds,
+               COALESCE(SUM(stake)     FILTER (WHERE created_at >= NOW() - INTERVAL '5 minutes'), 0) AS live_stake,
+               COUNT(DISTINCT user_id) AS hour_players,
+               COUNT(*) AS hour_rounds,
+               COALESCE(SUM(stake), 0) AS hour_stake
         FROM game_rounds
         WHERE created_at >= NOW() - INTERVAL '1 hour'
         GROUP BY game
+
+        UNION ALL
+
+        SELECT 'wingo' AS game,
+               COUNT(DISTINCT user_id) FILTER (WHERE status = 'pending') AS live_players,
+               COUNT(*)                FILTER (WHERE status = 'pending') AS live_rounds,
+               COALESCE(SUM(total_stake) FILTER (WHERE status = 'pending'), 0) AS live_stake,
+               COUNT(DISTINCT user_id) FILTER (WHERE created_at >= NOW() - INTERVAL '1 hour') AS hour_players,
+               COUNT(*)                FILTER (WHERE created_at >= NOW() - INTERVAL '1 hour') AS hour_rounds,
+               COALESCE(SUM(total_stake) FILTER (WHERE created_at >= NOW() - INTERVAL '1 hour'), 0) AS hour_stake
+        FROM bets
+        WHERE status = 'pending' OR created_at >= NOW() - INTERVAL '1 hour'
         """
     ).fetchall()
 
     live = {}
-    for row in now_rows:
+    for row in rows:
+        if not (row["live_rounds"] or row["hour_rounds"]):
+            continue
         live[row["game"]] = {
-            "live_players": int(row["players"]),
-            "live_rounds": int(row["rounds"]),
-            "live_stake": round(float(row["stake"] or 0), 2),
-            "hour_players": 0, "hour_rounds": 0, "hour_stake": 0.0,
+            "live_players": int(row["live_players"] or 0),
+            "live_rounds": int(row["live_rounds"] or 0),
+            "live_stake": round(float(row["live_stake"] or 0), 2),
+            "hour_players": int(row["hour_players"] or 0),
+            "hour_rounds": int(row["hour_rounds"] or 0),
+            "hour_stake": round(float(row["hour_stake"] or 0), 2),
         }
-    for row in hour_rows:
-        entry = live.setdefault(row["game"], _EMPTY_LIVE.copy())
-        entry["hour_players"] = int(row["players"])
-        entry["hour_rounds"] = int(row["rounds"])
-        entry["hour_stake"] = round(float(row["stake"] or 0), 2)
-
-    # WinGo keeps its bets open until the round timer expires, so its live
-    # figure is the pending bets, not a settled-rounds count.
-    wingo = conn.execute(
-        """
-        SELECT COUNT(DISTINCT user_id) AS players, COUNT(*) AS rounds,
-               SUM(total_stake) AS stake
-        FROM bets WHERE status = 'pending'
-        """
-    ).fetchone()
-    if wingo and wingo["rounds"]:
-        entry = live.setdefault("wingo", _EMPTY_LIVE.copy())
-        entry["live_players"] = int(wingo["players"])
-        entry["live_rounds"] = int(wingo["rounds"])
-        entry["live_stake"] = round(float(wingo["stake"] or 0), 2)
-
     return live
 
 

@@ -18,6 +18,7 @@ class App {
     this.selectedContractBase = 1;
     this.selectedQuantity = 1;
     this.authToken = localStorage.getItem('PREDICT_AUTH_TOKEN') || null;
+    this.referralCode = localStorage.getItem('PREDICT_REFERRAL_CODE') || '';
     this.generatedOtp = '';
     // Cached from the last /api/auth/me so a page refresh restores the unlocked
     // state immediately instead of flashing the "locked" modal before the sync.
@@ -865,6 +866,12 @@ class App {
       state.user.name = user.username || user.name || state.user.name;
       state.user.phone = user.phone || state.user.phone;
       state.user.balance = Number(user.balance ?? state.user.balance);
+      if (user.referral_code) {
+        this.referralCode = user.referral_code;
+        localStorage.setItem('PREDICT_REFERRAL_CODE', user.referral_code);
+        const codeEl = document.getElementById('agency-invite-code');
+        if (codeEl) codeEl.textContent = user.referral_code;
+      }
       appState.saveState();
     } catch (error) {
       if (/token|credentials|unauthorized/i.test(error.message)) {
@@ -876,6 +883,52 @@ class App {
         localStorage.removeItem('PREDICT_APPROVED_TOTAL');
         this.switchSubPage('auth', { record: false });
       }
+    }
+  }
+
+  async loadReferrals() {
+    if (!this.authToken) return;
+    const money = value => '₹' + Number(value || 0).toFixed(0);
+    try {
+      const data = await this.fetchApi('/api/referrals/mine');
+
+      const code = data.referral_code || this.referralCode || '—';
+      const codeEl = document.getElementById('agency-invite-code');
+      if (codeEl) codeEl.textContent = code;
+
+      const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+      set('promo-reward-each', money(data.reward_per_referral));
+      set('promo-signups', data.total_signups);
+      set('promo-deposited', data.total_deposited);
+      set('promo-pending', money(data.pending));
+      set('promo-earned', money(data.earned));
+      set('promo-earned-2', money(data.earned));
+
+      const list = document.getElementById('referral-list');
+      if (!list) return;
+      if (!data.referrals.length) {
+        list.innerHTML = '<p class="referral-empty">No referrals yet. Share your code to start earning.</p>';
+        return;
+      }
+      // Colour the status the same way the wallet colours amounts: green once
+      // the reward is credited, amber while it waits on admin approval.
+      const badge = r => {
+        const cls = r.status === 'approved' ? 'ok' : r.status === 'deposited' ? 'pending' : r.status === 'rejected' ? 'bad' : 'muted';
+        return `<span class="referral-badge ${cls}">${r.status_label}</span>`;
+      };
+      list.innerHTML = data.referrals.map(r => `
+        <div class="referral-row">
+          <div>
+            <b>${this.escapeHtml(r.name)}</b>
+            <small>${this.escapeHtml(r.phone)}</small>
+          </div>
+          <div class="referral-row-right">
+            ${badge(r)}
+            ${r.status === 'approved' ? `<em>+${money(r.reward)}</em>` : ''}
+          </div>
+        </div>`).join('');
+    } catch (error) {
+      // A failed load just leaves the placeholder; no toast for a background sync.
     }
   }
 
@@ -1303,7 +1356,7 @@ class App {
 
     let data;
     try {
-      data = await this.fetchApi(`/api/admin/games/overview?days=${days}`);
+      data = await this.adminApi(`/api/admin/games/overview?days=${days}`);
     } catch (error) {
       body.innerHTML = `<tr><td colspan="7" class="nd-empty">${error.message}</td></tr>`;
       return;
@@ -1336,13 +1389,13 @@ class App {
     this.loadAdminGameList();
   }
 
-  /** The game picker: one card per game with its live activity. */
+  /** The game picker: one tab per game, each showing whether it is live. */
   async loadAdminGameList() {
     const list = document.getElementById('ng-game-list');
     if (!list) return;
     let games;
     try {
-      ({ games } = await this.fetchApi('/api/admin/games/controls'));
+      ({ games } = await this.adminApi('/api/admin/games/controls'));
     } catch (error) {
       list.innerHTML = `<div class="nd-empty">${error.message}</div>`;
       return;
@@ -1350,35 +1403,73 @@ class App {
     this.adminGameControls = games;
 
     list.innerHTML = games.map(game => `
-      <button type="button" class="ng-game-card${game.enabled ? '' : ' is-off'}" data-game="${game.game}">
+      <button type="button" role="tab" class="ng-game-tab${game.enabled ? '' : ' is-off'}"
+              data-game="${game.game}" aria-selected="false">
+        <i class="ng-tab-dot${game.live_players ? ' is-live' : ''}"></i>
         <b>${game.label}</b>
-        <span class="ng-game-mode is-${game.mode}">${game.mode === 'manual' ? 'MANUAL' : 'AUTO'}</span>
-        <span class="ng-game-live">
-          <i class="${game.live_players ? 'is-live' : ''}"></i>
-          ${game.live_players} betting now
-        </span>
-        <small>${game.hour_rounds} rounds · ₹${Number(game.hour_stake).toFixed(0)} staked (1h)</small>
-        ${game.enabled ? '' : '<em class="ng-game-off">OFFLINE</em>'}
+        ${game.mode === 'manual' ? '<em class="ng-tab-manual">MANUAL</em>' : ''}
+        ${game.enabled ? '' : '<em class="ng-tab-off">OFF</em>'}
       </button>`).join('');
 
-    list.querySelectorAll('[data-game]').forEach(card =>
-      card.addEventListener('click', () => this.openAdminGame(card.dataset.game)));
+    list.querySelectorAll('[data-game]').forEach(tab =>
+      tab.addEventListener('click', () => this.openAdminGame(tab.dataset.game)));
 
-    // Keep the open detail panel in step with the refreshed numbers.
-    if (this.adminGameOpen) this.openAdminGame(this.adminGameOpen);
+    // Land on a game rather than an empty panel: without this the section
+    // opens with tabs and nothing under them, which reads as still loading.
+    if (!this.adminGameOpen && games.length) this.adminGameOpen = games[0].game;
+
+    if (this.adminGameOpen) {
+      this.markAdminGameTab(this.adminGameOpen);
+      // Painted from the list data that just arrived -- no second request.
+      const fresh = games.find(entry => entry.game === this.adminGameOpen);
+      if (fresh) this.paintAdminGame(fresh);
+    }
   }
 
+  markAdminGameTab(game) {
+    document.querySelectorAll('#ng-game-list .ng-game-tab').forEach(tab => {
+      const selected = tab.dataset.game === game;
+      tab.classList.toggle('is-active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+    });
+  }
+
+  /**
+   * Open a game's panel.
+   *
+   * Paints immediately from the list response that is already in memory, then
+   * fills in the recent-rounds table when it arrives. Waiting for the round
+   * trip before showing anything made a click feel like the dashboard had
+   * hung, because the database is remote and the panel needs several queries.
+   */
   async openAdminGame(game) {
     const panel = document.getElementById('ng-game-detail');
     if (!panel) return;
     this.adminGameOpen = game;
+    this.markAdminGameTab(game);
+
+    const cached = this.adminGameControls?.find(entry => entry.game === game);
+    if (cached) {
+      this.paintAdminGame(cached);
+      const body = document.getElementById('ng-detail-rounds');
+      if (body) body.innerHTML = '<tr><td colspan="5" class="nd-empty">Loading…</td></tr>';
+    }
 
     let data;
     try {
-      data = await this.fetchApi(`/api/admin/games/controls/${game}`);
+      data = await this.adminApi(`/api/admin/games/controls/${game}`);
     } catch (error) {
-      return this.showToast(error.message, 'error');
+      if (!cached) this.showToast(error.message, 'error');
+      return;
     }
+    // A slow reply must not overwrite a panel the admin has since switched to.
+    if (this.adminGameOpen !== game) return;
+    this.paintAdminGame(data);
+  }
+
+  paintAdminGame(data) {
+    const panel = document.getElementById('ng-game-detail');
+    if (!panel) return;
     panel.hidden = false;
 
     const money = value => `₹${Number(value || 0).toFixed(2)}`;
@@ -1425,6 +1516,9 @@ class App {
         choices.querySelectorAll('[data-forced]').forEach(b => b.classList.toggle('is-active', b === button));
       }));
 
+    // Absent when painting from the cached list entry -- leave whatever the
+    // table already shows rather than blanking it.
+    if (!data.recent) return;
     const body = document.getElementById('ng-detail-rounds');
     body.innerHTML = data.recent.length
       ? data.recent.map(round => `
@@ -1453,7 +1547,7 @@ class App {
       body.house_bias = Number(document.getElementById('ng-ctl-bias').value);
     }
     try {
-      await this.fetchApi(`/api/admin/games/controls/${game}`, 'PUT', body);
+      await this.adminApi(`/api/admin/games/controls/${game}`, 'PUT', body);
       this.showToast('Game controls saved.', 'success');
     } catch (error) {
       this.showToast(error.message, 'error');
@@ -1466,7 +1560,7 @@ class App {
     if (!body) return;
     let rounds;
     try {
-      ({ rounds } = await this.fetchApi('/api/admin/games/rounds?limit=40'));
+      ({ rounds } = await this.adminApi('/api/admin/games/rounds?limit=40'));
     } catch (error) {
       body.innerHTML = `<tr><td colspan="6" class="nd-empty">${error.message}</td></tr>`;
       return;
@@ -1494,7 +1588,7 @@ class App {
 
     let data;
     try {
-      data = await this.fetchApi(`/api/admin/lottery/tickets${query}`);
+      data = await this.adminApi(`/api/admin/lottery/tickets${query}`);
     } catch (error) {
       body.innerHTML = `<tr><td colspan="6" class="nd-empty">${error.message}</td></tr>`;
       return;
@@ -1570,7 +1664,7 @@ class App {
 
   async reviewLotteryTicket(ticketId, action) {
     try {
-      await this.fetchApi(`/api/admin/lottery/tickets/${ticketId}/review`, 'POST', { action });
+      await this.adminApi(`/api/admin/lottery/tickets/${ticketId}/review`, 'POST', { action });
       this.showToast(`Ticket ${action}d.`, 'success');
     } catch (error) {
       this.showToast(error.message, 'error');
@@ -1580,13 +1674,117 @@ class App {
 
   async payLotteryPrize(ticketId) {
     try {
-      const result = await this.fetchApi(`/api/admin/lottery/tickets/${ticketId}/pay`, 'POST');
+      const result = await this.adminApi(`/api/admin/lottery/tickets/${ticketId}/pay`, 'POST');
       this.showToast(`Prize ₹${result.prize} credited. New balance ₹${result.balance}.`, 'success');
     } catch (error) {
       this.showToast(error.message, 'error');
     }
     this.loadAdminLottery();
     this.loadAdminGames();
+  }
+
+  async loadAdminReferrals() {
+    const body = document.getElementById('admin-referrals-table-body');
+    if (!body) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/referrals');
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="6" class="nd-empty">${this.escapeHtml(error.message)}</td></tr>`;
+      return;
+    }
+
+    const note = document.getElementById('nd-referral-note');
+    if (note) {
+      note.textContent = data.pending_approval
+        ? `${data.pending_approval} reward${data.pending_approval > 1 ? 's' : ''} waiting for approval`
+        : 'No rewards pending';
+    }
+
+    const money = v => `₹${Number(v || 0).toFixed(0)}`;
+    const statusCell = s => {
+      const map = { signed_up: 'muted', deposited: 'pending', approved: 'ok', rejected: 'bad' };
+      const label = { signed_up: 'Signed up', deposited: 'Deposit done', approved: 'Reward paid', rejected: 'Rejected' };
+      return `<span class="referral-badge ${map[s] || 'muted'}">${label[s] || s}</span>`;
+    };
+
+    body.innerHTML = data.referrals.length
+      ? data.referrals.map(r => {
+          const deposited = Number(r.referred_deposit_total) > 0;
+          // The reward is only actionable once the invited player has a
+          // qualifying (approved) deposit, i.e. status === 'deposited'.
+          const action = r.status === 'deposited'
+            ? `<button type="button" class="nd-mini ok" data-ref-approve="${r.id}">Approve ${money(r.reward)}</button>
+               <button type="button" class="nd-mini no" data-ref-reject="${r.id}">Reject</button>`
+            : '';
+          return `
+            <tr>
+              <td><b>${this.escapeHtml(r.referrer_name || '—')}</b><small>${this.escapeHtml(r.referrer_code || '')}</small></td>
+              <td>${this.escapeHtml(r.referred_name || '—')}<small>${this.escapeHtml(r.referred_phone || '')}</small></td>
+              <td>${deposited ? `<span class="ref-yes">₹${Number(r.referred_deposit_total).toFixed(0)}</span>` : '<span class="ref-no">Not yet</span>'}</td>
+              <td>${money(r.reward)}</td>
+              <td>${statusCell(r.status)}</td>
+              <td>${action}</td>
+            </tr>`;
+        }).join('')
+      : '<tr><td colspan="6" class="nd-empty">No referrals yet</td></tr>';
+
+    body.querySelectorAll('[data-ref-approve]').forEach(button =>
+      button.addEventListener('click', () => this.reviewReferral(button.dataset.refApprove, 'approve')));
+    body.querySelectorAll('[data-ref-reject]').forEach(button =>
+      button.addEventListener('click', () => this.reviewReferral(button.dataset.refReject, 'reject')));
+  }
+
+  async reviewReferral(referralId, action) {
+    try {
+      const result = await this.adminApi(`/api/admin/referrals/${referralId}/${action}`, 'POST');
+      this.showToast(
+        action === 'approve'
+          ? `Reward ₹${result.reward} credited to the referrer.`
+          : 'Referral rejected.',
+        'success'
+      );
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+    this.loadAdminReferrals();
+  }
+
+  async submitAdminCredentials() {
+    const phone = document.getElementById('admin-sec-phone')?.value.trim();
+    const password = document.getElementById('admin-sec-password')?.value;
+    const current = document.getElementById('admin-sec-current')?.value;
+    if (!current) return this.showToast('Current password daalna zaroori hai.', 'error');
+    if (!phone && !password) return this.showToast('Naya phone ya password to daalo.', 'error');
+    try {
+      const result = await this.adminApi('/api/admin/security/credentials', 'POST', {
+        current_password: current,
+        new_phone: phone || null,
+        new_password: password || null
+      });
+      this.showToast('Admin login updated. Please sign in again with the new details.', 'success');
+      ['admin-sec-phone', 'admin-sec-password', 'admin-sec-current'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      // Phone or password changed means the old session is stale; force a fresh
+      // admin login rather than leaving a token that may soon be invalid.
+      void result;
+      this.lockAdmin('Login updated — sign in again with your new details.');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async submitAdminKeyRotation() {
+    const key = document.getElementById('admin-sec-key')?.value.trim();
+    if (!key || key.length < 24) return this.showToast('Access key kam se kam 24 characters ka ho.', 'error');
+    try {
+      await this.adminApi('/api/admin/rotate-access-key', 'POST', { api_key: key });
+      this.showToast('Access key rotated. Update it wherever tooling uses it.', 'success');
+      const el = document.getElementById('admin-sec-key'); if (el) el.value = '';
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
   }
 
   renderAdminStats(m) {
@@ -1986,7 +2184,19 @@ class App {
         document.querySelectorAll('.nd-section').forEach(section => {
           section.classList.toggle('active', section.id === `nd-section-${tab.dataset.section}`);
         });
+        // Referrals are their own endpoint, not part of the dashboard payload,
+        // so they load when the tab is opened rather than on every refresh.
+        if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
       });
+    });
+
+    document.getElementById('admin-credentials-form')?.addEventListener('submit', e => {
+      e.preventDefault();
+      void this.submitAdminCredentials();
+    });
+    document.getElementById('admin-key-form')?.addEventListener('submit', e => {
+      e.preventDefault();
+      void this.submitAdminKeyRotation();
     });
 
     // The queue filter and the games range share the .nd-seg-btn look, so each
@@ -2023,11 +2233,6 @@ class App {
       document.getElementById('ng-bias-value').textContent = `${event.target.value}%`;
     });
 
-    document.getElementById('ng-detail-close')?.addEventListener('click', () => {
-      this.adminGameOpen = null;
-      document.getElementById('ng-game-detail').hidden = true;
-    });
-
     document.getElementById('ng-controls-form')?.addEventListener('submit', event => {
       event.preventDefault();
       this.saveAdminGameControls();
@@ -2041,7 +2246,7 @@ class App {
         return this.showToast('Winning ticket 00-99 ke beech hona chahiye.', 'error');
       }
       try {
-        const result = await this.fetchApi('/api/admin/lottery/draw', 'POST', {
+        const result = await this.adminApi('/api/admin/lottery/draw', 'POST', {
           draw_date: document.getElementById('ng-lottery-date')?.value || null,
           winning_ticket: winning
         });
@@ -2232,12 +2437,15 @@ class App {
     });
 
     document.getElementById('copy-invite-code')?.addEventListener('click', async () => {
-      const code = document.getElementById('agency-invite-code')?.textContent?.trim() || '';
+      const code = this.referralCode
+        || localStorage.getItem('PREDICT_REFERRAL_CODE')
+        || document.getElementById('agency-invite-code')?.textContent?.trim() || '';
+      if (!code || code === '—') return this.showToast('Referral code load ho raha hai, ek pal ruko.', 'error');
       try {
         await navigator.clipboard.writeText(code);
-        this.showToast('Invitation code copied', 'success');
+        this.showToast('Referral code copied', 'success');
       } catch {
-        this.showToast(`Invitation code: ${code}`, 'success');
+        this.showToast(`Your referral code: ${code}`, 'success');
       }
     });
 
@@ -2780,6 +2988,9 @@ class App {
     target.classList.add('active');
     if (pageId === 'deposit-history' || pageId === 'withdraw-history') {
       this.syncWalletHistory();
+    }
+    if (pageId === 'promotion') {
+      void this.loadReferrals();
     }
 
     const rootPages = new Set(['home', 'activity', 'promotion', 'wallet', 'profile']);

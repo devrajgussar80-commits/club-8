@@ -13,11 +13,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 import auth as auth_helpers
 import config
+import referrals_core
 from database import get_db_connection
-from deps import require_admin
+from deps import get_admin_user, require_admin
 from game_engine import python_engine
 from schemas import (
     AddQRReq,
+    AdminCredentialsRequest,
     AdminKeyRotationRequest,
     AdminLoginRequest,
     ForceResultReq,
@@ -143,6 +145,51 @@ def rotate_admin_access_key(req: AdminKeyRotationRequest, _: bool = Depends(requ
     finally:
         conn.close()
     return {"status": "success", "message": "Admin access key rotated"}
+
+
+@router.post("/security/credentials")
+def change_admin_credentials(
+    req: AdminCredentialsRequest, admin: dict = Depends(get_admin_user)
+):
+    """Change the signed-in admin's own login phone and/or password.
+
+    The current password is required regardless of the session token, so a
+    stolen token alone cannot rotate the credentials and lock the admin out.
+    """
+    if not auth_helpers.verify_password(req.current_password, admin["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if not req.new_phone and not req.new_password:
+        raise HTTPException(status_code=400, detail="Nothing to change")
+
+    conn = get_db_connection()
+    try:
+        if req.new_phone and req.new_phone != admin["phone"]:
+            clash = conn.execute(
+                "SELECT id FROM users WHERE phone = ? AND id <> ?",
+                (req.new_phone, admin["id"]),
+            ).fetchone()
+            if clash:
+                raise HTTPException(status_code=400, detail="That phone is already in use")
+            conn.execute(
+                "UPDATE users SET phone = ? WHERE id = ?", (req.new_phone, admin["id"])
+            )
+        if req.new_password:
+            conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (auth_helpers.hash_password(req.new_password), admin["id"]),
+            )
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        conn.close()
+        raise
+    conn.close()
+    return {
+        "status": "success",
+        "phone": req.new_phone or admin["phone"],
+        "password_changed": bool(req.new_password),
+    }
 
 
 # ----------------- DASHBOARD -----------------
@@ -361,6 +408,9 @@ def approve_deposit(dep_id: str, _: bool = Depends(require_admin)):
     conn.execute(
         "UPDATE users SET balance = balance + ? WHERE id = ?", (dep["amount"], dep["user_id"])
     )
+    # First approved deposit is what turns a signup into a claimable referral.
+    # Same transaction as the credit, so the two can never disagree.
+    referrals_core.qualify_on_deposit(conn, dep["user_id"])
     conn.commit()
     conn.close()
     return {"status": "success", "deposit_id": dep_id}
@@ -383,6 +433,104 @@ def reject_deposit(dep_id: str, _: bool = Depends(require_admin)):
     conn.commit()
     conn.close()
     return {"status": "success", "deposit_id": dep_id}
+
+
+# ----------------- REFERRALS -----------------
+@router.get("/referrals")
+def list_referrals(_: bool = Depends(require_admin)):
+    """Every referral, so the admin can trace who invited whom and whether the
+    invited player has deposited yet."""
+    conn = get_db_connection()
+    rows = conn.execute(
+        """
+        SELECT r.id, r.status, r.reward, r.created_at, r.qualified_at, r.approved_at,
+               r.referred_name, r.referred_phone,
+               ref.username AS referrer_name, ref.phone AS referrer_phone,
+               ref.referral_code AS referrer_code,
+               COALESCE(dep.total, 0) AS referred_deposit_total
+          FROM referrals r
+          JOIN users ref ON ref.id = r.referrer_id
+          LEFT JOIN (
+              SELECT user_id, SUM(amount) AS total
+                FROM upi_deposits WHERE status = 'approved'
+                GROUP BY user_id
+          ) dep ON dep.user_id = r.referred_id
+         ORDER BY r.created_at DESC
+        """
+    ).fetchall()
+    conn.close()
+
+    referrals = [dict(r) for r in rows]
+    pending = sum(1 for r in referrals if r["status"] == "deposited")
+    return {
+        "referrals": referrals,
+        "reward_per_referral": referrals_core.REWARD_AMOUNT,
+        "pending_approval": pending,
+    }
+
+
+@router.post("/referrals/{referral_id}/approve")
+def approve_referral(referral_id: str, _: bool = Depends(require_admin)):
+    """Release the reward: credit the referrer once, close the referral.
+
+    Only a 'deposited' referral can be approved -- the referred user must have
+    a qualifying deposit first. The row is locked and re-checked so a double
+    click cannot pay the reward twice.
+    """
+    conn = get_db_connection()
+    try:
+        ref = conn.execute(
+            "SELECT * FROM referrals WHERE id = ? FOR UPDATE", (referral_id,)
+        ).fetchone()
+        if not ref:
+            raise HTTPException(status_code=404, detail="Referral not found")
+        if ref["status"] != "deposited":
+            raise HTTPException(
+                status_code=400,
+                detail="Only referrals whose invited user has deposited can be approved.",
+            )
+        conn.execute(
+            "UPDATE users SET balance = balance + ? WHERE id = ?",
+            (ref["reward"], ref["referrer_id"]),
+        )
+        conn.execute(
+            "UPDATE referrals SET status = 'approved', approved_at = ? WHERE id = ?",
+            (datetime.now(timezone.utc), referral_id),
+        )
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        conn.close()
+        raise
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
+    conn.close()
+    return {"status": "success", "referral_id": referral_id, "reward": ref["reward"]}
+
+
+@router.post("/referrals/{referral_id}/reject")
+def reject_referral(referral_id: str, _: bool = Depends(require_admin)):
+    conn = get_db_connection()
+    try:
+        ref = conn.execute(
+            "SELECT status FROM referrals WHERE id = ? FOR UPDATE", (referral_id,)
+        ).fetchone()
+        if not ref:
+            raise HTTPException(status_code=404, detail="Referral not found")
+        if ref["status"] in ("approved", "rejected"):
+            raise HTTPException(status_code=400, detail="This referral is already closed.")
+        conn.execute(
+            "UPDATE referrals SET status = 'rejected' WHERE id = ?", (referral_id,)
+        )
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        conn.close()
+        raise
+    conn.close()
+    return {"status": "success", "referral_id": referral_id}
 
 
 # ----------------- WITHDRAWALS -----------------

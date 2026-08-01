@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 import auth as auth_helpers
 import config
+import referrals_core
 from database import get_db_connection
 from deps import get_current_user
 from schemas import LoginRequest, RegisterRequest
@@ -31,14 +32,22 @@ def register_user(req: RegisterRequest):
     user_id = f"USR{uuid.uuid4().hex[:10].upper()}"
     pwd_hash = auth_helpers.hash_password(req.password)
 
+    own_code = referrals_core.new_user_code(conn)
+    entered = (req.referral_code or "").strip().upper() or None
+
     cursor.execute(
         """
         INSERT INTO users
-            (id, phone, username, password_hash, balance, status, referral_code, game_access_enabled)
-        VALUES (?, ?, ?, ?, ?, 'active', ?, 0)
+            (id, phone, username, password_hash, balance, status,
+             referral_code, referred_by, game_access_enabled)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 0)
         """,
-        (user_id, req.phone, req.username, pwd_hash, SIGNUP_BONUS, req.referral_code),
+        (user_id, req.phone, req.username, pwd_hash, SIGNUP_BONUS, own_code, entered),
     )
+
+    # Link this signup to the referrer, if the entered code is real. Part of
+    # the same transaction, so a new account and its referral commit together.
+    referrals_core.record_referral(conn, user_id, req.username, req.phone, entered)
 
     conn.commit()
     conn.close()
@@ -54,6 +63,7 @@ def register_user(req: RegisterRequest):
             "balance": SIGNUP_BONUS,
             "game_access_enabled": False,
             "approved_deposit_total": 0.0,
+            "referral_code": own_code,
         },
     }
 
@@ -97,6 +107,7 @@ def login_user(req: LoginRequest):
             "phone": user_dict["phone"],
             "balance": user_dict["balance"],
             "game_access_enabled": bool(user_dict.get("game_access_enabled", 0)),
+            "referral_code": user_dict.get("referral_code"),
         },
     }
 

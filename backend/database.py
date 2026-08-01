@@ -141,14 +141,18 @@ def _pool() -> ConnectionPool:
             DATABASE_URL,
             min_size=1,
             max_size=int(os.environ.get("DB_POOL_MAX", "10")),
-            # Fail fast on a wrong DATABASE_URL. The default waits 30s per
-            # call, which on a bad deploy just looks like the app hanging.
-            timeout=10,
+            # Long enough to survive a Neon cold start, short enough that a
+            # genuinely wrong URL still fails instead of hanging forever.
+            # Neon suspends an idle compute and the first connection after
+            # that takes ~25-30s to wake it; a 10s budget here meant the app
+            # crashed on boot and the first dashboard click timed out every
+            # time the database had been quiet for a few minutes.
+            timeout=45,
             # No "options=-c search_path" here: Neon's pgbouncer pooler rejects
             # the `options` startup parameter outright ("unsupported startup
             # parameter"), which shows up as a pool timeout rather than a clear
             # error. The schema is set per connection in _configure instead.
-            kwargs={"row_factory": _row_factory, "connect_timeout": 10},
+            kwargs={"row_factory": _row_factory, "connect_timeout": 30},
             configure=_configure,
             # Neon scales the compute to zero when idle and drops the sockets
             # with it. Without this check the pool hands out a dead connection
@@ -253,6 +257,34 @@ CREATE TABLE IF NOT EXISTS qr_codes (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     last_used_at TIMESTAMPTZ
 );
+
+-- Referrals. `referral_code` is repurposed to be each user's OWN unique
+-- share code (backfilled below); `referred_by` records the code they entered
+-- at signup. The join between them lives in the referrals table so a reward
+-- has one row with one status, rather than being inferred from two columns.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code
+    ON users(referral_code) WHERE referral_code IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS referrals (
+    id TEXT PRIMARY KEY,
+    referrer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- A user can be referred by at most one person, ever.
+    referred_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    referred_name TEXT,
+    referred_phone TEXT,
+    -- signed_up  : joined with the code, no qualifying deposit yet
+    -- deposited  : referred user's first deposit approved -> reward is claimable
+    -- approved   : admin released the reward, referrer credited (terminal)
+    -- rejected   : admin declined the reward (terminal)
+    status TEXT DEFAULT 'signed_up',
+    reward DOUBLE PRECISION DEFAULT 50,
+    qualified_at TIMESTAMPTZ,
+    approved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referrals_status ON referrals(status);
 
 -- Uploaded QR images live in the database, not on the host's filesystem.
 -- Render (and most PaaS free tiers) wipe the disk on every deploy, which
@@ -367,8 +399,10 @@ def init_db():
     try:
         conn = get_db_connection()
     except PoolTimeout as exc:
-        # Almost always a wrong or unreachable DATABASE_URL. Say so, rather
-        # than letting a bare PoolTimeout reach the deploy logs.
+        # By the time the pool gives up here it has already waited out a Neon
+        # cold start, so this really is a wrong or unreachable URL rather than
+        # a sleeping compute. Say so, rather than letting a bare PoolTimeout
+        # reach the deploy logs.
         raise RuntimeError(
             "Could not reach Postgres. Check DATABASE_URL — it should be the "
             "pooled Neon string ending in ?sslmode=require."
@@ -404,6 +438,12 @@ def init_db():
         )
 
     conn.commit()
+
+    # Give every existing user an own referral code and migrate legacy rows.
+    # Imported here, not at module top, to avoid a circular import.
+    import referrals_core
+
+    referrals_core.migrate_and_backfill(conn)
     conn.close()
 
 

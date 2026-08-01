@@ -39,6 +39,14 @@ class AdminKeyRotationRequest(BaseModel):
     api_key: str = Field(min_length=24)
 
 
+class AdminCredentialsRequest(BaseModel):
+    # The current password gates every change, so a hijacked session token
+    # alone cannot lock the real admin out.
+    current_password: str = Field(min_length=1)
+    new_phone: Optional[str] = Field(default=None, min_length=4, max_length=32)
+    new_password: Optional[str] = Field(default=None, min_length=6, max_length=128)
+
+
 # ----------------- GAME -----------------
 class BetRequest(BaseModel):
     select_type: Literal["color", "number", "size"]

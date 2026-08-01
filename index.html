@@ -106,7 +106,7 @@
                   <button type="button" data-toggle-password="reg-confirm-password" aria-label="Show password"><i class="bi bi-eye-slash"></i></button>
                 </div>
                 <label class="auth-field-label"><i class="bi bi-ticket-fill"></i> Invite code</label>
-                <div class="auth-input-wrap"><input type="text" id="reg-referral" value="CLUB8BONUS" placeholder="Invite code"></div>
+                <div class="auth-input-wrap"><input type="text" id="reg-referral" value="" placeholder="Invite code (optional)"></div>
                 <input type="hidden" id="reg-name">
                 <label class="auth-remember auth-agree"><input type="checkbox" checked required><span><i class="bi bi-check-lg"></i></span> I have read and agree <b>[Privacy Agreement]</b></label>
                 <div class="signup-bonus-callout"><i class="bi bi-gift-fill"></i><span>Register now and receive <b>₹100 signup bonus</b><small>Bonus can be used in WinGo without recharge.</small></span></div>
@@ -880,36 +880,37 @@
 
           <section class="agency-hero">
             <div class="agency-commission">
-              <strong>0</strong>
-              <span>Yesterday's total commission</span>
-              <small>Upgrade the level to increase commission income</small>
+              <strong id="promo-earned">₹0</strong>
+              <span>Referral rewards earned</span>
+              <small>Earn <b id="promo-reward-each">₹50</b> when an invited friend makes their first deposit</small>
             </div>
             <div class="agency-stats-card">
-              <div class="agency-stats-tabs"><span>Direct subordinates</span><span>Team subordinates</span></div>
+              <div class="agency-stats-tabs"><span>Your referrals</span></div>
               <div class="agency-stat-columns">
                 <div>
-                  <p><b>0</b><span>number of register</span></p>
-                  <p class="green"><b>0</b><span>Deposit number</span></p>
-                  <p class="orange"><b>0</b><span>Deposit amount</span></p>
-                  <p><b>0</b><span>Number of people making first<br>deposit</span></p>
-                </div>
-                <div>
-                  <p><b>0</b><span>number of register</span></p>
-                  <p class="green"><b>0</b><span>Deposit number</span></p>
-                  <p class="orange"><b>0</b><span>Deposit amount</span></p>
-                  <p><b>0</b><span>Number of people making first<br>deposit</span></p>
+                  <p><b id="promo-signups">0</b><span>Friends signed up</span></p>
+                  <p class="green"><b id="promo-deposited">0</b><span>Made a deposit</span></p>
+                  <p class="orange"><b id="promo-pending">₹0</b><span>Reward pending approval</span></p>
+                  <p><b id="promo-earned-2">₹0</b><span>Reward credited</span></p>
                 </div>
               </div>
             </div>
           </section>
 
-          <div class="agency-invite-title">INVITATION LINK</div>
+          <div class="agency-invite-title">YOUR INVITE CODE</div>
           <button id="copy-invite-code" class="agency-code-card" type="button">
             <i class="bi bi-briefcase-fill"></i>
-            <span>Copy invitation code</span>
-            <small id="agency-invite-code">7434713882050</small>
+            <span>Tap to copy your code</span>
+            <small id="agency-invite-code">—</small>
             <i class="bi bi-copy"></i>
           </button>
+
+          <section class="referral-list-card">
+            <h3><i class="bi bi-people-fill"></i> People you referred</h3>
+            <div id="referral-list" class="referral-list">
+              <p class="referral-empty">No referrals yet. Share your code to start earning.</p>
+            </div>
+          </section>
 
           <div class="agency-menu">
             <button type="button"><i class="bi bi-journal-text"></i><span>Subordinate data</span><b>›</b></button>
@@ -1468,8 +1469,10 @@
         <button type="button" class="nd-tab active" data-section="users"><i class="bi bi-people-fill"></i> Players</button>
         <button type="button" class="nd-tab" data-section="history"><i class="bi bi-clock-history"></i> History</button>
         <button type="button" class="nd-tab" data-section="games"><i class="bi bi-controller"></i> Games</button>
+        <button type="button" class="nd-tab" data-section="referrals"><i class="bi bi-people-fill"></i> Referrals</button>
         <button type="button" class="nd-tab" data-section="qr"><i class="bi bi-qr-code"></i> Payment QR</button>
         <button type="button" class="nd-tab" data-section="controls"><i class="bi bi-sliders"></i> Controls</button>
+        <button type="button" class="nd-tab" data-section="security"><i class="bi bi-shield-lock-fill"></i> Security</button>
       </nav>
 
       <section id="nd-section-users" class="nd-panel nd-section active">
@@ -1523,14 +1526,13 @@
           </table>
         </div>
 
-        <!-- GAME LIST -> pick one -> its own live data and controls -->
+        <!-- GAME TABS -> pick one -> its own live data and controls -->
         <div class="nd-panel-head"><h3>Games <small>select one to control it</small></h3></div>
-        <div id="ng-game-list" class="ng-game-list"></div>
+        <nav id="ng-game-list" class="ng-game-tabs" role="tablist"></nav>
 
         <div id="ng-game-detail" class="ng-detail" hidden>
           <div class="nd-panel-head">
             <h3 id="ng-detail-title">Game</h3>
-            <button type="button" id="ng-detail-close" class="nd-icon-btn" title="Close"><i class="bi bi-x-lg"></i></button>
           </div>
 
           <div class="ng-kpis">
@@ -1622,6 +1624,19 @@
         </div>
       </section>
 
+      <section id="nd-section-referrals" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Referrals</h3>
+          <small id="nd-referral-note" class="nd-pool-note"></small>
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Referrer</th><th>Invited player</th><th>Deposited</th><th>Reward</th><th>Status</th><th></th></tr></thead>
+            <tbody id="admin-referrals-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section id="nd-section-qr" class="nd-panel nd-section">
         <div class="nd-panel-head">
           <h3>Deposit QR codes</h3>
@@ -1685,6 +1700,42 @@
             <div class="nd-pool"><span>Green</span><div class="nd-bar"><i id="admin-pool-green-fill" class="fill-green"></i></div><b id="admin-pool-green-val">₹0 (0%)</b></div>
             <div class="nd-pool"><span>Red</span><div class="nd-bar"><i id="admin-pool-red-fill" class="fill-red"></i></div><b id="admin-pool-red-val">₹0 (0%)</b></div>
             <div class="nd-pool"><span>Violet</span><div class="nd-bar"><i id="admin-pool-violet-fill" class="fill-violet"></i></div><b id="admin-pool-violet-val">₹0 (0%)</b></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="nd-section-security" class="nd-panel nd-section">
+        <div class="nd-controls-grid">
+          <div class="nd-control-card">
+            <h4><i class="bi bi-person-badge"></i> Admin login</h4>
+            <p class="nd-hint">Change the phone and password you sign in with. Your current password confirms the change.</p>
+            <form id="admin-credentials-form" class="nd-settings">
+              <label class="nd-field">
+                <span>New login phone (optional)</span>
+                <input id="admin-sec-phone" class="form-control" type="text" placeholder="Leave blank to keep current" autocomplete="off">
+              </label>
+              <label class="nd-field">
+                <span>New password (optional)</span>
+                <input id="admin-sec-password" class="form-control" type="password" placeholder="Min 6 characters" autocomplete="new-password">
+              </label>
+              <label class="nd-field">
+                <span>Current password <b style="color:#f16d78">*</b></span>
+                <input id="admin-sec-current" class="form-control" type="password" placeholder="Required to confirm" autocomplete="current-password" required>
+              </label>
+              <button class="btn-primary" type="submit"><i class="bi bi-check2-circle"></i> Update login</button>
+            </form>
+          </div>
+
+          <div class="nd-control-card">
+            <h4><i class="bi bi-key-fill"></i> Access key</h4>
+            <p class="nd-hint">The <code>X-Admin-Key</code> used by tooling and recovery. Rotating it invalidates the old key immediately.</p>
+            <form id="admin-key-form" class="nd-settings">
+              <label class="nd-field">
+                <span>New access key (min 24 chars)</span>
+                <input id="admin-sec-key" class="form-control" type="text" placeholder="Long random string" autocomplete="off" minlength="24">
+              </label>
+              <button class="btn-primary" type="submit"><i class="bi bi-arrow-repeat"></i> Rotate key</button>
+            </form>
           </div>
         </div>
       </section>

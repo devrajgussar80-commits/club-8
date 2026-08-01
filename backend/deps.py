@@ -92,5 +92,26 @@ def require_admin(
     return True
 
 
+def get_admin_user(authorization: Optional[str] = Header(None)) -> dict:
+    """The signed-in admin's account, for actions that change that account.
+
+    Unlike require_admin this refuses the shared key: rotating the admin's own
+    phone or password has to be tied to a real logged-in admin, not to anyone
+    holding the key.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Admin session required")
+    payload = auth.decode_access_token(authorization.split(" ", 1)[1])
+    if not payload or not payload.get("is_admin"):
+        raise HTTPException(status_code=401, detail="Admin session required")
+
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE id = ?", (payload.get("user_id"),)).fetchone()
+    conn.close()
+    if not user or not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="This account is not an admin")
+    return dict(user)
+
+
 AdminAuth = Depends(require_admin)
 CurrentUser = Depends(get_current_user)

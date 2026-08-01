@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 import config
 import database
 from game_engine import python_engine
-from routers import admin, admin_games, auth, game, pages, wallet
+from routers import admin, admin_games, auth, game, pages, referrals, wallet
 from routers.games import aviator, lottery, megaslots, roulette, slots
 
 
@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
     application.include_router(auth.router)
     application.include_router(game.router)
     application.include_router(wallet.router)
+    application.include_router(referrals.router)
     application.include_router(admin.router)
     application.include_router(admin_games.router)
 

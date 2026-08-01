@@ -3640,8 +3640,32 @@ body[data-club-page="activity"] .add-desktop-pill { display:flex; }
 }
 .agency-code-card>i:first-child { width:26px;height:26px;display:grid;place-items:center;border-radius:7px;background:#ff9298;color:#ff5c67;font-size:17px; }
 .agency-code-card>span { font-size:14px; }
-.agency-code-card>small { color:#6f789d;font-size:12px; }
+.agency-code-card>small { color:#6f789d;font-size:12px;font-weight:800;letter-spacing:2px; }
 .agency-code-card>i:last-child { color:#74809d;font-size:18px; }
+
+/* Referral list on the promotion page. */
+.referral-list-card { margin-top:14px; }
+.referral-list-card h3 {
+  display:flex; align-items:center; gap:7px;
+  margin:0 0 10px; font-size:14px; color:#c7d2ef;
+}
+.referral-list { display:grid; gap:8px; }
+.referral-empty { color:#6f789d; font-size:13px; text-align:center; padding:18px 8px; }
+.referral-row {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:12px 14px; border-radius:12px; background:#141a2e;
+}
+.referral-row b { display:block; font-size:14px; color:#e7ecf9; }
+.referral-row small { color:#7a86a8; font-size:12px; }
+.referral-row-right { display:flex; align-items:center; gap:8px; }
+.referral-row-right em { font-style:normal; font-weight:800; color:#37d07a; font-size:13px; }
+.referral-badge {
+  padding:4px 10px; border-radius:20px; font-size:11px; font-weight:800; white-space:nowrap;
+}
+.referral-badge.ok { background:#123a24; color:#37d07a; }
+.referral-badge.pending { background:#3a2f12; color:#f5b638; }
+.referral-badge.bad { background:#3a1518; color:#f16d78; }
+.referral-badge.muted { background:#22283c; color:#9aa6c6; }
 .agency-menu { margin-top:10px;display:grid;gap:10px; }
 .agency-menu button {
   width:100%;
@@ -7145,6 +7169,11 @@ body[data-club-page="game"] .mobile-frame {
 .nd-mini.no { background: #8a2b22; }
 .nd-mini.pay { background: linear-gradient(180deg, #ffd76a, #f0a92a); color: #2a1600; }
 
+/* Admin referrals table: deposited-or-not, and small referrer-code lines. */
+.ref-yes { color: #37d07a; font-weight: 800; }
+.ref-no { color: #8a93ab; }
+#admin-referrals-table-body small { display: block; color: #7a86a8; font-size: 11px; }
+
 
 /* ------------------------------------------- vector art for the game tiles
    Every lobby tile used to be a 118x160 window cropped out of a 1366x768
@@ -7180,38 +7209,48 @@ body[data-club-page="game"] .mobile-frame {
 
 /* ------------------------------------------- admin: per-game control panel */
 
-.ng-game-list {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 10px; margin: 12px 0;
+/* Games are tabs, not cards: the admin is switching between one game's
+   controls at a time, so a strip that scrolls sideways on a phone keeps the
+   panel below in view instead of pushing it off the screen. */
+.ng-game-tabs {
+  display: flex; gap: 6px; margin: 12px 0;
+  overflow-x: auto;
+  /* Keep the row on one line and let it scroll rather than wrap into a block
+     that grows every time a game is added. */
+  flex-wrap: nowrap;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
 }
-.ng-game-card {
-  position: relative; display: grid; gap: 5px; text-align: left;
-  padding: 12px 14px; border-radius: 12px;
+.ng-game-tab {
+  display: flex; align-items: center; gap: 7px; flex: 0 0 auto;
+  padding: 9px 14px; border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, .1);
   background: rgba(255, 255, 255, .05); color: inherit;
+  white-space: nowrap;
 }
-.ng-game-card:hover { border-color: rgba(255, 215, 106, .5); }
-.ng-game-card.is-off { opacity: .55; }
-.ng-game-card b { font-size: 14px; }
-.ng-game-card small { font-size: 11px; opacity: .6; }
-.ng-game-mode {
-  justify-self: start; padding: 2px 7px; border-radius: 999px;
-  font-size: 9px; font-weight: 800; letter-spacing: .08em;
+.ng-game-tab:hover { border-color: rgba(255, 215, 106, .45); }
+.ng-game-tab b { font-size: 13px; font-weight: 600; }
+.ng-game-tab.is-active {
+  border-color: #ffd76a;
+  background: rgba(255, 215, 106, .16);
 }
-/* Manual is the state an operator must never leave on by accident, so it is
-   the one that shouts. */
-.ng-game-mode.is-auto { background: rgba(126, 240, 164, .18); color: #7ef0a4; }
-.ng-game-mode.is-manual { background: rgba(255, 123, 107, .2); color: #ff9d8f; }
-.ng-game-live { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.ng-game-live i {
-  width: 7px; height: 7px; border-radius: 50%;
+.ng-game-tab.is-active b { color: #ffd76a; }
+.ng-game-tab.is-off { opacity: .5; }
+
+.ng-tab-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
   background: rgba(255, 255, 255, .25);
 }
-.ng-game-live i.is-live { background: #7ef0a4; box-shadow: 0 0 8px #7ef0a4; }
-.ng-game-off {
-  position: absolute; top: 10px; right: 10px;
-  font-size: 9px; font-style: normal; font-weight: 800; color: #ff7b6b;
+.ng-tab-dot.is-live { background: #7ef0a4; box-shadow: 0 0 8px #7ef0a4; }
+
+/* Manual is the state an operator must never leave on by accident, so it is
+   the one that shouts, right on the tab. */
+.ng-tab-manual, .ng-tab-off {
+  padding: 2px 6px; border-radius: 999px;
+  font-size: 9px; font-style: normal; font-weight: 800; letter-spacing: .06em;
 }
+.ng-tab-manual { background: rgba(255, 123, 107, .2); color: #ff9d8f; }
+.ng-tab-off { background: rgba(255, 255, 255, .12); color: #ff7b6b; }
 
 .ng-detail {
   margin: 14px 0; padding: 14px; border-radius: 14px;
