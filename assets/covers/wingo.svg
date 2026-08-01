@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"
+     width="240" height="320" role="img" aria-label="WinGo">
+  <defs>
+    <linearGradient id="bg-wingo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2a1550"/>
+      <stop offset="100%" stop-color="#0c0518"/>
+    </linearGradient>
+    <radialGradient id="glow-wingo" cx="50%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".20"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="scrim-wingo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".82"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="240" height="320" fill="url(#bg-wingo)"/>
+  <rect width="240" height="320" fill="url(#glow-wingo)"/>
+  <g text-anchor="middle" font-family="Segoe UI, Roboto, sans-serif" font-weight="800">
+    <circle cx="62" cy="118" r="34" fill="#22c55e"/><text x="62" y="130" font-size="30" fill="#fff">8</text>
+    <circle cx="120" cy="150" r="34" fill="#a855f7"/><text x="120" y="162" font-size="30" fill="#fff">5</text>
+    <circle cx="178" cy="118" r="34" fill="#ef4444"/><text x="178" y="130" font-size="30" fill="#fff">6</text>
+  </g>
+  <rect y="224" width="240" height="96" fill="url(#scrim-wingo)"/>
+  <text x="16" y="280" fill="#fff" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="26" font-weight="800" letter-spacing="-.5">WinGo</text>
+  <text x="16" y="300" fill="#ffd76a" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="11" font-weight="700" letter-spacing="1.6">COLOUR PREDICTION</text>
+</svg>

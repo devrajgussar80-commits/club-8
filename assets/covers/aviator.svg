@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"
+     width="240" height="320" role="img" aria-label="Aviator">
+  <defs>
+    <linearGradient id="bg-avi" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7a1220"/>
+      <stop offset="100%" stop-color="#1b0407"/>
+    </linearGradient>
+    <radialGradient id="glow-avi" cx="50%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".20"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="scrim-avi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".82"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="240" height="320" fill="url(#bg-avi)"/>
+  <rect width="240" height="320" fill="url(#glow-avi)"/>
+  <path d="M16 200 C70 190 110 150 150 82" fill="none" stroke="#ff5a4e"
+        stroke-width="6" stroke-linecap="round"/>
+  <path d="M16 200 C70 190 110 150 150 82 L150 200 Z" fill="#ff5a4e" opacity=".18"/>
+  <g transform="translate(150 82) rotate(-38)">
+    <path d="M0 -16 L11 14 L0 8 L-11 14 Z" fill="#fff"/>
+  </g>
+  <text x="120" y="60" fill="#ffd76a" font-size="34" font-weight="800" text-anchor="middle"
+        font-family="Segoe UI, Roboto, sans-serif">2.48x</text>
+  <rect y="224" width="240" height="96" fill="url(#scrim-avi)"/>
+  <text x="16" y="280" fill="#fff" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="26" font-weight="800" letter-spacing="-.5">Aviator</text>
+  <text x="16" y="300" fill="#ffd76a" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="11" font-weight="700" letter-spacing="1.6">CRASH · CASH OUT IN TIME</text>
+</svg>

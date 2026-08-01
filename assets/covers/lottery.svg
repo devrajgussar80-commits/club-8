@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"
+     width="240" height="320" role="img" aria-label="Daily Lottery">
+  <defs>
+    <linearGradient id="bg-lot" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5a2a86"/>
+      <stop offset="100%" stop-color="#180827"/>
+    </linearGradient>
+    <radialGradient id="glow-lot" cx="50%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".20"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="scrim-lot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".82"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="240" height="320" fill="url(#bg-lot)"/>
+  <rect width="240" height="320" fill="url(#glow-lot)"/>
+  <g>
+    <circle cx="78" cy="110" r="38" fill="#ffd76a"/>
+    <text x="78" y="124" fill="#3a2600" font-size="38" font-weight="800" text-anchor="middle"
+          font-family="Segoe UI, Roboto, sans-serif">07</text>
+    <circle cx="150" cy="152" r="28" fill="#fff" opacity=".9"/>
+    <text x="150" y="163" fill="#3a2600" font-size="26" font-weight="800" text-anchor="middle"
+          font-family="Segoe UI, Roboto, sans-serif">42</text>
+    <circle cx="180" cy="92" r="20" fill="#ffb3e6" opacity=".85"/>
+    <text x="180" y="100" fill="#3a2600" font-size="18" font-weight="800" text-anchor="middle"
+          font-family="Segoe UI, Roboto, sans-serif">19</text>
+  </g>
+  <rect y="224" width="240" height="96" fill="url(#scrim-lot)"/>
+  <text x="16" y="280" fill="#fff" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="26" font-weight="800" letter-spacing="-.5">Daily Lottery</text>
+  <text x="16" y="300" fill="#ffd76a" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="11" font-weight="700" letter-spacing="1.6">₹100 TICKET · WIN ₹1000</text>
+</svg>

@@ -385,6 +385,77 @@ def get_all_users(_: bool = Depends(require_admin)):
     return {"users": [dict(u) for u in users]}
 
 
+@router.get("/users/daily")
+def users_daily(days: int = 60, _: bool = Depends(require_admin)):
+    """Signups grouped into one bucket per calendar day (server timezone).
+
+    Each day carries the players who registered that day plus that day's
+    totals, so the dashboard can show a separate dated table for each day.
+    """
+    days = max(1, min(days, 365))
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT u.id, u.phone, u.username, u.balance, u.status, u.created_at,
+                   u.game_access_enabled,
+                   COALESCE(SUM(CASE WHEN d.status = 'approved' THEN d.amount ELSE 0 END), 0)
+                       AS approved_deposit_total
+            FROM users u
+            LEFT JOIN upi_deposits d ON d.user_id = u.id
+            WHERE u.created_at >= NOW() - ?::interval
+            GROUP BY u.id
+            ORDER BY u.created_at DESC
+            """,
+            (f"{days} days",),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    days_map = {}
+    for row in rows:
+        created = row["created_at"]
+        key = created.date().isoformat()
+        bucket = days_map.setdefault(
+            key,
+            {
+                "date": key,
+                "label": created.strftime("%A, %d %B %Y"),
+                "signups": 0,
+                "total_balance": 0.0,
+                "total_deposits": 0.0,
+                "with_deposit": 0,
+                "users": [],
+            },
+        )
+        deposit = float(row["approved_deposit_total"] or 0)
+        bucket["signups"] += 1
+        bucket["total_balance"] += float(row["balance"] or 0)
+        bucket["total_deposits"] += deposit
+        if deposit > 0:
+            bucket["with_deposit"] += 1
+        bucket["users"].append(
+            {
+                "id": row["id"],
+                "username": row["username"],
+                "phone": row["phone"],
+                "balance": float(row["balance"] or 0),
+                "status": row["status"],
+                "game_access_enabled": bool(row["game_access_enabled"]),
+                "approved_deposit_total": deposit,
+                "time": created.strftime("%H:%M"),
+            }
+        )
+
+    # Newest day first; each day's totals rounded for display.
+    result = []
+    for day in sorted(days_map.values(), key=lambda d: d["date"], reverse=True):
+        day["total_balance"] = round(day["total_balance"], 2)
+        day["total_deposits"] = round(day["total_deposits"], 2)
+        result.append(day)
+    return {"days": result}
+
+
 @router.put("/users/{user_id}/game-access")
 def update_user_game_access(
     user_id: str, req: UserGameAccessReq, _: bool = Depends(require_admin)

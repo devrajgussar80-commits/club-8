@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"
+     width="240" height="320" role="img" aria-label="Roulette">
+  <defs>
+    <linearGradient id="bg-roul" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f5136"/>
+      <stop offset="100%" stop-color="#04150e"/>
+    </linearGradient>
+    <radialGradient id="glow-roul" cx="50%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".20"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="scrim-roul" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".82"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="240" height="320" fill="url(#bg-roul)"/>
+  <rect width="240" height="320" fill="url(#glow-roul)"/>
+  <g>
+    <circle cx="120" cy="126" r="82" fill="#2a1708"/>
+    <path d="M120 126 L194.0 126.0 A74 74 0 0 1 189.5 151.3 Z" fill="#12633d"/><path d="M120 126 L189.5 151.3 A74 74 0 0 1 176.7 173.6 Z" fill="#d9271b"/><path d="M120 126 L176.7 173.6 A74 74 0 0 1 157.0 190.1 Z" fill="#17120e"/><path d="M120 126 L157.0 190.1 A74 74 0 0 1 132.8 198.9 Z" fill="#d9271b"/><path d="M120 126 L132.8 198.9 A74 74 0 0 1 107.2 198.9 Z" fill="#17120e"/><path d="M120 126 L107.2 198.9 A74 74 0 0 1 83.0 190.1 Z" fill="#d9271b"/><path d="M120 126 L83.0 190.1 A74 74 0 0 1 63.3 173.6 Z" fill="#17120e"/><path d="M120 126 L63.3 173.6 A74 74 0 0 1 50.5 151.3 Z" fill="#d9271b"/><path d="M120 126 L50.5 151.3 A74 74 0 0 1 46.0 126.0 Z" fill="#17120e"/><path d="M120 126 L46.0 126.0 A74 74 0 0 1 50.5 100.7 Z" fill="#d9271b"/><path d="M120 126 L50.5 100.7 A74 74 0 0 1 63.3 78.4 Z" fill="#17120e"/><path d="M120 126 L63.3 78.4 A74 74 0 0 1 83.0 61.9 Z" fill="#d9271b"/><path d="M120 126 L83.0 61.9 A74 74 0 0 1 107.2 53.1 Z" fill="#17120e"/><path d="M120 126 L107.2 53.1 A74 74 0 0 1 132.8 53.1 Z" fill="#d9271b"/><path d="M120 126 L132.8 53.1 A74 74 0 0 1 157.0 61.9 Z" fill="#17120e"/><path d="M120 126 L157.0 61.9 A74 74 0 0 1 176.7 78.4 Z" fill="#d9271b"/><path d="M120 126 L176.7 78.4 A74 74 0 0 1 189.5 100.7 Z" fill="#17120e"/><path d="M120 126 L189.5 100.7 A74 74 0 0 1 194.0 126.0 Z" fill="#d9271b"/>
+    <circle cx="120" cy="126" r="74" fill="none" stroke="#d8a441" stroke-width="4"/>
+    <circle cx="120" cy="126" r="28" fill="#d8a441"/>
+    <circle cx="120" cy="126" r="20" fill="#8a5f16"/>
+    <circle cx="120" cy="60" r="7" fill="#fff"/>
+  </g>
+  <rect y="224" width="240" height="96" fill="url(#scrim-roul)"/>
+  <text x="16" y="280" fill="#fff" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="26" font-weight="800" letter-spacing="-.5">Roulette</text>
+  <text x="16" y="300" fill="#ffd76a" font-family="Segoe UI, Roboto, sans-serif"
+        font-size="11" font-weight="700" letter-spacing="1.6">EUROPEAN · 35:1</text>
+</svg>

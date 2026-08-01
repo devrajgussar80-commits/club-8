@@ -23,6 +23,7 @@ GAME_LABELS = {
     "slots": "Lucky Reels",
     "megaslots": "Mega Slots",
     "roulette": "Roulette",
+    "dice": "Dice Roll",
     "lottery": "Daily Lottery",
     "chicken-road": "Chicken Road",
     "aviator": "Aviator",

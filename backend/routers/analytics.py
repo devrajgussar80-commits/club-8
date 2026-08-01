@@ -431,6 +431,97 @@ def visitors(
     }
 
 
+@router.get("/api/admin/visitors/daily")
+def visitors_daily(days: int = 60, _: bool = Depends(require_admin)):
+    """Visitor sessions grouped into one bucket per calendar day.
+
+    Declared before the /{session_id} route so "daily" is never mistaken for a
+    session id. Each day carries that day's sessions plus its own totals.
+    """
+    days = max(1, min(days, 365))
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT s.id, s.visitor_id, s.ip, s.device, s.browser, s.os,
+                   s.landing_path, s.last_path, s.page_views, s.active_seconds,
+                   s.outcome, s.started_at, s.user_id, u.username, u.phone
+            FROM visitor_sessions s
+            LEFT JOIN users u ON u.id = s.user_id
+            WHERE s.started_at >= NOW() - ?::interval
+            ORDER BY s.started_at DESC
+            """,
+            (f"{days} days",),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    days_map = {}
+    for row in rows:
+        started = row["started_at"]
+        key = started.date().isoformat()
+        bucket = days_map.setdefault(
+            key,
+            {
+                "date": key,
+                "label": started.strftime("%A, %d %B %Y"),
+                "sessions": 0,
+                "visitors": set(),
+                "registered": 0,
+                "logged_in": 0,
+                "anonymous": 0,
+                "bounced": 0,
+                "seconds_total": 0,
+                "rows": [],
+            },
+        )
+        seconds = int(row["active_seconds"] or 0)
+        bucket["sessions"] += 1
+        bucket["visitors"].add(row["visitor_id"])
+        bucket["seconds_total"] += seconds
+        outcome = row["outcome"] or "browsing"
+        if outcome == "registered":
+            bucket["registered"] += 1
+        elif outcome == "logged_in":
+            bucket["logged_in"] += 1
+        else:
+            bucket["anonymous"] += 1
+        if int(row["page_views"] or 0) <= 1 and seconds < 10:
+            bucket["bounced"] += 1
+        bucket["rows"].append(
+            {
+                "id": row["id"],
+                "time": started.strftime("%H:%M"),
+                "visitor": row["username"] or (row["visitor_id"][:10] + "…"),
+                "phone": row["phone"],
+                "ip": row["ip"],
+                "device": f'{row["device"] or "?"} · {row["browser"] or "?"}',
+                "journey": f'{row["landing_path"] or "?"} → {row["last_path"] or "?"}',
+                "seconds": seconds,
+                "outcome": outcome,
+            }
+        )
+
+    result = []
+    for day in sorted(days_map.values(), key=lambda d: d["date"], reverse=True):
+        count = day["sessions"]
+        result.append(
+            {
+                "date": day["date"],
+                "label": day["label"],
+                "sessions": count,
+                "visitors": len(day["visitors"]),
+                "registered": day["registered"],
+                "logged_in": day["logged_in"],
+                "anonymous": day["anonymous"],
+                "bounced": day["bounced"],
+                "avg_seconds": round(day["seconds_total"] / count) if count else 0,
+                "rows": day["rows"],
+            }
+        )
+    return {"days": result}
+
+
 @router.get("/api/admin/visitors/{session_id}")
 def visitor_timeline(session_id: str, _: bool = Depends(require_admin)):
     """Everything one visit did, in order -- the 'kis page tak aaya' view."""

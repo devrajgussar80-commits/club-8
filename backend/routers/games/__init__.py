@@ -3,6 +3,6 @@
 Shared money handling lives in `games_core`, never here.
 """
 
-from routers.games import aviator, lottery, megaslots, roulette, slots
+from routers.games import aviator, dice, lottery, megaslots, roulette, slots
 
-__all__ = ["aviator", "slots", "megaslots", "roulette", "lottery"]
+__all__ = ["aviator", "slots", "megaslots", "roulette", "dice", "lottery"]

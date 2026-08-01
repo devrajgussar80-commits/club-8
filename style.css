@@ -6502,6 +6502,20 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
   border-radius: var(--radius-lg); padding: 16px; margin-bottom: 14px;
 }
 .nd-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+
+/* Day-wise breakdown: one dated card per day, each with its own summary and
+   table. Used by the Players and Visitors sections. */
+.nd-daily { display: grid; gap: 16px; }
+.nd-day { border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; }
+.nd-day-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; padding: 11px 14px; background: var(--bg-card-hover);
+  border-bottom: 1px solid var(--border-color);
+}
+.nd-day-head h4 { margin: 0; font-size: 14px; color: var(--text-primary, #fff); }
+.nd-day-sum { font-size: 12px; color: var(--text-secondary, #9aa6c6); font-weight: 700; }
+.nd-day .nd-table-wrap { margin: 0; }
+.nd-day .nd-table th { position: static; }
 .nd-panel-head h3 { margin: 0; font-size: 15px; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
 .nd-panel-head h3 i { color: var(--color-gold); }
 .nd-panel-head h4, .nd-control-card h4 { margin: 0 0 12px; font-size: 14px; color: var(--text-primary); }
@@ -7112,45 +7126,28 @@ body[data-club-page="game"] .mobile-frame {
 .lot-status.is-approved { color: #7ef0a4; }
 .lot-status.is-rejected { color: #ff7b6b; }
 
-/* --------------------------------------------- crisp vector lobby art cards
-   The older cards crop a 1366x768 screenshot down to a ~118x160 window, so on
-   a 3x phone they are upscaled roughly 3x and look soft and blocky. These are
-   drawn in CSS instead, so they stay sharp at any pixel density. */
+/* ------------------------------------------------------- lobby game covers
+   Each tile is one SVG in assets/covers/. Vector, because these render at
+   ~110x150 CSS px but on a 3x phone that is ~330x450 real pixels -- the old
+   tiles were small crops of a 1366x768 screenshot stretched to fit, which is
+   exactly why they looked soft and stair-stepped. Swapping in real artwork
+   later is a file drop; no markup changes. */
 
-.lobby-art-card {
-  position: relative; display: grid; align-content: space-between;
-  padding: 10px 9px; text-align: left; overflow: hidden; border: 0;
+.lobby-cover-card {
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: #120b1f;
 }
-.lac-title { font-size: 15px; font-weight: 800; line-height: 1.05; color: #fff; }
-.lac-title em { display: block; font-style: normal; color: #ffd76a; }
-.lac-icons { display: flex; gap: 3px; font-size: 17px; }
-.lac-tag {
-  font-size: 8px; font-weight: 700; letter-spacing: .1em;
-  color: rgba(255, 255, 255, .78);
+.lobby-cover-card img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Cover, not contain: the tile's aspect ratio is set by the lobby grid and
+     may not match the artwork's 3:4, and letterboxing would show the card
+     background as bars down the sides. */
+  object-fit: cover;
 }
-.lobby-art-slots { background: linear-gradient(150deg, #6c1330, #2a0a1c 65%); }
-.lobby-art-mega { background: linear-gradient(150deg, #123c6b, #06121f 65%); }
-.lobby-art-roulette { background: linear-gradient(150deg, #0f5136, #06170f 65%); }
-.lobby-art-lottery { background: linear-gradient(150deg, #5a2a86, #1b0b2c 65%); }
-
-.lac-wheel {
-  position: absolute; right: -22px; top: -18px; width: 82px; height: 82px;
-  border-radius: 50%;
-  background: conic-gradient(#d9271b 0 30deg, #17120e 30deg 60deg, #d9271b 60deg 90deg,
-    #17120e 90deg 120deg, #d9271b 120deg 150deg, #17120e 150deg 180deg,
-    #d9271b 180deg 210deg, #17120e 210deg 240deg, #d9271b 240deg 270deg,
-    #17120e 270deg 300deg, #12633d 300deg 330deg, #17120e 330deg 360deg);
-  box-shadow: inset 0 0 0 3px #d8a441;
-  opacity: .85;
-}
-.lac-balls { display: flex; gap: 4px; }
-.lac-balls i {
-  width: 22px; height: 22px; border-radius: 50%;
-  background: #ffd76a; color: #2a1600;
-  font-style: normal; font-size: 12px; font-weight: 800;
-  display: grid; place-items: center;
-}
-
 
 /* ---------------------------------------------- admin: games + lottery desk */
 
@@ -7367,4 +7364,113 @@ body[data-club-page="game"] .mobile-frame {
   background: rgba(255, 255, 255, .04); color: inherit; font-size: 12px;
 }
 .nv-other-visit:hover { border-color: rgba(255, 215, 106, .45); }
+
+
+/* ================================================================ DICE ROLL
+   The die is a real cube: six faces pushed out from a common centre by half
+   the cube size, inside a parent with perspective. Landing on a number is a
+   single transform on .dice-cube, so the whole tumble runs on the
+   compositor â€” it stays smooth on a cheap phone and does not stutter when JS
+   is busy talking to the server. */
+
+.dice-stage { padding: 22px 12px 6px; text-align: center; }
+
+.dice-scene {
+  --die: clamp(84px, 30vw, 132px);
+  position: relative;
+  width: var(--die); height: var(--die);
+  margin: 0 auto 26px;
+  /* Without perspective the cube renders flat and the tumble looks like a
+     sticker spinning rather than an object turning. */
+  perspective: 900px;
+}
+
+.dice-cube {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(-20deg) rotateY(25deg);
+}
+
+.dice-face {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  padding: 12%;
+  border-radius: 16%;
+  background: linear-gradient(155deg, #fffdf6, #e6ddc9);
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .06),
+              inset -6px -8px 14px rgba(0, 0, 0, .16);
+  /* Faces are opaque and back-face-hidden so the far side never bleeds
+     through the near one mid-roll. */
+  backface-visibility: hidden;
+}
+.dice-pip {
+  align-self: center; justify-self: center;
+  width: 62%; height: 62%; border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #4a4a4a, #111);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, .35);
+}
+
+/* Half the cube size, so each face sits exactly on the surface. */
+.dice-face-1 { transform: translateZ(calc(var(--die) / 2)); }
+.dice-face-6 { transform: rotateY(180deg) translateZ(calc(var(--die) / 2)); }
+.dice-face-2 { transform: rotateY(90deg) translateZ(calc(var(--die) / 2)); }
+.dice-face-5 { transform: rotateY(-90deg) translateZ(calc(var(--die) / 2)); }
+.dice-face-3 { transform: rotateX(90deg) translateZ(calc(var(--die) / 2)); }
+.dice-face-4 { transform: rotateX(-90deg) translateZ(calc(var(--die) / 2)); }
+
+/* Shown only while waiting for the server, so the die is never frozen mid
+   click. The real landing spin replaces it. */
+.dice-cube.is-rolling { animation: dice-shake .5s linear infinite; }
+@keyframes dice-shake {
+  0%   { transform: rotateX(-20deg) rotateY(25deg); }
+  50%  { transform: rotateX(160deg) rotateY(205deg); }
+  100% { transform: rotateX(340deg) rotateY(385deg); }
+}
+
+.dice-shadow {
+  position: absolute; left: 50%; bottom: -18px;
+  width: 78%; height: 14px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, .5), transparent 70%);
+  filter: blur(2px);
+}
+
+.dice-result { margin: 6px 0; min-height: 22px; font-size: 15px; font-weight: 700; }
+.dice-result.is-win { color: #ffd76a; text-shadow: 0 0 12px rgba(255, 200, 60, .6); }
+
+.dice-history { display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; }
+.dice-hist {
+  min-width: 24px; padding: 3px 6px; border-radius: 7px;
+  background: rgba(255, 255, 255, .12); color: #fff;
+  font-size: 11px; font-weight: 700;
+}
+.dice-hist.is-win { background: rgba(255, 215, 106, .28); color: #ffd76a; }
+
+.dice-betting { padding: 10px 12px calc(16px + var(--pad-bottom)); }
+.dice-numbers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.dice-outside { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+
+.dice-num, .dice-out {
+  position: relative; display: grid; gap: 2px; justify-items: center;
+  padding: 10px 4px; border-radius: 10px; border: 0;
+  background: rgba(255, 255, 255, .08); color: #fff;
+}
+.dice-num b { font-size: 17px; font-weight: 800; }
+.dice-num small, .dice-out small { font-size: 9px; opacity: .6; }
+.dice-mini { font-size: 8px; letter-spacing: 1px; opacity: .5; line-height: 1; }
+.dice-out b { font-size: 13px; font-weight: 800; }
+
+/* Same chip badge as the roulette felt, so a staked square reads identically
+   across both games. */
+.dice-num.has-bet, .dice-out.has-bet { outline: 2px solid #ffd76a; }
+.dice-num.has-bet::after, .dice-out.has-bet::after {
+  content: attr(data-staked);
+  position: absolute; right: -2px; bottom: -6px;
+  padding: 1px 5px; border-radius: 999px;
+  background: #ffd76a; color: #2a1600; font-size: 9px; font-weight: 800;
+}
+
+
 

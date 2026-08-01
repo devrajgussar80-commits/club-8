@@ -50,6 +50,12 @@ GAMES = {
         # Plus any pocket number 0-36, typed straight into the box.
         "forced_choices": ["lose", "win"],
     },
+    "dice": {
+        "label": "Dice Roll",
+        "can_force": True,
+        # Plus any face 1-6, typed straight into the box.
+        "forced_choices": ["lose", "win"],
+    },
     "aviator": {
         "label": "Aviator",
         "can_force": True,
@@ -199,6 +205,8 @@ def _forced_is_valid(game: str, forced: str) -> bool:
     # Two games accept free-typed values beyond their preset list.
     if game == "roulette":
         return forced.isdigit() and 0 <= int(forced) <= 36
+    if game == "dice":
+        return forced.isdigit() and 1 <= int(forced) <= 6
     if game == "aviator":
         try:
             return 1.0 <= float(forced) <= 1000.0

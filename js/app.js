@@ -9,6 +9,7 @@ import { AviatorEngine } from './aviator-engine.js?v=server-rounds-1';
 import { ChickenRoadEngine } from './chicken-road-engine.js?v=road-1';
 import { SlotEngine } from './slot-engine.js?v=1';
 import { RouletteEngine } from './roulette-engine.js?v=1';
+import { DiceEngine } from './dice-engine.js?v=1';
 import { LotteryEngine } from './lottery.js?v=1';
 import { VisitorTracker } from './tracker.js?v=1';
 
@@ -742,6 +743,8 @@ class App {
           this.switchSubPage('megaslots');
         } else if (game.includes('roulette')) {
           this.switchSubPage('roulette');
+        } else if (game.includes('dice')) {
+          this.switchSubPage('dice');
         } else if (game.includes('lottery')) {
           this.switchSubPage('lottery');
           this.lotteryEngine?.refresh();
@@ -791,6 +794,8 @@ class App {
     this.megaSlotsEngine.init();
     this.rouletteEngine = new RouletteEngine(gameOptions);
     this.rouletteEngine.init();
+    this.diceEngine = new DiceEngine(gameOptions);
+    this.diceEngine.init();
     this.lotteryEngine = new LotteryEngine(gameOptions);
     this.lotteryEngine.init();
   }
@@ -802,6 +807,7 @@ class App {
     this.slotsEngine?.render();
     this.megaSlotsEngine?.render();
     this.rouletteEngine?.render();
+    this.diceEngine?.render();
     const lotteryWallet = document.getElementById('lottery-wallet');
     if (lotteryWallet) {
       lotteryWallet.textContent = Number(appState.getState().user.balance || 0).toFixed(2);
@@ -1361,6 +1367,7 @@ class App {
     this.renderAdminStats(data.metrics || {});
     this.renderAdminQueue();
     this.renderAdminUsers(data.users || []);
+    void this.loadUsersDaily();
     this.renderAdminHistory();
     this.renderAdminQrCodes(data.qr_codes || []);
     this.renderAdminControls(data);
@@ -1450,6 +1457,53 @@ class App {
 
     body.querySelectorAll('.nv-row').forEach(row =>
       row.addEventListener('click', () => this.openVisitorTimeline(row.dataset.session)));
+
+    void this.loadVisitorsDaily();
+  }
+
+  /** One dated table per day of visitor traffic. */
+  async loadVisitorsDaily() {
+    const host = document.getElementById('nv-daily');
+    if (!host) return;
+    let days;
+    try {
+      ({ days } = await this.adminApi('/api/admin/visitors/daily?days=60'));
+    } catch (error) {
+      host.innerHTML = `<p class="nd-empty">${this.escapeHtml(error.message)}</p>`;
+      return;
+    }
+    if (!days.length) {
+      host.innerHTML = '<p class="nd-empty">No visitor data yet.</p>';
+      return;
+    }
+    const dur = s => this.formatDuration(s);
+    const labels = { browsing: 'anon', registered: 'registered', logged_in: 'logged in' };
+    host.innerHTML = days.map(day => `
+      <div class="nd-day">
+        <div class="nd-day-head">
+          <h4>${this.escapeHtml(day.label)}</h4>
+          <span class="nd-day-sum">
+            ${day.visitors} visitors · ${day.sessions} visits · ${day.registered + day.logged_in} joined · ${day.bounced} bounced · avg ${dur(day.avg_seconds)}
+          </span>
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Time</th><th>Visitor</th><th>IP</th><th>Device</th><th>Journey</th><th>Time on site</th><th>Outcome</th></tr></thead>
+            <tbody>
+              ${day.rows.map(r => `
+                <tr>
+                  <td>${this.escapeHtml(r.time)}</td>
+                  <td>${this.escapeHtml(r.visitor)}${r.phone ? `<br><small>${this.escapeHtml(r.phone)}</small>` : ''}</td>
+                  <td><code>${this.escapeHtml(r.ip || '—')}</code></td>
+                  <td>${this.escapeHtml(r.device)}</td>
+                  <td>${this.escapeHtml(r.journey)}</td>
+                  <td>${dur(r.seconds)}</td>
+                  <td class="nv-outcome is-${r.outcome}">${labels[r.outcome] || r.outcome}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`).join('');
   }
 
   formatDuration(seconds) {
@@ -2065,6 +2119,50 @@ class App {
           </div>
         </article>`;
     }).join('');
+  }
+
+  /** One dated table per day of signups. */
+  async loadUsersDaily() {
+    const host = document.getElementById('admin-users-daily');
+    if (!host) return;
+    let days;
+    try {
+      ({ days } = await this.adminApi('/api/admin/users/daily?days=60'));
+    } catch (error) {
+      host.innerHTML = `<p class="nd-empty">${this.escapeHtml(error.message)}</p>`;
+      return;
+    }
+    if (!days.length) {
+      host.innerHTML = '<p class="nd-empty">No signups yet.</p>';
+      return;
+    }
+    const money = v => `₹${Number(v || 0).toFixed(2)}`;
+    host.innerHTML = days.map(day => `
+      <div class="nd-day">
+        <div class="nd-day-head">
+          <h4>${this.escapeHtml(day.label)}</h4>
+          <span class="nd-day-sum">
+            ${day.signups} signups · ${day.with_deposit} deposited · recharge ${money(day.total_deposits)} · balance ${money(day.total_balance)}
+          </span>
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Time</th><th>Player</th><th>Phone</th><th>Balance</th><th>Recharge</th><th>Access</th><th>Status</th></tr></thead>
+            <tbody>
+              ${day.users.map(u => `
+                <tr>
+                  <td>${this.escapeHtml(u.time)}</td>
+                  <td>${this.escapeHtml(u.username || '—')}</td>
+                  <td><code>${this.escapeHtml(u.phone || '—')}</code></td>
+                  <td>${money(u.balance)}</td>
+                  <td>${u.approved_deposit_total > 0 ? `<span class="ref-yes">${money(u.approved_deposit_total)}</span>` : '<span class="ref-no">—</span>'}</td>
+                  <td>${u.game_access_enabled ? 'yes' : 'no'}</td>
+                  <td>${this.escapeHtml(u.status || 'active')}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`).join('');
   }
 
   renderAdminUsers(users) {
