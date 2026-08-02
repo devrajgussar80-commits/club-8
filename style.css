@@ -7974,7 +7974,9 @@ textarea {
   line-height: 1;
 }
 .mine-tile.safe-hit::after {
-  content: 'ðŸ’Ž';
+  /* Gem 💎 as a CSS codepoint escape so it can't be corrupted by file encoding
+     the way the raw emoji was (it showed as mojibake on the tiles). */
+  content: "\1F48E";
   filter: drop-shadow(0 0 10px rgba(0, 231, 1, .55));
   /* No fill-mode, and the keyframes below no longer touch opacity. The
      previous version faded in from `opacity: 0` with `both`, which holds
@@ -7986,7 +7988,7 @@ textarea {
 .mine-tile.safe-hit { box-shadow: inset 0 0 0 1px rgba(0, 231, 1, .35); }
 
 .mine-tile.mine-hit::after,
-.mine-tile.mine-reveal::after { content: 'ðŸ’£'; }
+.mine-tile.mine-reveal::after { content: "\1F4A3"; }  /* bomb 💣 as a codepoint escape */
 /* The mine actually stepped on stays bright and shakes; the ones merely
    uncovered at the end are dimmed, so the board still says which one ended
    the round. */
