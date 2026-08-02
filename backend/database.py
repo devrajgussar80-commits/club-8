@@ -259,6 +259,33 @@ CREATE TABLE IF NOT EXISTS qr_codes (
     last_used_at TIMESTAMPTZ
 );
 
+-- Multiplayer Dice: one shared 30-second round, like WinGo. Bets land in
+-- dice_bets during the window; at close the server rolls one face and settles
+-- every bet against it. Kept in Postgres (not memory) so a restart mid-round
+-- neither loses a debited stake nor pays one twice.
+CREATE TABLE IF NOT EXISTS dice_rounds (
+    period TEXT PRIMARY KEY,
+    face INTEGER,                    -- rolled face 1-6, NULL until settled
+    status TEXT DEFAULT 'open',      -- open -> settled
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    settled_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS dice_bets (
+    id TEXT PRIMARY KEY,
+    period TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_name TEXT,
+    bet_type TEXT NOT NULL,          -- number | parity | half
+    selection TEXT NOT NULL,         -- 1-6 | odd/even | low/high
+    amount DOUBLE PRECISION NOT NULL,
+    status TEXT DEFAULT 'pending',   -- pending -> won | lost
+    payout DOUBLE PRECISION DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_dice_bets_period ON dice_bets(period);
+CREATE INDEX IF NOT EXISTS idx_dice_bets_user ON dice_bets(user_id, created_at DESC);
+
 -- The Android APK, uploaded from the admin dashboard and served from here.
 -- Kept in Postgres (not on disk) for the same reason as the QR images: the
 -- host wipes its filesystem on every deploy. A single row, id = 'current',

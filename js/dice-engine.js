@@ -1,48 +1,40 @@
 /**
- * Dice Roll — one die, six faces, server-decided.
+ * Dice Roll — multiplayer, one shared 30-second round (like WinGo).
  *
- * The die is a real CSS cube, not a sprite swap: six faces placed with 3D
- * transforms and a parent that rotates. Landing on a face is therefore a
- * single `transform` transition, which the compositor animates on its own
- * thread — smooth even on the cheap Android phones most of this traffic is
- * on, and it keeps running when JS is busy.
+ * The server owns the clock and the roll. This engine polls /state, lets the
+ * player build a bet slip and place it during the window, and when a round
+ * settles it tumbles the CSS cube to the face the server rolled and shows the
+ * player their win or loss. Nothing here decides an outcome.
  *
- * The tumble starts only AFTER the roll comes back, and it is aimed at the
- * face the server already picked. Nothing the player does to the animation
- * can change the result; slowing it down or editing the transform just shows
- * the same number arriving differently.
+ * The die is a real 3D CSS cube: landing on a face is a single `transform`
+ * transition the compositor animates on its own thread, smooth even on the
+ * cheap Android phones most of this traffic is on.
  */
 
 const money = value => Number(value || 0).toFixed(2);
 const CHIPS = [10, 50, 100, 500];
-const ROLL_MS = 2200;
+const ROLL_MS = 2000;
+const POLL_MS = 1000;
 
-// Rotation that brings each face to the front, given how the faces are placed
-// in CSS. Getting these wrong is the classic dice bug: the animation lands on
-// a face that is not the one the server rolled, and the game looks rigged.
 const FACE_ROTATION = {
-  1: [0, 0],
-  2: [0, -90],
-  3: [-90, 0],
-  4: [90, 0],
-  5: [0, 90],
-  6: [0, 180]
+  1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180]
 };
 
 export class DiceEngine {
   constructor(options) {
     Object.assign(this, options);
     this.chip = 10;
-    this.bets = [];
+    this.bets = [];          // pending slip, not yet placed
+    this.myBets = [];        // bets already placed this round (from server)
     this.busy = false;
-    // Kept climbing so every roll spins forward rather than unwinding.
     this.spinX = 0;
     this.spinY = 0;
+    this.lastSeenResult = null;
+    this.pollTimer = null;
+    this.bettingOpen = false;
   }
 
-  el(name) {
-    return document.getElementById(`dice-${name}`);
-  }
+  el(name) { return document.getElementById(`dice-${name}`); }
 
   init() {
     this.cube = this.el('cube');
@@ -58,7 +50,7 @@ export class DiceEngine {
     this.walletEl = this.el('wallet');
     if (!this.cube) return;
 
-    this.rollBtn?.addEventListener('click', () => this.roll());
+    this.rollBtn?.addEventListener('click', () => this.placeBets());
     this.clearBtn?.addEventListener('click', () => { this.bets = []; this.render(); });
 
     this.buildCube();
@@ -66,9 +58,14 @@ export class DiceEngine {
     this.buildChips();
     this.showFace(1, false);
     this.render();
+
+    this.poll();
   }
 
-  /** Six faces of pips. Pip positions come from CSS grid areas, not markup. */
+  isVisible() {
+    return document.getElementById('page-dice')?.classList.contains('active');
+  }
+
   buildCube() {
     const pips = {
       1: [5], 2: [1, 9], 3: [1, 5, 9],
@@ -116,7 +113,10 @@ export class DiceEngine {
   }
 
   addBet(betType, value) {
-    if (this.busy) return;
+    if (this.busy || !this.bettingOpen) {
+      if (!this.bettingOpen) this.toast('Betting is closed — wait for the next round.', 'error');
+      return;
+    }
     const existing = this.bets.find(bet => bet.bet_type === betType && bet.value === value);
     if (existing) existing.amount += this.chip;
     else this.bets.push({ bet_type: betType, value, amount: this.chip });
@@ -133,12 +133,143 @@ export class DiceEngine {
     return this.bets.reduce((sum, bet) => sum + bet.amount, 0);
   }
 
+  // --------------------------------------------------------------- server
+
+  async poll() {
+    clearTimeout(this.pollTimer);
+    if (this.isVisible() && this.canPlay()) {
+      try { await this.syncState(); } catch (error) { /* next poll recovers */ }
+    }
+    this.pollTimer = setTimeout(() => this.poll(), POLL_MS);
+  }
+
+  async syncState() {
+    const data = await this.api('/api/games/dice/state', 'GET');
+    this.bettingOpen = data.betting_open;
+    this.secondsLeft = data.seconds_left;
+    this.period = data.period;
+    this.myBets = data.my_bets || [];
+    if (typeof data.balance === 'number') this.setBalance(data.balance);
+
+    // History strip.
+    if (this.historyEl && Array.isArray(data.history)) {
+      this.historyEl.innerHTML = data.history
+        .map(h => `<span class="dice-hist">${h.face}</span>`).join('');
+    }
+
+    // A new settled round: tumble the die to its face and show the outcome.
+    const result = data.last_result;
+    if (result && result.period !== this.lastSeenResult) {
+      this.lastSeenResult = result.period;
+      this.revealRoll(result);
+    } else if (!this.busy) {
+      this.renderCountdown();
+    }
+    this.render();
+  }
+
+  revealRoll(result) {
+    this.busy = true;
+    this.cube.classList.add('is-rolling');
+    this.spinX = (this.spinX % 360) + 360 * 3;
+    this.spinY = (this.spinY % 360) + 360 * 4;
+    this.releaseShake();
+    this.showFace(result.face);
+    setTimeout(async () => {
+      this.busy = false;
+      await this.showRoundOutcome(result);
+      this.render();
+    }, ROLL_MS + 100);
+  }
+
+  /** After a roll, tell the player how their bets on that round did. */
+  async showRoundOutcome(result) {
+    let payout = 0;
+    let staked = 0;
+    try {
+      const { bets } = await this.api('/api/games/dice/my-bets', 'GET');
+      (bets || []).filter(b => b.period === result.period).forEach(b => {
+        staked += Number(b.amount);
+        payout += Number(b.payout || 0);
+      });
+    } catch (error) { /* fall back to just the face */ }
+
+    const faceLine = `${result.face} · ${result.parity.toUpperCase()} · ${result.half.toUpperCase()}`;
+    if (staked > 0) {
+      const won = payout > 0;
+      this.resultEl.textContent = `${faceLine} — ${won ? `WIN ₹${money(payout)}` : 'No win'}`;
+      this.resultEl.className = `dice-result${won ? ' is-win' : ''}`;
+      if (won) this.toast(`Jeet gaye ₹${money(payout)}!`, 'success');
+    } else {
+      this.resultEl.textContent = `Rolled ${faceLine}`;
+      this.resultEl.className = 'dice-result';
+    }
+  }
+
+  renderCountdown() {
+    if (!this.resultEl || this.busy) return;
+    if (this.bettingOpen) {
+      this.resultEl.textContent = `Betting open — rolls in ${this.secondsLeft}s`;
+    } else {
+      this.resultEl.textContent = 'Rolling…';
+    }
+    this.resultEl.className = 'dice-result';
+  }
+
+  async placeBets() {
+    if (this.busy || !this.bets.length) return;
+    if (!this.canPlay()) return this.denyPlay();
+    if (!this.bettingOpen) return this.toast('Betting is closed — wait for the next round.', 'error');
+    if (this.totalStake() > this.getBalance()) return this.toast('Wallet balance kam hai.', 'error');
+
+    this.rollBtn.disabled = true;
+    const slip = this.bets.slice();
+    let placed = 0;
+    try {
+      for (const bet of slip) {
+        const res = await this.api('/api/games/dice/bet', 'POST', {
+          bet_type: bet.bet_type, selection: bet.value, amount: bet.amount
+        });
+        this.setBalance(res.balance);
+        placed += 1;
+      }
+      this.bets = [];
+      this.toast(`${placed} bet${placed === 1 ? '' : 's'} placed for this round.`, 'success');
+    } catch (error) {
+      this.toast(error.message || 'Bet nahi lag paya.', 'error');
+    }
+    await this.syncState().catch(() => {});
+    this.render();
+  }
+
+  showFace(face, animate = true) {
+    const [x, y] = FACE_ROTATION[face] || FACE_ROTATION[1];
+    this.cube.style.transition = animate
+      ? `transform ${ROLL_MS}ms cubic-bezier(.16,.86,.24,1)`
+      : 'none';
+    this.cube.style.transform = `rotateX(${this.spinX + x}deg) rotateY(${this.spinY + y}deg)`;
+  }
+
+  releaseShake() {
+    this.cube.classList.remove('is-rolling');
+    void this.cube.offsetHeight;
+  }
+
   render() {
     if (this.walletEl) this.walletEl.textContent = money(this.getBalance());
     this.chipsEl?.querySelectorAll('[data-chip]').forEach(button =>
       button.classList.toggle('is-active', Number(button.dataset.chip) === this.chip));
 
-    const staked = new Map(this.bets.map(bet => [`${bet.bet_type}:${bet.value}`, bet.amount]));
+    // Board shows both this round's placed bets and the pending slip.
+    const staked = new Map();
+    this.myBets.forEach(b => {
+      const key = `${b.bet_type}:${b.selection}`;
+      staked.set(key, (staked.get(key) || 0) + Number(b.amount));
+    });
+    this.bets.forEach(b => {
+      const key = `${b.bet_type}:${b.value}`;
+      staked.set(key, (staked.get(key) || 0) + Number(b.amount));
+    });
     [this.numbersEl, this.outsideEl].forEach(container =>
       container?.querySelectorAll('[data-bet]').forEach(button => {
         const amount = staked.get(`${button.dataset.bet}:${button.dataset.value}`);
@@ -157,85 +288,12 @@ export class DiceEngine {
     }
     if (this.stakeEl) this.stakeEl.textContent = money(this.totalStake());
     if (this.rollBtn) {
-      this.rollBtn.disabled = this.busy || !this.bets.length;
-      this.rollBtn.textContent = this.busy ? 'ROLLING…' : 'ROLL';
+      this.rollBtn.disabled = this.busy || !this.bets.length || !this.bettingOpen;
+      this.rollBtn.textContent = !this.bettingOpen ? 'CLOSED' : (this.busy ? 'ROLLING…' : 'PLACE BET');
     }
   }
 
-  /** Point the cube at `face`. `animate` false snaps, for the idle state. */
-  showFace(face, animate = true) {
-    const [x, y] = FACE_ROTATION[face] || FACE_ROTATION[1];
-    this.cube.style.transition = animate
-      ? `transform ${ROLL_MS}ms cubic-bezier(.16,.86,.24,1)`
-      : 'none';
-    this.cube.style.transform = `rotateX(${this.spinX + x}deg) rotateY(${this.spinY + y}deg)`;
-  }
-
-  /**
-   * Hand control back from the shake animation to the inline transform.
-   *
-   * Dropping `.is-rolling` and setting the landing transform in the same task
-   * batches into one style recalculation, and the transition can be skipped
-   * entirely -- the die then sits on the PREVIOUS roll's number while the
-   * result text shows the new one, which reads exactly like a rigged game.
-   * Reading a layout property forces the browser to commit the pre-landing
-   * state first, so the transition always has something to animate from.
-   */
-  releaseShake() {
-    this.cube.classList.remove('is-rolling');
-    void this.cube.offsetHeight;
-  }
-
-  async roll() {
-    if (this.busy || !this.bets.length) return;
-    if (!this.canPlay()) return this.denyPlay();
-    if (this.totalStake() > this.getBalance()) return this.toast('Wallet balance kam hai.', 'error');
-
-    this.busy = true;
-    this.resultEl.textContent = '';
-    this.resultEl.className = 'dice-result';
-    this.cube.classList.add('is-rolling');
-    this.render();
-
-    let result;
-    try {
-      result = await this.api('/api/games/dice/roll', 'POST', { bets: this.bets });
-    } catch (error) {
-      this.busy = false;
-      this.releaseShake();
-      this.render();
-      return this.toast(error.message || 'Roll failed.', 'error');
-    }
-
-    // Whole extra turns on both axes, so the die tumbles rather than pivots.
-    // Normalised first: without this the angle grows by 1080deg every roll and
-    // after a long session the numbers get large enough to lose precision.
-    this.spinX = (this.spinX % 360) + 360 * 3;
-    this.spinY = (this.spinY % 360) + 360 * 4;
-    this.releaseShake();
-    this.showFace(result.face);
-    await new Promise(resolve => setTimeout(resolve, ROLL_MS + 120));
-
-    this.busy = false;
-    this.setBalance(result.balance);
-    this.showResult(result);
-    this.bets = [];
-    this.render();
-  }
-
-  showResult(result) {
-    const won = result.payout > 0;
-    this.resultEl.textContent = `${result.face} · ${result.parity.toUpperCase()} · ${
-      result.half.toUpperCase()} — ${won ? `WIN ₹${money(result.payout)}` : 'No win'}`;
-    this.resultEl.className = `dice-result${won ? ' is-win' : ''}`;
-
-    if (this.historyEl) {
-      const chip = document.createElement('span');
-      chip.className = `dice-hist${won ? ' is-win' : ''}`;
-      chip.textContent = result.face;
-      this.historyEl.prepend(chip);
-      while (this.historyEl.children.length > 12) this.historyEl.lastChild.remove();
-    }
-    if (won) this.toast(`Jeet gaye ₹${money(result.payout)}!`, 'success');
+  destroy() {
+    clearTimeout(this.pollTimer);
   }
 }

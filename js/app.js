@@ -1528,8 +1528,12 @@ class App {
     }
     const dur = s => this.formatDuration(s);
     const labels = { browsing: 'anon', registered: 'registered', logged_in: 'logged in' };
+    // Preserve which days are expanded across the background refresh (see the
+    // same note in loadUsersDaily).
+    const openDates = new Set([...host.querySelectorAll('.nd-day[open]')].map(d => d.dataset.date));
+    const firstRender = host.dataset.rendered !== '1';
     host.innerHTML = days.map((day, i) => `
-      <details class="nd-day"${i === 0 ? ' open' : ''}>
+      <details class="nd-day" data-date="${day.date}"${(firstRender ? i === 0 : openDates.has(day.date)) ? ' open' : ''}>
         <summary class="nd-day-head">
           <h4>${this.escapeHtml(day.label)}</h4>
           <span class="nd-day-sum">
@@ -1554,6 +1558,7 @@ class App {
           </table>
         </div>
       </details>`).join('');
+    host.dataset.rendered = '1';
   }
 
   formatDuration(seconds) {
@@ -2187,9 +2192,14 @@ class App {
       return;
     }
     const money = v => `₹${Number(v || 0).toFixed(2)}`;
-    // <details>: each day collapses on its own. Newest day open, rest closed.
+    // The dashboard refreshes in the background, which re-renders this list.
+    // Remember which days the admin had expanded (by date) so a refresh does
+    // not fold or unfold them under the cursor; only the very first render
+    // defaults the newest day open.
+    const openDates = new Set([...host.querySelectorAll('.nd-day[open]')].map(d => d.dataset.date));
+    const firstRender = host.dataset.rendered !== '1';
     host.innerHTML = days.map((day, i) => `
-      <details class="nd-day"${i === 0 ? ' open' : ''}>
+      <details class="nd-day" data-date="${day.date}"${(firstRender ? i === 0 : openDates.has(day.date)) ? ' open' : ''}>
         <summary class="nd-day-head">
           <h4>${this.escapeHtml(day.label)}</h4>
           <span class="nd-day-sum">
@@ -2214,6 +2224,7 @@ class App {
           </table>
         </div>
       </details>`).join('');
+    host.dataset.rendered = '1';
   }
 
   renderAdminUsers(users) {
