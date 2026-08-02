@@ -197,4 +197,11 @@ def spin(req: SpinRequest, current_user: dict = Depends(get_current_user)):
 
         return payout, {"reels": reels, "wins": wins}
 
-    return play_round(current_user, GAME, req.amount, resolve)
+    def redraw_win(stake):
+        # Genuine win for a team account: a forced small-win grid, evaluated
+        # normally so reels and payout still agree.
+        reels = forced_grid("small_win")
+        payout, wins = evaluate(reels, stake)
+        return payout, {"reels": reels, "wins": wins}
+
+    return play_round(current_user, GAME, req.amount, resolve, redraw_win=redraw_win)

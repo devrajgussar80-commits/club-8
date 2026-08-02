@@ -1424,6 +1424,69 @@ class App {
     this.loadAdminGames();
     this.loadAdminLottery();
     this.loadAdminVisitors();
+    this.loadFlushScopes();
+  }
+
+  // ----------------------------------------------------- database flushing
+
+  async loadFlushScopes() {
+    const host = document.getElementById('nd-flush-scopes');
+    if (!host) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/maintenance/flush-scopes');
+    } catch (error) {
+      host.innerHTML = `<p class="ng-hint">${error.message}</p>`;
+      return;
+    }
+    this.flushPhrase = data.confirm_phrase;
+
+    host.innerHTML = data.scopes.map(scope => `
+      <label class="nd-flush-scope">
+        <input type="checkbox" value="${scope.key}">
+        <span>
+          <b>${scope.label}</b>
+          <em>${scope.rows.toLocaleString()} rows</em>
+          <small>${scope.detail}</small>
+        </span>
+      </label>`).join('');
+
+    // The button stays disabled until something is selected AND the phrase is
+    // typed: two independent actions, so a single stray tap cannot wipe data.
+    const sync = () => {
+      const picked = host.querySelectorAll('input:checked').length;
+      const typed = document.getElementById('nd-flush-phrase').value.trim();
+      document.getElementById('nd-flush-run').disabled =
+        !picked || typed !== this.flushPhrase;
+    };
+    host.querySelectorAll('input').forEach(box => box.addEventListener('change', sync));
+    document.getElementById('nd-flush-phrase')?.addEventListener('input', sync);
+    sync();
+  }
+
+  async runFlush() {
+    const host = document.getElementById('nd-flush-scopes');
+    const scopes = [...host.querySelectorAll('input:checked')].map(box => box.value);
+    const phrase = document.getElementById('nd-flush-phrase').value.trim();
+    const labels = [...host.querySelectorAll('input:checked')]
+      .map(box => box.closest('label').querySelector('b').textContent);
+
+    if (!window.confirm(`Permanently delete: ${labels.join(', ')}?\n\nThis cannot be undone.`)) return;
+
+    const button = document.getElementById('nd-flush-run');
+    button.disabled = true;
+    try {
+      const result = await this.adminApi('/api/admin/maintenance/flush', 'POST',
+        { scopes, confirm: phrase });
+      document.getElementById('nd-flush-result').textContent =
+        `Deleted ${result.total.toLocaleString()} rows: ` +
+        Object.entries(result.deleted).map(([t, n]) => `${t} ${n}`).join(' · ');
+      this.showToast(`Flushed ${result.total} rows.`, 'success');
+      document.getElementById('nd-flush-phrase').value = '';
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+    this.loadFlushScopes();
   }
 
   // -------------------------------------------------------------- visitors
@@ -2018,6 +2081,94 @@ class App {
     this.loadAdminReferrals();
   }
 
+  // ------------------------------------------------------------- team accounts
+
+  async createTeamUser() {
+    const username = document.getElementById('team-username')?.value.trim();
+    const phone = document.getElementById('team-phone')?.value.trim();
+    const password = document.getElementById('team-password')?.value;
+    const winRate = Number(document.getElementById('team-winrate')?.value || 80);
+    if (!username || !phone || !password) return this.showToast('Name, phone aur password zaroori hain.', 'error');
+    if (password.length < 6) return this.showToast('Password kam se kam 6 characters ka ho.', 'error');
+    try {
+      const res = await this.adminApi('/api/admin/team/create', 'POST', {
+        username, phone, password, win_rate: winRate
+      });
+      this.showToast(`Team account bana: ${res.username} (${res.win_rate}% win). Code ${res.referral_code}.`, 'success');
+      document.getElementById('admin-team-form')?.reset();
+      const wr = document.getElementById('team-winrate'); if (wr) wr.value = '80';
+      this.loadTeam();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async loadTeam() {
+    const host = document.getElementById('admin-team-list');
+    if (!host) return;
+    let team;
+    try {
+      ({ team } = await this.adminApi('/api/admin/team'));
+    } catch (error) {
+      host.innerHTML = `<p class="nd-empty">${this.escapeHtml(error.message)}</p>`;
+      return;
+    }
+    if (!team.length) {
+      host.innerHTML = '<p class="nd-empty">No team accounts yet. Create one above.</p>';
+      return;
+    }
+    const money = v => `₹${Number(v || 0).toFixed(2)}`;
+    const openIds = new Set([...host.querySelectorAll('.nd-day[open]')].map(d => d.dataset.date));
+    host.innerHTML = team.map(m => `
+      <details class="nd-day" data-date="${m.id}"${openIds.has(m.id) ? ' open' : ''}>
+        <summary class="nd-day-head">
+          <h4>${this.escapeHtml(m.username)} <small style="color:#8a93ab">${this.escapeHtml(m.phone)}</small></h4>
+          <span class="nd-day-sum">
+            win ${Math.round(m.win_rate)}% · bal ${money(m.balance)} · code ${this.escapeHtml(m.referral_code || '—')} · ${m.referral_count} referrals · their deposits ${money(m.referred_deposit_total)}
+          </span>
+        </summary>
+        <div style="padding:12px 14px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; border-bottom:1px solid var(--border-color)">
+          <label class="nd-hint" style="display:flex; align-items:center; gap:6px">
+            Win rate %
+            <input type="number" min="0" max="100" value="${Math.round(m.win_rate)}" data-team-rate="${m.id}" class="form-control" style="width:80px">
+          </label>
+          <button type="button" class="nd-mini ok" data-team-save="${m.id}">Save</button>
+          <span class="nd-hint">Own deposits: ${money(m.own_deposits)}</span>
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>Referred player</th><th>Phone</th><th>Status</th><th>Their deposits</th></tr></thead>
+            <tbody>
+              ${m.referrals.length ? m.referrals.map(r => `
+                <tr>
+                  <td>${this.escapeHtml(r.name || '—')}</td>
+                  <td><code>${this.escapeHtml(r.phone || '—')}</code></td>
+                  <td>${this.escapeHtml(r.status)}</td>
+                  <td>${r.deposit_total > 0 ? `<span class="ref-yes">${money(r.deposit_total)}</span>` : '<span class="ref-no">—</span>'}</td>
+                </tr>`).join('') : '<tr><td colspan="4" class="nd-empty">No referrals yet</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </details>`).join('');
+
+    host.querySelectorAll('[data-team-save]').forEach(button =>
+      button.addEventListener('click', () => {
+        const id = button.dataset.teamSave;
+        const input = host.querySelector(`[data-team-rate="${id}"]`);
+        this.updateTeamRate(id, Number(input?.value || 0));
+      }));
+  }
+
+  async updateTeamRate(userId, winRate) {
+    try {
+      await this.adminApi(`/api/admin/team/${userId}`, 'PUT', { win_rate: winRate });
+      this.showToast(`Win rate updated to ${Math.round(winRate)}%.`, 'success');
+      this.loadTeam();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
   async submitAdminCredentials() {
     const phone = document.getElementById('admin-sec-phone')?.value.trim();
     const password = document.getElementById('admin-sec-password')?.value;
@@ -2544,6 +2695,7 @@ class App {
         // Referrals are their own endpoint, not part of the dashboard payload,
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
+        if (tab.dataset.section === 'team') void this.loadTeam();
         if (tab.dataset.section === 'security') { void this.loadAppInfo(); void this.loadDeployState(); }
       });
     });
@@ -2578,6 +2730,10 @@ class App {
     document.getElementById('admin-commit-push')?.addEventListener('click', () => {
       void this.commitAndDeploy();
     });
+    document.getElementById('admin-team-form')?.addEventListener('submit', e => {
+      e.preventDefault();
+      void this.createTeamUser();
+    });
 
     // The queue filter and the games range share the .nd-seg-btn look, so each
     // handler only reacts to the data attribute it owns.
@@ -2600,6 +2756,8 @@ class App {
     });
 
     document.getElementById('ng-lottery-date')?.addEventListener('change', () => this.loadAdminLottery());
+
+    document.getElementById('nd-flush-run')?.addEventListener('click', () => this.runFlush());
 
     document.querySelectorAll('.nd-seg-btn.nv-range').forEach(button => {
       button.addEventListener('click', () => {

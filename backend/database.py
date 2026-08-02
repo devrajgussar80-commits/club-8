@@ -305,6 +305,11 @@ CREATE TABLE IF NOT EXISTS app_downloads (
 -- at signup. The join between them lives in the referrals table so a reward
 -- has one row with one status, rather than being inferred from two columns.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by TEXT;
+-- Team accounts: 0 is a normal player. Above 0 is the target win rate (%), so
+-- ~this fraction of their losing single-player rounds are re-drawn as genuine
+-- wins. Only single-player games can honour it -- shared-round games (WinGo,
+-- multiplayer Dice) deal one result to everyone.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS team_win_rate DOUBLE PRECISION DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code
     ON users(referral_code) WHERE referral_code IS NOT NULL;
 

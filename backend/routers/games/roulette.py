@@ -184,4 +184,10 @@ def spin(req: SpinRequest, current_user: dict = Depends(get_current_user)):
         biased = apply_bias(controls, payout, as_loss)
         return biased if biased is not None else (payout, outcome)
 
-    return play_round(current_user, GAME, total_stake, resolve)
+    def redraw_win(stake):
+        # A genuine win for a team account: land on a pocket the player covered.
+        if not winning_pockets:
+            return None
+        return settle(winning_pockets[int(secure_unit() * len(winning_pockets))])
+
+    return play_round(current_user, GAME, total_stake, resolve, redraw_win=redraw_win)

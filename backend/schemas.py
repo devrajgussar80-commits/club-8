@@ -44,6 +44,18 @@ class LocalPushRequest(BaseModel):
     message: str = Field(default="", max_length=300)
 
 
+class TeamCreateRequest(BaseModel):
+    phone: str = Field(min_length=4, max_length=32)
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+    # Target win rate 0-100 for single-player games.
+    win_rate: float = Field(default=80, ge=0, le=100)
+
+
+class TeamUpdateRequest(BaseModel):
+    win_rate: float = Field(ge=0, le=100)
+
+
 class AdminCredentialsRequest(BaseModel):
     # The current password gates every change, so a hijacked session token
     # alone cannot lock the real admin out.

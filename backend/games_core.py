@@ -87,12 +87,36 @@ def validate_stake(amount) -> float:
 
 # ------------------------------------------------------------------- settlement
 
-def play_round(user: dict, game: str, stake: float, resolve):
+def apply_luck(user: dict, payout: float, stake: float, redraw_win):
+    """For a team account, re-draw a losing round as a genuine win.
+
+    The inverse of house bias: if this user has a team_win_rate and the round
+    did not profit, then with that probability `redraw_win()` is asked for a
+    real winning outcome for the game (a winning pocket, a paying reel set),
+    so the wallet and the on-screen result still agree. Returns a replacement
+    `(payout, outcome)` or None to keep the natural result.
+
+    Only single-player games call this. Shared-round games deal one result to
+    everyone, so a per-user win cannot be granted there.
+    """
+    rate = float(user.get("team_win_rate") or 0)
+    if rate <= 0 or payout > stake:
+        return None
+    if secure_unit() * 100 >= rate:
+        return None
+    return redraw_win(stake)
+
+
+def play_round(user: dict, game: str, stake: float, resolve, redraw_win=None):
     """Debit `stake`, run `resolve()`, credit the payout, log the round.
 
     `resolve(stake)` receives the *validated* stake -- never the raw request
     body -- and returns `(payout, outcome_dict)`. It is called after the
     balance check, so a rejected bet never consumes a draw.
+
+    `redraw_win`, if given, produces a genuine winning `(payout, outcome)` for
+    the game; it lets a team account's win rate turn a losing round into a win
+    while keeping the shown result honest.
 
     The user row is held with FOR UPDATE for the whole transaction: two spins
     firing at once queue up instead of both reading the same pre-debit balance
@@ -112,6 +136,13 @@ def play_round(user: dict, game: str, stake: float, resolve):
 
         payout, outcome = resolve(stake)
         payout = round(max(0.0, float(payout)), 2)
+
+        # Team-account luck: a losing round may be re-drawn as a real win.
+        if redraw_win is not None:
+            lucky = apply_luck(user, payout, stake, redraw_win)
+            if lucky is not None:
+                payout, outcome = lucky
+                payout = round(max(0.0, float(payout)), 2)
 
         # One statement, so the row never sits debited-but-not-credited.
         new_balance = cursor.execute(

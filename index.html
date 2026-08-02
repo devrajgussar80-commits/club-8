@@ -1509,6 +1509,7 @@
         <button type="button" class="nd-tab" data-section="games"><i class="bi bi-controller"></i> Games</button>
         <button type="button" class="nd-tab" data-section="visitors"><i class="bi bi-people"></i> Visitors</button>
         <button type="button" class="nd-tab" data-section="referrals"><i class="bi bi-people-fill"></i> Referrals</button>
+        <button type="button" class="nd-tab" data-section="team"><i class="bi bi-person-badge-fill"></i> Team</button>
         <button type="button" class="nd-tab" data-section="qr"><i class="bi bi-qr-code"></i> Payment QR</button>
         <button type="button" class="nd-tab" data-section="controls"><i class="bi bi-sliders"></i> Controls</button>
         <button type="button" class="nd-tab" data-section="security"><i class="bi bi-shield-lock-fill"></i> Security</button>
@@ -1681,6 +1682,24 @@
         </div>
       </section>
 
+      <section id="nd-section-team" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Team accounts <small>players set to win most of the time</small></h3>
+        </div>
+        <div class="nd-control-card" style="margin-bottom:16px">
+          <h4><i class="bi bi-person-plus-fill"></i> Create team account</h4>
+          <p class="nd-hint">Win rate applies to single-player games (Slots, Mega Slots, Roulette). Shared-round games (WinGo, Dice) deal one result to everyone and cannot be tilted per player.</p>
+          <form id="admin-team-form" class="nd-form-row">
+            <input id="team-username" class="form-control" placeholder="Name" required>
+            <input id="team-phone" class="form-control" placeholder="Mobile number" required>
+            <input id="team-password" class="form-control" type="text" placeholder="Password (min 6)" required>
+            <input id="team-winrate" class="form-control" type="number" min="0" max="100" value="80" placeholder="Win %">
+            <button class="btn-primary" type="submit"><i class="bi bi-plus-lg"></i> Create</button>
+          </form>
+        </div>
+        <div id="admin-team-list" class="nd-daily"></div>
+      </section>
+
       <!-- VISITORS: everyone who landed, including the ones who never signed up -->
       <section id="nd-section-visitors" class="nd-panel nd-section">
         <div class="nd-panel-head">
@@ -1762,6 +1781,25 @@
       </section>
 
       <section id="nd-section-controls" class="nd-panel nd-section">
+        <!-- DANGER ZONE: deletes real records, so it is visually separated
+             from the everyday switches above it. -->
+        <div class="nd-danger">
+          <h4><i class="bi bi-exclamation-octagon-fill"></i> Flush database</h4>
+          <p class="ng-hint">
+            Permanently deletes the selected records. Player accounts, balances,
+            payment QRs and game settings are never touched.
+          </p>
+          <div id="nd-flush-scopes" class="nd-flush-scopes"></div>
+          <div class="nd-flush-confirm">
+            <input id="nd-flush-phrase" class="form-control" type="text" autocomplete="off"
+                   placeholder="Type FLUSH to confirm">
+            <button id="nd-flush-run" class="nd-danger-btn" type="button" disabled>
+              <i class="bi bi-trash3-fill"></i> Flush selected
+            </button>
+          </div>
+          <p id="nd-flush-result" class="ng-hint"></p>
+        </div>
+
         <div class="nd-controls-grid">
           <div class="nd-control-card">
             <h4>Payments</h4>

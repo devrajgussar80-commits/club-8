@@ -7620,15 +7620,18 @@ textarea {
 .sub-page.active {
   animation: page-in 260ms var(--ease-out) both;
 }
+/* Starts at .01 rather than 0: with fill-mode `both` the from-state is held
+   until the animation starts, and at exactly 0 a page that never animates is
+   invisible rather than merely un-animated. */
 @keyframes page-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: .01; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
 }
 /* The arcade screens position things against the page box, so shifting it
    during the entrance would drag the game art with it. */
 .arcade-game-page.active { animation-name: page-fade; }
 @keyframes page-fade {
-  from { opacity: 0; }
+  from { opacity: .01; }
   to   { opacity: 1; }
 }
 
@@ -7645,7 +7648,7 @@ textarea {
 .lobby-mini-showcase .lobby-mini-card:nth-child(6) { animation-delay: 150ms; }
 .lobby-mini-showcase .lobby-mini-card:nth-child(n+7) { animation-delay: 180ms; }
 @keyframes tile-in {
-  from { opacity: 0; transform: translateY(10px) scale(.96); }
+  from { opacity: .01; transform: translateY(10px) scale(.96); }
   to   { opacity: 1; transform: none; }
 }
 
@@ -7849,3 +7852,260 @@ textarea {
 }
 .aviator-recent span:first-child { animation: tile-in 320ms var(--ease-spring, ease) both; }
 
+
+/* ==========================================================================
+   MINES â€” premium restyle
+   ==========================================================================
+   Pure CSS over the existing markup: the board is server-authoritative and
+   the engine already sets .revealed / .safe-hit / .mine-hit / .mine-reveal,
+   so nothing here needs a JS change. Overrides live after the original rules
+   and only touch colour, depth and motion.
+
+   The palette is the deep slate a casino board wants: one dark surface, one
+   tile colour, one accent green. Depth comes from a hard bottom edge on each
+   tile rather than blur, which is what makes the tiles read as physical
+   buttons you press rather than flat squares.
+   ========================================================================== */
+
+.mines-game-page {
+  --mine-surface: #0f212e;
+  --mine-panel: #1a2c38;
+  --mine-tile: #2f4553;
+  --mine-tile-edge: #1b2c38;
+  --mine-tile-hover: #3b5566;
+  --mine-sunken: #071b26;
+  --mine-green: #00e701;
+  --mine-muted: #b1bad3;
+
+  /* Replaces the old blue gradient: it fought the tiles for attention and
+     left no dark surface for a revealed gem to glow against. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(0, 231, 1, .07), transparent 60%),
+    var(--mine-surface);
+  color: #fff;
+}
+
+.mines-head { background: transparent; }
+.mines-head > strong { font-style: normal; letter-spacing: 1px; font-weight: 800; }
+.mines-head #mines-help {
+  background: var(--mine-panel);
+  border: 1px solid rgba(255, 255, 255, .06);
+  color: var(--mine-muted);
+  border-radius: 999px;
+}
+.mines-balance { color: var(--mine-muted); }
+.mines-balance b { color: #fff; }
+
+.mines-status-row > span {
+  background: var(--mine-panel);
+  border: 1px solid rgba(255, 255, 255, .05);
+  border-radius: 8px;
+  color: var(--mine-muted);
+  font-size: 12px;
+}
+.mines-status-row > span b { color: #fff; }
+.mines-status-row .mines-next {
+  background: rgba(0, 231, 1, .12) !important;
+  border-color: rgba(0, 231, 1, .35);
+  color: var(--mine-green) !important;
+}
+.mines-status-row .mines-next b { color: var(--mine-green); }
+
+/* -------------------------------------------------------------- the board */
+
+.mines-grid {
+  width: min(100%, 360px);
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--mine-panel);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04);
+}
+
+.mine-tile {
+  /* Square, like a real mines board. The old 1.25 ratio made the grid read as
+     a spreadsheet rather than a set of buttons. */
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 9px;
+  background: var(--mine-tile);
+  box-shadow: 0 4px 0 var(--mine-tile-edge);
+  transition:
+    transform 90ms cubic-bezier(.22, .9, .32, 1),
+    box-shadow 90ms cubic-bezier(.22, .9, .32, 1),
+    background-color 160ms ease,
+    opacity 220ms ease;
+}
+.mine-tile span { display: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  .mine-tile:not(.revealed):not(:disabled):hover {
+    background: var(--mine-tile-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 0 var(--mine-tile-edge);
+  }
+}
+/* Pressing collapses the bottom edge, so the tile physically sinks. */
+.mine-tile:not(.revealed):active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 var(--mine-tile-edge);
+}
+
+/* A revealed tile is sunken and unclickable: no raised edge, no hover. */
+.mine-tile.revealed,
+.mine-tile.mine-reveal {
+  background: var(--mine-sunken);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, .55);
+  transform: none;
+  cursor: default;
+}
+
+/* The gem and the bomb are drawn on the tile itself rather than on the inner
+   span, which is now unused -- one element means the pop animation cannot
+   desynchronise from the background change. */
+.mine-tile.safe-hit::after,
+.mine-tile.mine-hit::after,
+.mine-tile.mine-reveal::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: clamp(20px, 7vw, 30px);
+  line-height: 1;
+}
+.mine-tile.safe-hit::after {
+  content: 'ðŸ’Ž';
+  filter: drop-shadow(0 0 10px rgba(0, 231, 1, .55));
+  /* No fill-mode, and the keyframes below no longer touch opacity. The
+     previous version faded in from `opacity: 0` with `both`, which holds
+     the 0% state until the animation starts -- so anywhere the animation
+     did not run, the gem was simply never visible. A revealed tile has to
+     show its symbol even with every animation disabled. */
+  animation: mine-pop .34s cubic-bezier(.34, 1.56, .64, 1);
+}
+.mine-tile.safe-hit { box-shadow: inset 0 0 0 1px rgba(0, 231, 1, .35); }
+
+.mine-tile.mine-hit::after,
+.mine-tile.mine-reveal::after { content: 'ðŸ’£'; }
+/* The mine actually stepped on stays bright and shakes; the ones merely
+   uncovered at the end are dimmed, so the board still says which one ended
+   the round. */
+.mine-tile.mine-hit {
+  background: #3b0d12;
+  box-shadow: inset 0 0 0 1px rgba(255, 60, 60, .5), 0 0 22px rgba(255, 45, 45, .35);
+  animation: mine-blast .42s cubic-bezier(.36, .07, .19, .97) both;
+}
+.mine-tile.mine-reveal:not(.mine-hit) { opacity: .42; }
+.mine-tile.mine-reveal:not(.mine-hit)::after { filter: grayscale(.5); }
+
+@keyframes mine-pop {
+  0%   { transform: scale(.3) rotate(-18deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes mine-blast {
+  0%   { transform: scale(1.25); }
+  20%  { transform: translateX(-4px) scale(1.1); }
+  40%  { transform: translateX(4px) scale(1.05); }
+  60%  { transform: translateX(-3px); }
+  100% { transform: none; }
+}
+
+/* ----------------------------------------------------------- tools + bet */
+
+.mines-tools > button,
+.mines-tools > label {
+  background: var(--mine-panel);
+  border: 1px solid rgba(255, 255, 255, .06);
+  border-radius: 8px;
+  color: var(--mine-muted);
+  font-size: 12px;
+}
+.mines-tools > button { color: #fff; font-weight: 700; }
+.mines-tools select { color: #fff; font-weight: 700; }
+
+.mines-bet-panel {
+  background: var(--mine-panel);
+  border-top: 1px solid rgba(255, 255, 255, .06);
+  border-radius: 14px 14px 0 0;
+  gap: 8px;
+}
+.mines-bet-panel label { color: var(--mine-muted); }
+.mines-bet-panel label span {
+  background: var(--mine-surface);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 8px;
+  color: #fff;
+}
+.mines-bet-panel > button {
+  background: var(--mine-tile);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+}
+.mines-bet-panel > button:hover { background: var(--mine-tile-hover); }
+
+.mines-bet-button {
+  background: var(--mine-green) !important;
+  border: 0 !important;
+  border-radius: 10px;
+  color: #05130a !important;
+  font-weight: 800;
+  letter-spacing: .5px;
+  box-shadow: 0 4px 0 #00a601;
+  transition: transform 90ms ease, box-shadow 90ms ease, filter 160ms ease;
+}
+.mines-bet-button:hover { filter: brightness(1.08); }
+.mines-bet-button:active { transform: translateY(3px); box-shadow: 0 1px 0 #00a601; }
+/* Cash-out is a different decision from starting a round, so it gets its own
+   colour rather than the same green. */
+.mines-bet-button.cashout {
+  background: linear-gradient(180deg, #ffd23f, #f0a020) !important;
+  color: #2a1600 !important;
+  box-shadow: 0 4px 0 #b56f00;
+  animation: mine-cashout-glow 1.6s ease-in-out infinite;
+}
+@keyframes mine-cashout-glow {
+  0%, 100% { box-shadow: 0 4px 0 #b56f00, 0 0 0 rgba(255, 210, 63, 0); }
+  50%      { box-shadow: 0 4px 0 #b56f00, 0 0 18px rgba(255, 210, 63, .55); }
+}
+
+.mines-message { color: var(--mine-muted); }
+
+
+/* ------------------------------------------------ admin: destructive zone */
+
+.nd-danger {
+  margin: 0 0 16px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 92, 76, .38);
+  background: linear-gradient(180deg, rgba(255, 92, 76, .10), rgba(255, 92, 76, .03));
+}
+.nd-danger h4 { margin: 0 0 6px; font-size: 14px; color: #ff8f80; }
+.nd-flush-scopes { display: grid; gap: 8px; margin: 12px 0; }
+.nd-flush-scope {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .07);
+  cursor: pointer;
+}
+.nd-flush-scope input { margin-top: 3px; accent-color: #ff5c4c; }
+.nd-flush-scope b { font-size: 13px; }
+.nd-flush-scope em {
+  margin-left: 8px; font-style: normal; font-size: 11px; color: #ffd76a;
+}
+.nd-flush-scope small { display: block; margin-top: 2px; font-size: 11px; opacity: .6; }
+
+.nd-flush-confirm { display: flex; gap: 8px; flex-wrap: wrap; }
+.nd-flush-confirm input { flex: 1 1 180px; }
+.nd-danger-btn {
+  padding: 11px 16px; border: 0; border-radius: 10px;
+  background: #d9342b; color: #fff; font-weight: 800; font-size: 13px;
+  box-shadow: 0 3px 0 #8f1f19;
+  transition: transform 90ms ease, box-shadow 90ms ease, opacity 160ms ease;
+}
+.nd-danger-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 #8f1f19; }
+/* Disabled is the normal state here: it only unlocks once a scope is ticked
+   and the phrase is typed, so the button never looks casually clickable. */
+.nd-danger-btn:disabled { opacity: .4; box-shadow: none; }

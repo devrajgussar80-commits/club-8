@@ -24,6 +24,8 @@ from schemas import (
     AdminKeyRotationRequest,
     AdminLoginRequest,
     LocalPushRequest,
+    TeamCreateRequest,
+    TeamUpdateRequest,
     ForceResultReq,
     GrantAdminRequest,
     PlatformSettingsReq,
@@ -744,6 +746,133 @@ def delete_app(_: bool = Depends(require_admin)):
     finally:
         conn.close()
     return {"status": "success"}
+
+
+# ----------------- TEAM ACCOUNTS -----------------
+@router.post("/team/create")
+def team_create(req: TeamCreateRequest, _: bool = Depends(require_admin)):
+    """Create a player account with a target win rate on single-player games."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if cursor.execute("SELECT id FROM users WHERE phone = ?", (req.phone,)).fetchone():
+            raise HTTPException(status_code=400, detail="Phone number is already registered.")
+
+        user_id = f"USR{uuid.uuid4().hex[:10].upper()}"
+        own_code = referrals_core.new_user_code(conn)
+        cursor.execute(
+            """
+            INSERT INTO users
+                (id, phone, username, password_hash, balance, status,
+                 referral_code, game_access_enabled, team_win_rate)
+            VALUES (?, ?, ?, ?, 0, 'active', ?, 1, ?)
+            """,
+            (
+                user_id,
+                req.phone,
+                req.username,
+                auth_helpers.hash_password(req.password),
+                own_code,
+                float(req.win_rate),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "status": "success",
+        "id": user_id,
+        "phone": req.phone,
+        "username": req.username,
+        "referral_code": own_code,
+        "win_rate": float(req.win_rate),
+    }
+
+
+@router.get("/team")
+def team_list(_: bool = Depends(require_admin)):
+    """Team accounts with their wallet, referral code, and -- for each person
+    they referred -- that person's approved-deposit total."""
+    conn = get_db_connection()
+    try:
+        members = conn.execute(
+            """
+            SELECT u.id, u.phone, u.username, u.balance, u.status,
+                   u.referral_code, u.team_win_rate, u.created_at,
+                   COALESCE(dep.total, 0) AS own_deposits
+            FROM users u
+            LEFT JOIN (
+                SELECT user_id, SUM(amount) AS total
+                FROM upi_deposits WHERE status = 'approved' GROUP BY user_id
+            ) dep ON dep.user_id = u.id
+            WHERE u.team_win_rate > 0
+            ORDER BY u.created_at DESC
+            """
+        ).fetchall()
+
+        # Everyone each team member referred, with that referee's deposit total.
+        referrals = conn.execute(
+            """
+            SELECT r.referrer_id, r.referred_name, r.referred_phone, r.status,
+                   COALESCE(dep.total, 0) AS referred_deposit_total
+            FROM referrals r
+            LEFT JOIN (
+                SELECT user_id, SUM(amount) AS total
+                FROM upi_deposits WHERE status = 'approved' GROUP BY user_id
+            ) dep ON dep.user_id = r.referred_id
+            ORDER BY r.created_at DESC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    by_referrer = {}
+    for row in referrals:
+        by_referrer.setdefault(row["referrer_id"], []).append(
+            {
+                "name": row["referred_name"],
+                "phone": row["referred_phone"],
+                "status": row["status"],
+                "deposit_total": float(row["referred_deposit_total"] or 0),
+            }
+        )
+
+    team = []
+    for m in members:
+        refs = by_referrer.get(m["id"], [])
+        team.append(
+            {
+                "id": m["id"],
+                "phone": m["phone"],
+                "username": m["username"],
+                "balance": float(m["balance"] or 0),
+                "status": m["status"],
+                "referral_code": m["referral_code"],
+                "win_rate": float(m["team_win_rate"] or 0),
+                "own_deposits": float(m["own_deposits"] or 0),
+                "referrals": refs,
+                "referral_count": len(refs),
+                "referred_deposit_total": round(sum(r["deposit_total"] for r in refs), 2),
+            }
+        )
+    return {"team": team}
+
+
+@router.put("/team/{user_id}")
+def team_update(user_id: str, req: TeamUpdateRequest, _: bool = Depends(require_admin)):
+    """Change a member's win rate. 0 turns the account back into a normal one."""
+    conn = get_db_connection()
+    try:
+        found = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not found:
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute(
+            "UPDATE users SET team_win_rate = ? WHERE id = ?", (float(req.win_rate), user_id)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id, "win_rate": float(req.win_rate)}
 
 
 # ----------------- WITHDRAWALS -----------------
