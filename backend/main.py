@@ -18,6 +18,7 @@ from game_engine import python_engine
 from routers import (
     admin,
     admin_games,
+    admin_maintenance,
     analytics,
     app_download,
     auth,
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     application.include_router(app_download.router)
     application.include_router(admin.router)
     application.include_router(admin_games.router)
+    application.include_router(admin_maintenance.router)
     application.include_router(analytics.router)
 
     # One router per arcade game; each owns its own rules and payout table.
