@@ -2695,6 +2695,7 @@ class App {
         document.querySelectorAll('.nd-section').forEach(section => {
           section.classList.toggle('active', section.id === `nd-section-${tab.dataset.section}`);
         });
+        tab.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
         // Referrals are their own endpoint, not part of the dashboard payload,
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
