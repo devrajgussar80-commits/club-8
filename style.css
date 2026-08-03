@@ -7946,9 +7946,11 @@ textarea {
   }
 }
 /* Pressing collapses the bottom edge, so the tile physically sinks. */
-.mine-tile:not(.revealed):active {
-  transform: translateY(4px);
-  box-shadow: 0 0 0 var(--mine-tile-edge);
+.mine-tile:not(.revealed):active,
+.mine-tile.revealing {
+  transform: translateY(3px) scale(0.95);
+  box-shadow: 0 1px 0 var(--mine-tile-edge);
+  opacity: 0.85;
 }
 
 /* A revealed tile is sunken and unclickable: no raised edge, no hover. */

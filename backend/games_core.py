@@ -48,7 +48,7 @@ def weighted_pick(weights: dict):
 
 # ------------------------------------------------------------------ eligibility
 
-def require_game_access(user: dict) -> None:
+def require_game_access(user: dict, conn=None) -> None:
     """Premium arcade gate: admin switch, or enough approved deposits.
 
     WinGo stays open to everyone; these games do not. Checked server-side so
@@ -57,11 +57,16 @@ def require_game_access(user: dict) -> None:
     if user.get("game_access_enabled"):
         return
 
-    conn = get_db_connection()
+    should_close = False
+    if conn is None:
+        conn = get_db_connection()
+        should_close = True
+
     try:
         approved = get_approved_deposit_total(conn, user["id"])
     finally:
-        conn.close()
+        if should_close:
+            conn.close()
 
     if approved < config.GAME_ACCESS_MIN_DEPOSIT:
         raise HTTPException(
@@ -122,10 +127,10 @@ def play_round(user: dict, game: str, stake: float, resolve, redraw_win=None):
     firing at once queue up instead of both reading the same pre-debit balance
     and overdrawing the wallet.
     """
-    require_game_access(user)
     stake = validate_stake(stake)
 
     conn = get_db_connection()
+    require_game_access(user, conn=conn)
     cursor = conn.cursor()
     try:
         locked = cursor.execute(
@@ -189,10 +194,10 @@ def play_round(user: dict, game: str, stake: float, resolve, redraw_win=None):
 
 def hold_stake(user: dict, stake: float) -> dict:
     """Debit the stake to open a round. Rejects if the wallet cannot cover it."""
-    require_game_access(user)
     stake = validate_stake(stake)
 
     conn = get_db_connection()
+    require_game_access(user, conn=conn)
     cursor = conn.cursor()
     try:
         locked = cursor.execute(

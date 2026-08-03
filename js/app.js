@@ -723,10 +723,12 @@ class App {
       if (!tile || !this.minesRound || tile.classList.contains('revealed') || tile.dataset.busy) return;
       const index = Number(tile.dataset.mineTile);
       tile.dataset.busy = '1';
+      tile.classList.add('revealing');
       try {
         const res = await this.fetchApi('/api/games/mines/reveal', 'POST', {
           round_id: this.minesRound.id, tile: index
         });
+        tile.classList.remove('revealing');
         tile.classList.add('revealed');
         if (res.result === 'boom') {
           tile.classList.add('mine-hit');
@@ -748,6 +750,7 @@ class App {
         setMessage(`Safe! ${res.opened} tile${res.opened === 1 ? '' : 's'} opened · ${this.minesMultiplier.toFixed(2)}×`);
         updateNext();
       } catch (error) {
+        tile.classList.remove('revealing');
         this.showToast(error.message || 'Reveal fail ho gaya.', 'error');
       } finally {
         delete tile.dataset.busy;
