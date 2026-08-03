@@ -2711,6 +2711,9 @@ class App {
       document.querySelectorAll('.nd-drawer-item').forEach(d => {
         d.classList.toggle('active', d.dataset.section === sectionName);
       });
+      document.querySelectorAll('.nd-mobile-nav-item').forEach(m => {
+        m.classList.toggle('active', m.dataset.section === sectionName);
+      });
       document.querySelectorAll('.nd-section').forEach(section => {
         section.classList.toggle('active', section.id === `nd-section-${sectionName}`);
       });
@@ -2728,6 +2731,10 @@ class App {
         switchAdminSection(item.dataset.section);
         closeAdminDrawer();
       });
+    });
+
+    document.querySelectorAll('.nd-mobile-nav-item').forEach(item => {
+      item.addEventListener('click', () => switchAdminSection(item.dataset.section));
     });
 
     document.getElementById('btn-share-app')?.addEventListener('click', async () => {
