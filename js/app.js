@@ -2689,52 +2689,18 @@ class App {
       this.showToast('Signed out of admin.', 'success');
     });
 
-    const openAdminDrawer = () => {
-      document.getElementById('admin-drawer-menu')?.classList.add('active');
-      document.getElementById('admin-drawer-backdrop')?.classList.add('active');
-    };
-    const closeAdminDrawer = () => {
-      document.getElementById('admin-drawer-menu')?.classList.remove('active');
-      document.getElementById('admin-drawer-backdrop')?.classList.remove('active');
-    };
-
-    document.getElementById('admin-menu-toggle')?.addEventListener('click', openAdminDrawer);
-    document.getElementById('admin-drawer-close')?.addEventListener('click', closeAdminDrawer);
-    document.getElementById('admin-drawer-backdrop')?.addEventListener('click', closeAdminDrawer);
-
-    const switchAdminSection = (sectionName) => {
-      document.querySelectorAll('.nd-tab').forEach(t => {
-        const isMatch = t.dataset.section === sectionName;
-        t.classList.toggle('active', isMatch);
-        if (isMatch) t.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-      });
-      document.querySelectorAll('.nd-drawer-item').forEach(d => {
-        d.classList.toggle('active', d.dataset.section === sectionName);
-      });
-      document.querySelectorAll('.nd-mobile-nav-item').forEach(m => {
-        m.classList.toggle('active', m.dataset.section === sectionName);
-      });
-      document.querySelectorAll('.nd-section').forEach(section => {
-        section.classList.toggle('active', section.id === `nd-section-${sectionName}`);
-      });
-      if (sectionName === 'referrals') void this.loadAdminReferrals();
-      if (sectionName === 'team') void this.loadTeam();
-      if (sectionName === 'security') { void this.loadAppInfo(); void this.loadDeployState(); }
-    };
-
     document.querySelectorAll('.nd-tab').forEach(tab => {
-      tab.addEventListener('click', () => switchAdminSection(tab.dataset.section));
-    });
-
-    document.querySelectorAll('.nd-drawer-item').forEach(item => {
-      item.addEventListener('click', () => {
-        switchAdminSection(item.dataset.section);
-        closeAdminDrawer();
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.nd-tab').forEach(t => t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.nd-section').forEach(section => {
+          section.classList.toggle('active', section.id === `nd-section-${tab.dataset.section}`);
+        });
+        // Referrals are their own endpoint, not part of the dashboard payload,
+        // so they load when the tab is opened rather than on every refresh.
+        if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
+        if (tab.dataset.section === 'team') void this.loadTeam();
+        if (tab.dataset.section === 'security') { void this.loadAppInfo(); void this.loadDeployState(); }
       });
-    });
-
-    document.querySelectorAll('.nd-mobile-nav-item').forEach(item => {
-      item.addEventListener('click', () => switchAdminSection(item.dataset.section));
     });
 
     document.getElementById('btn-share-app')?.addEventListener('click', async () => {
