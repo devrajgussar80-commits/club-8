@@ -23,7 +23,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from deps import get_current_user
-from games_core import hold_stake, secure_below, settle_held
+from games_core import (
+    close_round,
+    hold_stake,
+    load_round,
+    open_round,
+    save_round,
+    secure_below,
+    settle_held,
+)
 
 router = APIRouter(prefix="/api/games/chicken", tags=["games"])
 
@@ -36,11 +44,10 @@ MODES = {
     "hardcore": {"safe": 0.46, "growth": 1.92},
 }
 
+# Rounds are persisted in `open_rounds` (see games_core), not held in memory:
+# a restart used to destroy the round while its stake stayed debited. The lock
+# only serialises this process's own requests for the same player.
 _lock = threading.RLock()
-# user_id -> active round. One at a time; a new bet is refused until the
-# current round is cashed out or busts, so a stake can never be silently
-# abandoned while still debited.
-_rounds = {}
 
 
 def _multiplier(mode: str, lane: int) -> float:
@@ -84,23 +91,48 @@ def config():
     }
 
 
+@router.get("/state")
+def state(current_user: dict = Depends(get_current_user)):
+    """Any round this player still has open.
+
+    Same reason as the mines endpoint: a page reload used to strand a debited
+    stake, because the browser lost the round id while the server still held
+    the round. The bust lane is never sent -- only how far the player has got.
+    """
+    rnd = load_round(current_user["id"], GAME)
+    if not rnd:
+        return {"active": False}
+    lane = rnd["lane"]
+    multiplier = _multiplier(rnd["mode"], lane)
+    return {
+        "active": True,
+        "round_id": rnd["id"],
+        "mode": rnd["mode"],
+        "stake": rnd["stake"],
+        "lane": lane,
+        "multiplier": multiplier,
+        "cashout_value": round(rnd["stake"] * multiplier, 2),
+    }
+
+
 @router.post("/bet")
 def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
     mode = req.mode if req.mode in MODES else "easy"
     with _lock:
-        if _rounds.get(current_user["id"]):
+        if load_round(current_user["id"], GAME):
             raise HTTPException(status_code=400, detail="Finish the current round first.")
 
         held = hold_stake(current_user, req.amount)  # debits, or raises 400
 
         round_id = f"CR-{uuid.uuid4().hex[:10].upper()}"
-        _rounds[current_user["id"]] = {
-            "id": round_id,
-            "mode": mode,
-            "stake": held["stake"],
-            "bust_lane": _draw_bust_lane(mode),
-            "lane": 0,  # safe jumps completed so far
-        }
+        open_round(
+            current_user["id"], GAME, round_id, held["stake"],
+            {
+                "mode": mode,
+                "bust_lane": _draw_bust_lane(mode),
+                "lane": 0,  # safe jumps completed so far
+            },
+        )
     return {
         "status": "success",
         "round_id": round_id,
@@ -113,8 +145,8 @@ def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
 
 
 def _active(user_id: str, round_id: str) -> dict:
-    rnd = _rounds.get(user_id)
-    if not rnd or rnd["id"] != round_id:
+    rnd = load_round(user_id, GAME, round_id)
+    if not rnd:
         raise HTTPException(status_code=400, detail="No active round.")
     return rnd
 
@@ -129,7 +161,7 @@ def jump(req: RoundRef, current_user: dict = Depends(get_current_user)):
             # Hit. Stake was already taken; settle a zero payout and close out.
             stake = rnd["stake"]
             mode = rnd["mode"]
-            del _rounds[current_user["id"]]
+            close_round(current_user["id"], GAME)
             settled = settle_held(
                 current_user["id"], GAME, stake, 0.0,
                 {"mode": mode, "result": "hit", "lane": attempt_lane + 1},
@@ -151,7 +183,7 @@ def jump(req: RoundRef, current_user: dict = Depends(get_current_user)):
         if lane >= LANES:
             stake = rnd["stake"]
             mode = rnd["mode"]
-            del _rounds[current_user["id"]]
+            close_round(current_user["id"], GAME)
             settled = settle_held(
                 current_user["id"], GAME, stake, stake * multiplier,
                 {"mode": mode, "result": "cleared", "lane": lane, "multiplier": multiplier},
@@ -164,6 +196,12 @@ def jump(req: RoundRef, current_user: dict = Depends(get_current_user)):
                 "payout": settled["payout"],
                 "balance": settled["balance"],
             }
+
+        # Survived: persist the new lane so a restart cannot rewind progress.
+        save_round(
+            current_user["id"], GAME,
+            {"mode": rnd["mode"], "bust_lane": rnd["bust_lane"], "lane": lane},
+        )
 
     return {
         "status": "success",
@@ -184,7 +222,7 @@ def cashout(req: RoundRef, current_user: dict = Depends(get_current_user)):
         stake = rnd["stake"]
         mode = rnd["mode"]
         multiplier = _multiplier(mode, lane)
-        del _rounds[current_user["id"]]
+        close_round(current_user["id"], GAME)
 
     settled = settle_held(
         current_user["id"], GAME, stake, stake * multiplier,

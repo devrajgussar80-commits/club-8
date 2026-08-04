@@ -274,6 +274,44 @@ export class ChickenRoadEngine {
     this.render();
   }
 
+  /**
+   * Restore a round the server still holds.
+   *
+   * Reloading the page used to lose the round id while the stake stayed
+   * debited, so the player could neither jump on nor cash out the round they
+   * had paid for, and every new bet was refused.
+   */
+  async resumeRound() {
+    if (!this.api || this.active || this.busy) return;
+    let s;
+    try {
+      s = await this.api('/api/games/chicken/state', 'GET');
+    } catch (error) {
+      return;
+    }
+    if (!s || !s.active) return;
+
+    this.roundId = s.round_id;
+    this.amount = Number(s.stake) || this.amount;
+    this.active = true;
+    this.lane = Number(s.lane) || 0;
+    this.multiplier = Number((s.multiplier || 1).toFixed(2));
+    if (this.mode && s.mode) this.mode.value = s.mode;
+    document.getElementById('chicken-bet-id').textContent = s.round_id;
+    this.stage.className = 'chicken-stage active';
+    this.message.textContent = this.lane
+      ? `Round resumed at lane ${this.lane} — ₹${money(this.amount * this.multiplier)} available.`
+      : 'Round resumed — jump ya stake cash out karo.';
+
+    this.seedCars();
+    this.buildTargets();
+    this.resetChicken();
+    // Put the chicken back where the player left it.
+    for (let i = 0; i < this.lane; i++) this.updateCarVisibility();
+    this.paintTargets();
+    this.render();
+  }
+
   async start() {
     if (!this.canPlay()) return this.denyPlay();
     if (this.busy) return;

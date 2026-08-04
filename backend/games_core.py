@@ -219,6 +219,82 @@ def hold_stake(user: dict, stake: float) -> dict:
     return {"stake": stake, "balance": round(float(new_balance), 2)}
 
 
+# --------------------------------------------------- open rounds (persisted)
+#
+# Chicken Road and Mines take the stake up front and pay out later, so an
+# unfinished round has real money attached to it. Keeping those rounds in
+# process memory meant a restart -- a redeploy, or the free tier going to
+# sleep -- destroyed the round while the debit stayed, and the player simply
+# lost the stake. They live in `open_rounds` instead.
+
+
+def open_round(user_id: str, game: str, round_id: str, stake: float, state: dict) -> None:
+    """Record a newly opened round. One per player per game."""
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO open_rounds (id, game, user_id, stake, state)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (user_id, game) DO UPDATE SET
+                id = EXCLUDED.id, stake = EXCLUDED.stake,
+                state = EXCLUDED.state, created_at = NOW()
+            """,
+            (round_id, game, user_id, stake, json.dumps(state)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_round(user_id: str, game: str, round_id: str | None = None) -> dict | None:
+    """The player's open round for this game, or None.
+
+    When `round_id` is given it must match, so a stale tab cannot act on a
+    round that has since been replaced.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, stake, state FROM open_rounds WHERE user_id = ? AND game = ?",
+            (user_id, game),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    if round_id is not None and row["id"] != round_id:
+        return None
+    state = row["state"]
+    if isinstance(state, str):
+        state = json.loads(state)
+    return {"id": row["id"], "stake": float(row["stake"]), **state}
+
+
+def save_round(user_id: str, game: str, state: dict) -> None:
+    """Persist progress inside an open round (a safe jump, an opened tile)."""
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "UPDATE open_rounds SET state = ? WHERE user_id = ? AND game = ?",
+            (json.dumps(state), user_id, game),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def close_round(user_id: str, game: str) -> None:
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "DELETE FROM open_rounds WHERE user_id = ? AND game = ?", (user_id, game)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def settle_held(user_id: str, game: str, stake: float, payout: float, outcome: dict) -> dict:
     """Credit the payout (0 on a bust) and record the finished round."""
     payout = round(max(0.0, float(payout)), 2)

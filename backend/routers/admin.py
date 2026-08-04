@@ -202,11 +202,26 @@ def change_admin_credentials(
 # commit+push below.
 
 
-def _git(args, cwd):
+def _git(args, cwd, timeout=60):
     """Run a git command in the repo, no shell (so the commit message is one
-    safe argument, never interpreted)."""
+    safe argument, never interpreted).
+
+    Credential prompting is switched off. Git otherwise tries to ask for a
+    username -- on Windows by opening the GitHub sign-in window -- and nothing
+    inside this subprocess can answer it, so the call just hung until it timed
+    out and the dashboard showed no reason why. With prompting disabled a
+    missing credential fails in a moment with a message we can pass on.
+    """
+    env = {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",     # never ask on the terminal
+        "GCM_INTERACTIVE": "never",     # never open the GitHub sign-in window
+        "GIT_ASKPASS": "",              # no GUI askpass helper either
+        "SSH_ASKPASS": "",
+    }
     return subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=180
+        ["git", *args], cwd=cwd, capture_output=True, text=True,
+        timeout=timeout, env=env,
     )
 
 
@@ -255,11 +270,31 @@ def local_push(req: LocalPushRequest, _: bool = Depends(require_admin)):
     if commit.returncode != 0:
         raise HTTPException(status_code=500, detail=f"commit failed: {commit.stderr[:300]}")
 
-    push = _git(["push"], repo)
+    try:
+        push = _git(["push"], repo, timeout=120)
+    except subprocess.TimeoutExpired:
+        # The commit is already made, so say so -- otherwise the next click
+        # reports "nothing to deploy" and the user thinks nothing happened.
+        raise HTTPException(
+            status_code=504,
+            detail=("Committed, but the push timed out waiting on GitHub. "
+                    "Check your connection and press the button again."),
+        )
+
     if push.returncode != 0:
-        detail = push.stderr[:400] or "git push failed"
-        if "could not read Username" in push.stderr or "Authentication" in push.stderr:
-            detail = "Push failed — run 'gh auth login' once in a terminal, then retry."
+        stderr = push.stderr or ""
+        detail = stderr[:400] or "git push failed"
+        needs_login = any(
+            marker in stderr
+            for marker in ("could not read Username", "Authentication",
+                           "terminal prompts disabled", "Permission denied",
+                           "fatal: could not read")
+        )
+        if needs_login:
+            detail = ("Committed, but GitHub rejected the push because this "
+                      "machine is not signed in. Run 'gh auth login' once in a "
+                      "terminal, then press the button again — after that it "
+                      "works with no prompts.")
         raise HTTPException(status_code=500, detail=detail)
 
     return {

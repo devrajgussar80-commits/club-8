@@ -8112,3 +8112,117 @@ textarea {
 /* Disabled is the normal state here: it only unlocks once a scope is ticked
    and the phrase is typed, so the button never looks casually clickable. */
 .nd-danger-btn:disabled { opacity: .4; box-shadow: none; }
+
+/* ==========================================================================
+   ADMIN DASHBOARD — mobile
+   ==========================================================================
+   The dashboard was built desktop-first and had no mobile rules at all, so on
+   a phone it rendered the desktop layout shrunk down. The biggest offender is
+   the tables: six or seven columns cannot be read on a 375px screen even with
+   horizontal scrolling, so below this width each row becomes its own card with
+   the column name beside every value (js/admin-mobile.js stamps the labels).
+   ========================================================================== */
+
+@media (max-width: 760px) {
+  .nd-root { padding: 10px 10px calc(18px + var(--pad-bottom, 0px)); }
+
+  .nd-topbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .nd-topbar-right { width: 100%; justify-content: flex-end; }
+
+  .nd-panel { padding: 12px; border-radius: 12px; }
+  .nd-panel-head { gap: 8px; margin-bottom: 10px; }
+  .nd-panel-head h3 { font-size: 14px; }
+
+  /* Every multi-column grid collapses to two, then the wide cards to one. */
+  .nd-stat-grid,
+  .ng-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .nd-controls-grid { grid-template-columns: 1fr; }
+  .ng-limits { grid-template-columns: 1fr 1fr; }
+
+  .ng-kpi { padding: 10px; }
+  .ng-kpi b { font-size: 15px; }
+  .ng-kpi small { font-size: 10px; }
+
+  /* Tab strips scroll sideways instead of wrapping into a tall block. */
+  .nd-tabs, .ng-game-tabs, .nd-seg { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .nd-tabs::-webkit-scrollbar,
+  .ng-game-tabs::-webkit-scrollbar,
+  .nd-seg::-webkit-scrollbar { display: none; }
+  .nd-tab, .nd-seg-btn { flex: 0 0 auto; }
+
+  /* Forms stack and inputs go full width; side-by-side fields at this size
+     leave every one of them too narrow to type in. */
+  .nd-form-row { flex-direction: column; align-items: stretch; }
+  .nd-form-row > * { width: 100%; }
+  .nd-search { width: 100%; }
+  .nd-flush-confirm { flex-direction: column; }
+  .nd-flush-confirm input, .nd-danger-btn { width: 100%; }
+
+  /* ---- tables become cards ---- */
+  .nd-table-wrap { overflow: visible; }
+  /* Drops the desktop `min-width: 620px`, which otherwise keeps the table
+     wider than the phone even after it becomes a stack of cards. */
+  .nd-table { display: block; width: 100%; min-width: 0; }
+  .nd-table thead { display: none; }
+  .nd-table tbody { display: block; }
+  .nd-table tbody tr {
+    display: block;
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .05);
+    border: 1px solid rgba(255, 255, 255, .07);
+  }
+  .nd-table tbody td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
+    border: 0;
+    text-align: right;
+    font-size: 12px;
+  }
+  /* The column name, from the data-label the JS copies off the header. */
+  .nd-table tbody td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    opacity: .6;
+  }
+  /* An action cell has no meaningful label and its buttons need the width. */
+  .nd-table tbody td:last-child { justify-content: flex-end; padding-top: 8px; }
+  .nd-table tbody td:last-child:empty { display: none; }
+  .nd-table tbody td[colspan] { justify-content: center; text-align: center; }
+  .nd-table tbody td[colspan]::before { content: none; }
+  .nd-table tbody td .nd-mini { margin: 2px 0 2px 4px; }
+
+  /* Panels that are already card-shaped just need to breathe less. */
+  .nd-queue-card, .ng-detail, .nd-danger { padding: 12px; }
+  .nv-funnel li { padding: 8px 10px; gap: 6px; }
+  .nv-funnel li small { min-width: 0; font-size: 9px; }
+  .nv-ev small { padding-left: 0; }
+}
+
+@media (max-width: 420px) {
+  /* One column: at this width two stat cards leave the numbers wrapping. */
+  .nd-stat-grid, .ng-kpis { grid-template-columns: 1fr; }
+  .nd-topbar h1, .nd-topbar strong { font-size: 15px; }
+}
+
+/* --------------------------------------- admin: unlock the desktop min-width
+   `body.admin-mode` pins the page to min-width:1024px so the desktop grid
+   always has room. On a phone that is exactly what made the dashboard render
+   as a shrunken desktop you had to pan around: the media queries above were
+   matching the 375px viewport, but the body was still laying out at 1024px.
+   Releasing the floor — and collapsing the sidebar grid to one column — is
+   what actually makes the rest of the mobile styling take effect. */
+@media (max-width: 760px) {
+  body.admin-mode { min-width: 0; overflow-x: hidden; }
+  body.admin-mode #admin-dashboard-view.active {
+    display: block;
+    padding: 12px 12px calc(24px + var(--pad-bottom, 0px));
+  }
+}

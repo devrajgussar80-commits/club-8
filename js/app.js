@@ -13,6 +13,7 @@ import { DiceEngine } from './dice-engine.js?v=1';
 import { LotteryEngine } from './lottery.js?v=1';
 import { VisitorTracker } from './tracker.js?v=1';
 import { initInteractions } from './interactions.js?v=1';
+import { initAdminMobileTables } from './admin-mobile.js?v=1';
 
 class App {
   constructor() {
@@ -582,6 +583,7 @@ class App {
 
     // One delegated listener, so buttons rendered later still get feedback.
     initInteractions();
+    initAdminMobileTables();
 
     this.handleRouting();
     window.openClubPage = (page) => {
@@ -717,6 +719,30 @@ class App {
     renderGrid();
     setGameId();
     updateNext();
+
+    // Restore a round the server still holds. Reloading the page used to lose
+    // the round id here while the stake stayed debited, leaving the player
+    // unable to continue OR start a new round.
+    this.resumeMinesRound = async () => {
+      if (!this.authToken || this.minesRound) return;
+      try {
+        const s = await this.fetchApi('/api/games/mines/state');
+        if (!s.active) return;
+        this.minesRound = { id: s.round_id };
+        this.minesMultiplier = Number(s.multiplier) || 1;
+        renderGrid();
+        setGameId(s.round_id);
+        grid.querySelectorAll('.mine-tile').forEach((tile, index) => {
+          if (s.opened.includes(index)) tile.classList.add('revealed', 'safe-hit');
+        });
+        betInput.value = Number(s.stake).toFixed(2);
+        betButton.classList.add('cashout');
+        betButton.querySelector('span').textContent = 'CASH OUT';
+        setMessage(`Round resumed — ${s.opened.length} tile${s.opened.length === 1 ? '' : 's'} open · ${this.minesMultiplier.toFixed(2)}×`);
+        updateNext();
+      } catch (error) { /* no round to restore */ }
+    };
+    void this.resumeMinesRound();
 
     grid.addEventListener('click', async event => {
       const tile = event.target.closest('[data-mine-tile]');
@@ -3651,6 +3677,10 @@ class App {
     if (pageId === 'promotion') {
       void this.loadReferrals();
     }
+    // Pick up a round the server still holds, so a reload or a trip to another
+    // screen never strands a debited stake.
+    if (pageId === 'mines') void this.resumeMinesRound?.();
+    if (pageId === 'chicken-road') void this.chickenRoadEngine?.resumeRound?.();
 
     const rootPages = new Set(['home', 'activity', 'promotion', 'wallet', 'profile']);
     const bottomNav = document.querySelector('.club-bottom-nav');

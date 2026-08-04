@@ -259,6 +259,23 @@ CREATE TABLE IF NOT EXISTS qr_codes (
     last_used_at TIMESTAMPTZ
 );
 
+-- Open rounds for the step games (Chicken Road, Mines): games where the stake
+-- is taken up front and the player cashes out later. These used to live in
+-- process memory, so any restart -- a redeploy, or the free tier simply going
+-- to sleep -- silently swallowed every in-flight stake: the money was debited
+-- and the round it paid for no longer existed. One row per player per game.
+CREATE TABLE IF NOT EXISTS open_rounds (
+    id TEXT PRIMARY KEY,
+    game TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    stake DOUBLE PRECISION NOT NULL,
+    -- Game-specific secret + progress (mine positions, bust lane, opened tiles).
+    state JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_open_rounds_user_game
+    ON open_rounds(user_id, game);
+
 -- Multiplayer Dice: one shared 30-second round, like WinGo. Bets land in
 -- dice_bets during the window; at close the server rolls one face and settles
 -- every bet against it. Kept in Postgres (not memory) so a restart mid-round

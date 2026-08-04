@@ -24,7 +24,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from deps import get_current_user
-from games_core import hold_stake, settle_held
+from games_core import (
+    close_round,
+    hold_stake,
+    load_round,
+    open_round,
+    save_round,
+    settle_held,
+)
 
 router = APIRouter(prefix="/api/games/mines", tags=["games"])
 
@@ -67,7 +74,9 @@ class RoundRef(BaseModel):
 
 
 _lock = threading.RLock()
-_rounds = {}  # user_id -> active round
+# Rounds live in `open_rounds` (see games_core), not in memory: a restart used
+# to destroy the round while its stake stayed debited. The lock only serialises
+# this process's own concurrent requests for the same player.
 
 
 @router.get("/config")
@@ -75,21 +84,46 @@ def config():
     return {"tiles": TILES, "min_mines": MIN_MINES, "max_mines": MAX_MINES}
 
 
+@router.get("/state")
+def state(current_user: dict = Depends(get_current_user)):
+    """Any round this player still has open.
+
+    Without this, reloading the page mid-round left the stake debited and the
+    round stranded: the browser forgot the round id, and every new bet was
+    refused with "Finish the current round first". The client calls this when
+    the game opens and restores the board. Mine positions are never sent -- only
+    what the player has already uncovered.
+    """
+    rnd = load_round(current_user["id"], GAME)
+    if not rnd:
+        return {"active": False}
+    opened = sorted(rnd["opened"])
+    multiplier = _multiplier(rnd["mine_count"], len(opened))
+    return {
+        "active": True,
+        "round_id": rnd["id"],
+        "stake": rnd["stake"],
+        "mines": rnd["mine_count"],
+        "opened": opened,
+        "multiplier": multiplier,
+        "cashout_value": round(rnd["stake"] * multiplier, 2),
+    }
+
+
 @router.post("/bet")
 def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
     mines = max(MIN_MINES, min(MAX_MINES, int(req.mines or 3)))
     with _lock:
-        if _rounds.get(current_user["id"]):
+        if load_round(current_user["id"], GAME):
             raise HTTPException(status_code=400, detail="Finish the current round first.")
         held = hold_stake(current_user, req.amount)
         round_id = f"MN-{uuid.uuid4().hex[:10].upper()}"
-        _rounds[current_user["id"]] = {
-            "id": round_id,
-            "stake": held["stake"],
-            "mines": _draw_mines(mines),
-            "mine_count": mines,
-            "opened": set(),
-        }
+        # JSON has no sets, so mine positions and opened tiles are stored as
+        # lists and turned back into sets on load.
+        open_round(
+            current_user["id"], GAME, round_id, held["stake"],
+            {"mines": sorted(_draw_mines(mines)), "mine_count": mines, "opened": []},
+        )
     return {
         "status": "success",
         "round_id": round_id,
@@ -101,9 +135,12 @@ def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
 
 
 def _active(user_id: str, round_id: str) -> dict:
-    rnd = _rounds.get(user_id)
-    if not rnd or rnd["id"] != round_id:
+    rnd = load_round(user_id, GAME, round_id)
+    if not rnd:
         raise HTTPException(status_code=400, detail="No active round.")
+    # Membership tests below expect sets.
+    rnd["mines"] = set(rnd["mines"])
+    rnd["opened"] = set(rnd["opened"])
     return rnd
 
 
@@ -123,7 +160,7 @@ def reveal(req: RevealRequest, current_user: dict = Depends(get_current_user)):
             stake = rnd["stake"]
             layout = sorted(rnd["mines"])
             opened = len(rnd["opened"])
-            del _rounds[current_user["id"]]
+            close_round(current_user["id"], GAME)
             settled = settle_held(
                 current_user["id"], GAME, stake, 0.0,
                 {"result": "boom", "tile": tile, "opened": opened, "mines": layout},
@@ -146,7 +183,7 @@ def reveal(req: RevealRequest, current_user: dict = Depends(get_current_user)):
         if opened >= safe_tiles:
             stake = rnd["stake"]
             layout = sorted(rnd["mines"])
-            del _rounds[current_user["id"]]
+            close_round(current_user["id"], GAME)
             settled = settle_held(
                 current_user["id"], GAME, stake, stake * multiplier,
                 {"result": "cleared", "opened": opened, "multiplier": multiplier},
@@ -161,6 +198,16 @@ def reveal(req: RevealRequest, current_user: dict = Depends(get_current_user)):
                 "payout": settled["payout"],
                 "balance": settled["balance"],
             }
+
+        # Survived: persist the opened tile so a restart cannot rewind it.
+        save_round(
+            current_user["id"], GAME,
+            {
+                "mines": sorted(rnd["mines"]),
+                "mine_count": rnd["mine_count"],
+                "opened": sorted(rnd["opened"]),
+            },
+        )
 
     return {
         "status": "success",
@@ -182,7 +229,7 @@ def cashout(req: RoundRef, current_user: dict = Depends(get_current_user)):
         stake = rnd["stake"]
         multiplier = _multiplier(rnd["mine_count"], opened)
         layout = sorted(rnd["mines"])
-        del _rounds[current_user["id"]]
+        close_round(current_user["id"], GAME)
 
     settled = settle_held(
         current_user["id"], GAME, stake, stake * multiplier,
