@@ -2717,7 +2717,13 @@ class App {
 
     document.querySelectorAll('.nd-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.nd-tab').forEach(t => t.classList.toggle('active', t === tab));
+        // Matched on the section, not on the clicked element: the same
+        // section appears twice in the DOM -- once in the desktop rail,
+        // once in the mobile bottom bar -- and marking only the button
+        // that was clicked would leave the other shell highlighting the
+        // wrong tab after a rotate or resize.
+        document.querySelectorAll('.nd-tab').forEach(t =>
+          t.classList.toggle('active', t.dataset.section === tab.dataset.section));
         document.querySelectorAll('.nd-section').forEach(section => {
           section.classList.toggle('active', section.id === `nd-section-${tab.dataset.section}`);
         });
