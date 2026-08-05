@@ -424,6 +424,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_lottery_tickets_utr
 CREATE INDEX IF NOT EXISTS idx_game_rounds_game_time ON game_rounds(game, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_game_rounds_user ON game_rounds(user_id, created_at DESC);
 
+-- Admin-uploaded lobby artwork. The bundled SVG in assets/covers stays the
+-- default; a row here overrides it for that game. Stored in the database
+-- rather than on disk because the API runs on a host with an ephemeral
+-- filesystem -- a file written at runtime is gone on the next deploy.
+CREATE TABLE IF NOT EXISTS game_covers (
+    game TEXT PRIMARY KEY,
+    filename TEXT,
+    content_type TEXT,
+    data BYTEA NOT NULL,
+    size_bytes INTEGER,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Shared-round games that are not WinGo or Dice (Fish vs Tiger, Vortex).
 -- One pair of tables keyed by `game` rather than a pair per title: these games
 -- differ only in what a selection means and what it pays, so giving each its

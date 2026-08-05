@@ -17,6 +17,7 @@ import database
 from game_engine import python_engine
 from routers import (
     admin,
+    admin_covers,
     admin_games,
     admin_maintenance,
     analytics,
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     application.include_router(app_download.router)
     application.include_router(admin.router)
     application.include_router(admin_games.router)
+    application.include_router(admin_covers.router)
     application.include_router(admin_maintenance.router)
     application.include_router(analytics.router)
 

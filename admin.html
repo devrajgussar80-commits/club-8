@@ -72,6 +72,7 @@
           <button type="button" class="nd-tab ad-rail-item active" data-section="users"><i class="bi bi-people-fill"></i><span>Players</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="history"><i class="bi bi-clock-history"></i><span>History</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="games"><i class="bi bi-controller"></i><span>Games</span></button>
+          <button type="button" class="nd-tab ad-rail-item" data-section="covers"><i class="bi bi-images"></i><span>Cover Arts</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="visitors"><i class="bi bi-people"></i><span>Visitors</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="referrals"><i class="bi bi-people-fill"></i><span>Referrals</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="team"><i class="bi bi-person-badge-fill"></i><span>Team</span></button>
@@ -400,6 +401,16 @@
         </div>
       </section>
 
+      <!-- COVER ARTS: what each game shows in the lobby -->
+      <section id="nd-section-covers" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Cover arts <small>lobby artwork for every game</small></h3>
+          <small id="nd-covers-hint" class="ng-hint"></small>
+        </div>
+        <div id="nd-covers-grid" class="cover-grid"></div>
+        <input id="nd-cover-file" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+      </section>
+
       <section id="nd-section-qr" class="nd-panel nd-section">
         <div class="nd-panel-head">
           <h3>Deposit QR codes</h3>
@@ -562,6 +573,7 @@
         <button type="button" class="nd-tab ad-bar-item active" data-section="users"><i class="bi bi-people-fill"></i><span>Players</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="history"><i class="bi bi-clock-history"></i><span>History</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="games"><i class="bi bi-controller"></i><span>Games</span></button>
+          <button type="button" class="nd-tab ad-bar-item" data-section="covers"><i class="bi bi-images"></i><span>Cover Arts</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="visitors"><i class="bi bi-people"></i><span>Visitors</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="referrals"><i class="bi bi-people-fill"></i><span>Referrals</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="team"><i class="bi bi-person-badge-fill"></i><span>Team</span></button>

@@ -584,6 +584,7 @@ class App {
 
     // One delegated listener, so buttons rendered later still get feedback.
     initInteractions();
+    this.applyCustomCovers();
     this.appShare = new AppShare({
       apiBaseUrl: this.apiBaseUrl,
       toast: (msg, type) => this.showToast(msg, type)
@@ -886,6 +887,40 @@ class App {
     this.vortexEngine.init();
     this.lotteryEngine = new LotteryEngine(gameOptions);
     this.lotteryEngine.init();
+  }
+
+  /**
+   * Swap in any lobby covers the admin has uploaded.
+   *
+   * One small request that lists only the games with an override, then those
+   * tiles are repointed. Routing every tile through the API instead would put
+   * the whole lobby behind it -- the bundled SVGs are static files and must
+   * keep rendering even when the API is slow or down.
+   */
+  async applyCustomCovers() {
+    if (location.pathname.startsWith('/admin')) return;
+    // Lobby tile name -> the key the covers API uses.
+    const keys = {
+      'WinGo': 'wingo', 'XAviator': 'aviator', 'Aviator 10 sec': 'aviator10',
+      'Chicken Road 2': 'chicken-road', 'Lucky Reels': 'slots', 'Mega Slots': 'megaslots',
+      'Roulette': 'roulette', 'Dice Roll': 'dice', 'Fish vs Tiger': 'fishtiger',
+      'Vortex': 'vortex', 'Daily Lottery': 'lottery', 'Mines': 'mines',
+      'Mines Pro': 'mines-pro', 'Ronaldinho da Sorte': 'ronaldinho', 'PUBG 1MIN': 'pubg',
+      'Cricket': 'cricket', 'Limbo': 'limbo', 'Javelin': 'javelin'
+    };
+    let custom;
+    try {
+      ({ custom } = await (await fetch(`${this.apiBaseUrl}/api/covers`)).json());
+    } catch (error) {
+      return;  // Bundled artwork already on screen; nothing to undo.
+    }
+    const overridden = new Set(custom || []);
+    document.querySelectorAll('.lobby-cover-card').forEach(card => {
+      const key = keys[card.dataset.miniGame];
+      if (!key || !overridden.has(key)) return;
+      const img = card.querySelector('img');
+      if (img) img.src = `${this.apiBaseUrl}/api/cover/${key}`;
+    });
   }
 
   /** Push the current balance into every arcade screen's wallet readout. */
@@ -1469,6 +1504,99 @@ class App {
     this.loadAdminLottery();
     this.loadAdminVisitors();
     this.loadFlushScopes();
+    this.loadCoverArts();
+  }
+
+  // --------------------------------------------------------- cover arts
+
+  /** Every game's lobby artwork, with the current image and an upload. */
+  async loadCoverArts() {
+    const grid = document.getElementById('nd-covers-grid');
+    if (!grid) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/covers');
+    } catch (error) {
+      grid.innerHTML = `<p class="ng-hint">${error.message}</p>`;
+      return;
+    }
+    this.coverMeta = data;
+    const hint = document.getElementById('nd-covers-hint');
+    if (hint) {
+      hint.textContent = `PNG, JPG, WEBP or SVG · up to ${Math.round(data.max_bytes / 1048576)} MB`;
+    }
+
+    // Custom art is fetched through the API; the bundled SVG is a static file.
+    // The cache-buster is on the API one only, because that is the one whose
+    // bytes change under the same URL after an upload.
+    const src = cover => cover.custom
+      ? `${this.apiBaseUrl}/api/cover/${cover.game}?v=${Date.now()}`
+      : cover.default_url;
+
+    grid.innerHTML = data.covers.map(cover => `
+      <article class="cover-card${cover.custom ? ' is-custom' : ''}">
+        <div class="cover-thumb"><img src="${src(cover)}" alt="${cover.label} cover" loading="lazy"></div>
+        <div class="cover-info">
+          <b>${cover.label}</b>
+          <small>${cover.custom
+            ? `${cover.filename || 'uploaded'} · ${(cover.size_bytes / 1024).toFixed(0)} KB`
+            : 'Default artwork'}</small>
+        </div>
+        <div class="cover-actions">
+          <button type="button" class="nd-mini ok" data-cover-upload="${cover.game}">Replace</button>
+          ${cover.custom
+            ? `<button type="button" class="nd-mini no" data-cover-reset="${cover.game}">Reset</button>`
+            : ''}
+        </div>
+      </article>`).join('');
+
+    grid.querySelectorAll('[data-cover-upload]').forEach(button =>
+      button.addEventListener('click', () => this.pickCoverFile(button.dataset.coverUpload)));
+    grid.querySelectorAll('[data-cover-reset]').forEach(button =>
+      button.addEventListener('click', () => this.resetCover(button.dataset.coverReset)));
+  }
+
+  pickCoverFile(game) {
+    const input = document.getElementById('nd-cover-file');
+    if (!input) return;
+    // One hidden input reused for every card, so the chosen game has to be
+    // remembered here rather than read off the element that was clicked.
+    this.coverTarget = game;
+    input.value = '';
+    input.click();
+  }
+
+  async uploadCover(file) {
+    const game = this.coverTarget;
+    if (!game || !file) return;
+    const body = new FormData();
+    body.append('file', file);
+    try {
+      // Not adminApi: that sets a JSON content type, and the browser must set
+      // the multipart boundary itself.
+      const headers = {};
+      if (this.adminToken) headers['Authorization'] = `Bearer ${this.adminToken}`;
+      else if (this.adminApiKey) headers['X-Admin-Key'] = this.adminApiKey;
+      const res = await fetch(`${this.apiBaseUrl}/api/admin/covers/${game}`,
+        { method: 'POST', headers, body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Upload failed.');
+      this.showToast('Cover updated.', 'success');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+    this.loadCoverArts();
+  }
+
+  async resetCover(game) {
+    if (!window.confirm('Put the default artwork back for this game?')) return;
+    try {
+      await this.adminApi(`/api/admin/covers/${game}`, 'DELETE');
+      this.showToast('Default artwork restored.', 'success');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+    this.loadCoverArts();
   }
 
   // ----------------------------------------------------- database flushing
@@ -1531,6 +1659,99 @@ class App {
       this.showToast(error.message, 'error');
     }
     this.loadFlushScopes();
+    this.loadCoverArts();
+  }
+
+  // --------------------------------------------------------- cover arts
+
+  /** Every game's lobby artwork, with the current image and an upload. */
+  async loadCoverArts() {
+    const grid = document.getElementById('nd-covers-grid');
+    if (!grid) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/covers');
+    } catch (error) {
+      grid.innerHTML = `<p class="ng-hint">${error.message}</p>`;
+      return;
+    }
+    this.coverMeta = data;
+    const hint = document.getElementById('nd-covers-hint');
+    if (hint) {
+      hint.textContent = `PNG, JPG, WEBP or SVG · up to ${Math.round(data.max_bytes / 1048576)} MB`;
+    }
+
+    // Custom art is fetched through the API; the bundled SVG is a static file.
+    // The cache-buster is on the API one only, because that is the one whose
+    // bytes change under the same URL after an upload.
+    const src = cover => cover.custom
+      ? `${this.apiBaseUrl}/api/cover/${cover.game}?v=${Date.now()}`
+      : cover.default_url;
+
+    grid.innerHTML = data.covers.map(cover => `
+      <article class="cover-card${cover.custom ? ' is-custom' : ''}">
+        <div class="cover-thumb"><img src="${src(cover)}" alt="${cover.label} cover" loading="lazy"></div>
+        <div class="cover-info">
+          <b>${cover.label}</b>
+          <small>${cover.custom
+            ? `${cover.filename || 'uploaded'} · ${(cover.size_bytes / 1024).toFixed(0)} KB`
+            : 'Default artwork'}</small>
+        </div>
+        <div class="cover-actions">
+          <button type="button" class="nd-mini ok" data-cover-upload="${cover.game}">Replace</button>
+          ${cover.custom
+            ? `<button type="button" class="nd-mini no" data-cover-reset="${cover.game}">Reset</button>`
+            : ''}
+        </div>
+      </article>`).join('');
+
+    grid.querySelectorAll('[data-cover-upload]').forEach(button =>
+      button.addEventListener('click', () => this.pickCoverFile(button.dataset.coverUpload)));
+    grid.querySelectorAll('[data-cover-reset]').forEach(button =>
+      button.addEventListener('click', () => this.resetCover(button.dataset.coverReset)));
+  }
+
+  pickCoverFile(game) {
+    const input = document.getElementById('nd-cover-file');
+    if (!input) return;
+    // One hidden input reused for every card, so the chosen game has to be
+    // remembered here rather than read off the element that was clicked.
+    this.coverTarget = game;
+    input.value = '';
+    input.click();
+  }
+
+  async uploadCover(file) {
+    const game = this.coverTarget;
+    if (!game || !file) return;
+    const body = new FormData();
+    body.append('file', file);
+    try {
+      // Not adminApi: that sets a JSON content type, and the browser must set
+      // the multipart boundary itself.
+      const headers = {};
+      if (this.adminToken) headers['Authorization'] = `Bearer ${this.adminToken}`;
+      else if (this.adminApiKey) headers['X-Admin-Key'] = this.adminApiKey;
+      const res = await fetch(`${this.apiBaseUrl}/api/admin/covers/${game}`,
+        { method: 'POST', headers, body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || 'Upload failed.');
+      this.showToast('Cover updated.', 'success');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+    this.loadCoverArts();
+  }
+
+  async resetCover(game) {
+    if (!window.confirm('Put the default artwork back for this game?')) return;
+    try {
+      await this.adminApi(`/api/admin/covers/${game}`, 'DELETE');
+      this.showToast('Default artwork restored.', 'success');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+    this.loadCoverArts();
   }
 
   // -------------------------------------------------------------- visitors
@@ -2825,6 +3046,11 @@ class App {
     document.getElementById('ng-lottery-date')?.addEventListener('change', () => this.loadAdminLottery());
 
     document.getElementById('nd-flush-run')?.addEventListener('click', () => this.runFlush());
+
+    document.getElementById('nd-cover-file')?.addEventListener('change', event => {
+      const file = event.target.files?.[0];
+      if (file) this.uploadCover(file);
+    });
 
     document.querySelectorAll('.nd-seg-btn.nv-range').forEach(button => {
       button.addEventListener('click', () => {

@@ -9094,3 +9094,34 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
   .ft-card::after, .rg-clock.is-closing { animation: none; }
 }
 
+
+/* ------------------------------------------------- admin: cover art manager */
+
+.cover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.cover-card {
+  display: grid; gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--ad-line, rgba(255, 255, 255, .08));
+  background: var(--ad-surface, rgba(255, 255, 255, .05));
+}
+/* A card carrying uploaded art is marked, so the default ones are obvious at
+   a glance rather than by reading every caption. */
+.cover-card.is-custom { border-color: rgba(53, 214, 138, .45); }
+
+.cover-thumb {
+  aspect-ratio: 3 / 4;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #0b0f1a;
+}
+.cover-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.cover-info b { display: block; font-size: 13px; }
+.cover-info small { display: block; font-size: 10px; opacity: .6; }
+.cover-actions { display: flex; gap: 6px; }
+.cover-actions .nd-mini { flex: 1; }
