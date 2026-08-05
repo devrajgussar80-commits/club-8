@@ -15,6 +15,10 @@ from database import get_db_connection
 router = APIRouter()
 
 INDEX_HTML = os.path.join(config.FRONTEND_DIR, "index.html")
+# The dashboard is its own document. Sharing one file meant both apps'
+# markup was live at once, so player-facing overlays could paint over the
+# console and each side had to keep opting out of the other by pathname.
+ADMIN_HTML = os.path.join(config.FRONTEND_DIR, "admin.html")
 
 
 @router.get("/api/health")
@@ -60,4 +64,4 @@ def serve_game():
 
 @router.get("/admin", response_class=FileResponse)
 def serve_admin():
-    return FileResponse(INDEX_HTML)
+    return FileResponse(ADMIN_HTML)
