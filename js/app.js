@@ -10,6 +10,7 @@ import { ChickenRoadEngine } from './chicken-road-engine.js?v=road-1';
 import { SlotEngine } from './slot-engine.js?v=1';
 import { RouletteEngine } from './roulette-engine.js?v=1';
 import { DiceEngine } from './dice-engine.js?v=1';
+import { FishTigerEngine, VortexEngine } from './round-games.js?v=1';
 import { LotteryEngine } from './lottery.js?v=1';
 import { VisitorTracker } from './tracker.js?v=1';
 import { initInteractions } from './interactions.js?v=1';
@@ -831,6 +832,10 @@ class App {
           this.switchSubPage('roulette');
         } else if (game.includes('dice')) {
           this.switchSubPage('dice');
+        } else if (game.includes('fish')) {
+          this.switchSubPage('fishtiger');
+        } else if (game.includes('vortex')) {
+          this.switchSubPage('vortex');
         } else if (game.includes('lottery')) {
           this.switchSubPage('lottery');
           this.lotteryEngine?.refresh();
@@ -875,6 +880,10 @@ class App {
     this.rouletteEngine.init();
     this.diceEngine = new DiceEngine(gameOptions);
     this.diceEngine.init();
+    this.fishTigerEngine = new FishTigerEngine(gameOptions);
+    this.fishTigerEngine.init();
+    this.vortexEngine = new VortexEngine(gameOptions);
+    this.vortexEngine.init();
     this.lotteryEngine = new LotteryEngine(gameOptions);
     this.lotteryEngine.init();
   }
@@ -887,6 +896,8 @@ class App {
     this.megaSlotsEngine?.render();
     this.rouletteEngine?.render();
     this.diceEngine?.render();
+    this.fishTigerEngine?.render();
+    this.vortexEngine?.render();
     const lotteryWallet = document.getElementById('lottery-wallet');
     if (lotteryWallet) {
       lotteryWallet.textContent = Number(appState.getState().user.balance || 0).toFixed(2);

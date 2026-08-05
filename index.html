@@ -189,8 +189,8 @@
           </section>
 
           <section class="lobby-mini-showcase" aria-label="Mini games">
-            <button type="button" class="lobby-mini-card lobby-cover-card" data-mini-game="Aviator">
-              <img src="assets/covers/aviator.svg" alt="Aviator" loading="lazy" decoding="async">
+            <button type="button" class="lobby-mini-card lobby-cover-card" data-mini-game="XAviator">
+              <img src="assets/covers/aviator.svg" alt="XAviator" loading="lazy" decoding="async">
             </button>
             <button type="button" class="lobby-mini-card lobby-cover-card" data-mini-game="Aviator 10 sec">
               <img src="assets/covers/aviator-10.svg" alt="Aviator 10 sec" loading="lazy" decoding="async">
@@ -215,6 +215,9 @@
             </button>
             <button type="button" class="lobby-mini-card lobby-cover-card" data-mini-game="Daily Lottery">
               <img src="assets/covers/lottery.svg" alt="Daily Lottery" loading="lazy" decoding="async">
+            </button>
+            <button type="button" class="lobby-mini-card lobby-cover-card" data-mini-game="Fish vs Tiger">
+              <img src="assets/covers/fishtiger.svg" alt="Fish vs Tiger" loading="lazy" decoding="async">
             </button>
             <button type="button" class="lobby-mini-card lobby-cover-card" data-mini-game="Vortex">
               <img src="assets/covers/vortex.svg" alt="Vortex" loading="lazy" decoding="async">
@@ -1210,6 +1213,80 @@
           </section>
         </div>
 
+        <div id="page-fishtiger" class="sub-page club-page arcade-game-page rg-page fishtiger-page">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="fishtiger-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="slot-brandbar"><strong>FISH <em>vs TIGER</em></strong><span>higher card wins · tie returns your stake</span></div>
+
+          <section id="fishtiger-stage" class="rg-stage">
+            <div class="ft-table">
+              <div class="ft-seat is-fish">
+                <span class="ft-seat-name"><i class="bi bi-water"></i> Fish</span>
+                <div id="fishtiger-fish-card" class="ft-slot"></div>
+              </div>
+              <span class="ft-versus">VS</span>
+              <div class="ft-seat is-tiger">
+                <span class="ft-seat-name"><i class="bi bi-bug-fill"></i> Tiger</span>
+                <div id="fishtiger-tiger-card" class="ft-slot"></div>
+              </div>
+            </div>
+
+            <div class="rg-meta">
+              <p id="fishtiger-status" class="rg-status">Betting open</p>
+              <b id="fishtiger-clock" class="rg-clock">00:30</b>
+            </div>
+            <div id="fishtiger-history" class="rg-history" aria-label="Recent rounds"></div>
+          </section>
+
+          <section class="rg-betting">
+            <div id="fishtiger-picks" class="rg-picks" aria-label="Pick a side"></div>
+            <div id="fishtiger-chips" class="roulette-chips" aria-label="Chip value"></div>
+            <p id="fishtiger-slip" class="rg-slip">Is round mein koi bet nahi</p>
+            <button type="button" id="fishtiger-bet" class="slot-spin">Pick a side</button>
+          </section>
+        </div>
+
+        <div id="page-vortex" class="sub-page club-page arcade-game-page rg-page vortex-page">
+          <header class="arcade-topbar">
+            <button type="button" onclick="window.clubBack()" aria-label="Back"><i class="bi bi-chevron-left"></i></button>
+            <div class="arcade-wallet"><span>₹</span><b id="vortex-wallet">0.00</b></div>
+            <button type="button" class="arcade-plus" aria-label="Add money">+</button>
+            <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
+          </header>
+          <div class="slot-brandbar"><strong>VOR<em>TEX</em></strong><span>24 segments · up to 23.52x</span></div>
+
+          <section id="vortex-stage" class="rg-stage">
+            <!-- A vertical reel, not a dial: the multipliers scroll past a
+                 fixed marker and settle on one. The strip is built by the
+                 engine from the wheel the server sends, so what spins is
+                 exactly the wheel that decided the round. -->
+            <div class="vx-reel">
+              <span class="vx-glow" aria-hidden="true"></span>
+              <div class="vx-window">
+                <div id="vortex-wheel-face" class="vx-strip"></div>
+                <span class="vx-marker" aria-hidden="true"></span>
+              </div>
+            </div>
+
+            <div class="rg-meta">
+              <p id="vortex-status" class="rg-status">Betting open</p>
+              <b id="vortex-clock" class="rg-clock">00:30</b>
+            </div>
+            <div id="vortex-history" class="rg-history" aria-label="Recent rounds"></div>
+          </section>
+
+          <section class="rg-betting">
+            <div id="vortex-picks" class="rg-picks" aria-label="Pick a side"></div>
+            <div id="vortex-chips" class="roulette-chips" aria-label="Chip value"></div>
+            <p id="vortex-slip" class="rg-slip">Is round mein koi bet nahi</p>
+            <button type="button" id="vortex-bet" class="slot-spin">Pick a side</button>
+          </section>
+        </div>
+
         <!-- DICE ROLL (single die, server-decided) -->
         <div id="page-dice" class="sub-page club-page arcade-game-page dice-page">
           <header class="arcade-topbar">
@@ -1292,7 +1369,7 @@
             <span class="arcade-avatar"><i class="bi bi-emoji-smile-fill"></i></span>
           </header>
           <div class="aviator-brandbar">
-            <strong>Aviator</strong><span><b id="aviator-brand-balance">0.00</b> INR</span><button type="button"><i class="bi bi-list"></i></button>
+            <strong>XAviator</strong><span><b id="aviator-brand-balance">0.00</b> INR</span><button type="button"><i class="bi bi-list"></i></button>
           </div>
           <div id="aviator-recent" class="aviator-recent"><span>7.89x</span><span>1.24x</span><span>1.79x</span><span>2.24x</span><span>2.17x</span><span>1.35x</span></div>
           <section class="aviator-stage">

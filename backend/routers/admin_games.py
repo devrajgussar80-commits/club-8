@@ -26,7 +26,9 @@ GAME_LABELS = {
     "dice": "Dice Roll",
     "lottery": "Daily Lottery",
     "chicken-road": "Chicken Road",
-    "aviator": "Aviator",
+    "fishtiger": "Fish vs Tiger",
+    "vortex": "Vortex",
+    "aviator": "XAviator",
     "wingo": "WinGo",
 }
 

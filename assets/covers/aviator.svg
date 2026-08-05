@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"
-     width="240" height="320" role="img" aria-label="Aviator">
+     width="240" height="320" role="img" aria-label="XAviator">
   <defs>
     <linearGradient id="bg-avi" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#7a1220"/>
@@ -27,7 +27,7 @@
         font-family="Segoe UI, Roboto, sans-serif">2.48x</text>
   <rect y="224" width="240" height="96" fill="url(#scrim-avi)"/>
   <text x="16" y="280" fill="#fff" font-family="Segoe UI, Roboto, sans-serif"
-        font-size="26" font-weight="800" letter-spacing="-.5">Aviator</text>
+        font-size="26" font-weight="800" letter-spacing="-.5">XAviator</text>
   <text x="16" y="300" fill="#ffd76a" font-family="Segoe UI, Roboto, sans-serif"
         font-size="11" font-weight="700" letter-spacing="1.6">CRASH · CASH OUT IN TIME</text>
 </svg>

@@ -31,11 +31,13 @@ from routers.games import (
     aviator,
     chicken,
     dice,
+    fishtiger,
     lottery,
     megaslots,
     mines,
     roulette,
     slots,
+    vortex,
 )
 
 
@@ -100,6 +102,8 @@ def create_app() -> FastAPI:
     application.include_router(megaslots.router)
     application.include_router(roulette.router)
     application.include_router(dice.router)
+    application.include_router(fishtiger.router)
+    application.include_router(vortex.router)
     application.include_router(chicken.router)
     application.include_router(mines.router)
     application.include_router(lottery.router)

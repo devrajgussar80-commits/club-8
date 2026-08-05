@@ -8678,3 +8678,419 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
   font-variant-numeric: tabular-nums;
 }
 
+
+/* ============================================================
+   SHARED-ROUND TABLE GAMES â€” Fish vs Tiger, Vortex
+   Both use one shell: stage, countdown, pick row, chips, bet.
+   ============================================================ */
+
+.rg-stage {
+  padding: 18px 12px 10px;
+  text-align: center;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, .06), transparent 60%);
+}
+.rg-meta {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  margin-top: 14px;
+}
+.rg-status { margin: 0; font-size: 13px; font-weight: 600; color: rgba(255, 255, 255, .8); }
+.rg-clock {
+  font-size: 20px; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #7ef0a4;
+}
+/* Red once betting has frozen, so the state is obvious without reading it. */
+.rg-clock.is-closing { color: #ff7b6b; }
+
+.rg-history { display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+
+.rg-betting { padding: 10px 12px calc(16px + var(--pad-bottom, 0px)); }
+.rg-picks { display: grid; grid-auto-flow: column; gap: 8px; margin-bottom: 12px; }
+/* Five vortex multipliers do not fit across a phone in one row. */
+.vortex-page .rg-picks { grid-auto-flow: row; grid-template-columns: repeat(5, 1fr); }
+
+.rg-pick {
+  position: relative;
+  display: grid; gap: 3px; justify-items: center;
+  padding: 12px 6px;
+  border: 2px solid transparent; border-radius: 12px;
+  background: rgba(255, 255, 255, .09); color: #fff;
+}
+.rg-pick b { font-size: 14px; font-weight: 800; }
+.rg-pick small { font-size: 10px; opacity: .65; }
+.rg-pick.is-chosen { border-color: #ffd76a; background: rgba(255, 215, 106, .18); }
+/* What is already staked rides on the button, as on the roulette felt. */
+.rg-pick.has-bet::after {
+  content: attr(data-staked);
+  position: absolute; right: -2px; bottom: -6px;
+  padding: 1px 6px; border-radius: 999px;
+  background: #ffd76a; color: #2a1600; font-size: 9px; font-weight: 800;
+}
+.rg-pick-fish { background: rgba(31, 122, 196, .28); }
+.rg-pick-tiger { background: rgba(200, 38, 29, .28); }
+.rg-pick-tie { background: rgba(126, 240, 164, .2); }
+
+.rg-slip {
+  margin: 0 0 10px; text-align: center;
+  font-size: 12px; color: rgba(255, 255, 255, .6);
+}
+
+/* ------------------------------------------------------- Fish vs Tiger */
+
+.fishtiger-page { background: linear-gradient(160deg, #0d5a63, #04171b 70%); color: #fff; }
+
+.ft-table {
+  display: grid; grid-template-columns: 1fr auto 1fr;
+  align-items: center; gap: 10px;
+}
+.ft-seat { display: grid; justify-items: center; gap: 8px; }
+.ft-seat-name { font-size: 12px; font-weight: 700; letter-spacing: .1em; opacity: .8; }
+.ft-seat.is-fish .ft-seat-name { color: #6fc4ff; }
+.ft-seat.is-tiger .ft-seat-name { color: #ff8f80; }
+.ft-versus { font-size: 13px; font-weight: 800; opacity: .5; letter-spacing: .1em; }
+
+.ft-slot { width: clamp(76px, 26vw, 104px); aspect-ratio: 5 / 7; }
+.ft-card {
+  width: 100%; height: 100%;
+  display: grid; place-content: center; gap: 2px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #fffdf6, #e6ddc9);
+  color: #16324f;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .45);
+  animation: ft-flip .38s cubic-bezier(.22, .9, .32, 1);
+}
+.ft-card.is-red { color: #c8261d; }
+.ft-card b { font-size: clamp(26px, 9vw, 38px); font-weight: 800; line-height: 1; }
+.ft-card span { font-size: clamp(14px, 5vw, 20px); }
+/* Rotating past 90deg would show the card mirrored, so the flip stops there
+   and the face is swapped while it is edge-on. */
+@keyframes ft-flip {
+  from { transform: rotateY(90deg) scale(.9); }
+  to   { transform: none; }
+}
+/* Face-down while the round is being dealt. */
+.ft-slot.is-dealing::before {
+  content: '';
+  display: block; width: 100%; height: 100%;
+  border-radius: 10px;
+  background: repeating-linear-gradient(45deg, #123f52 0 6px, #0d3143 6px 12px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .45);
+  animation: ft-shuffle .5s ease-in-out infinite alternate;
+}
+@keyframes ft-shuffle {
+  from { transform: translateY(0) rotate(-2deg); }
+  to   { transform: translateY(-6px) rotate(2deg); }
+}
+
+.rg-stage.win-fish .ft-seat.is-fish,
+.rg-stage.win-tiger .ft-seat.is-tiger { filter: drop-shadow(0 0 14px rgba(255, 215, 106, .7)); }
+
+.ft-hist {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; color: #fff;
+}
+.ft-hist.is-fish { background: #1f7ac4; }
+.ft-hist.is-tiger { background: #c8261d; }
+.ft-hist.is-tie { background: #2f8f5b; }
+
+/* -------------------------------------------------------------- Vortex */
+
+.vortex-page { background: linear-gradient(160deg, #241a5c, #070516 70%); color: #fff; }
+
+.vx-wheel { position: relative; width: min(72vw, 300px); margin: 0 auto; }
+.vx-svg { width: 100%; height: auto; display: block; }
+/* The face turns; the pointer does not. */
+.vx-face { transform-origin: 50% 50%; }
+.vx-rim { fill: #0a1226; stroke: #6a5ad6; stroke-width: 1; }
+.vx-hub { fill: #0a1226; stroke: #6a5ad6; stroke-width: .8; }
+.vx-seg { stroke: rgba(0, 0, 0, .45); stroke-width: .25; }
+.vx-base { fill: #16305c; }
+.vx-low { fill: #2f6fd0; }
+.vx-mid { fill: #a05ad6; }
+.vx-high { fill: #e8763a; }
+.vx-top { fill: #ffd76a; }
+.vx-label {
+  fill: #fff; font-size: 3.2px; font-weight: 700;
+  text-anchor: middle; dominant-baseline: middle;
+}
+.vx-pointer {
+  position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+  border-left: 9px solid transparent; border-right: 9px solid transparent;
+  border-top: 16px solid #ffd76a;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .6));
+}
+
+.vx-hist {
+  padding: 3px 7px; border-radius: 7px;
+  background: rgba(255, 255, 255, .12);
+  font-size: 11px; font-weight: 700;
+}
+.vx-hist.is-big { background: rgba(255, 215, 106, .28); color: #ffd76a; }
+
+
+/* ============================================================================
+   FISH vs TIGER + VORTEX â€” premium pass
+   ============================================================================
+   Everything here is drawn: layered gradients, one conic sweep, a couple of
+   keyframes. No image files, because these screens are full-bleed and any
+   raster background would either be enormous or visibly soft on a 3x phone --
+   the same trap the old cropped-screenshot tiles fell into.
+
+   Only transform / opacity / filter animate, so none of it can shift layout
+   or cost a frame on a cheap phone.
+   ============================================================================ */
+
+.rg-page { position: relative; overflow: hidden; }
+
+/* Slow aurora behind everything. Two blurred blobs drifting on different
+   cycles never line up the same way twice, which is what keeps a looping
+   background from reading as a loop. */
+.rg-page::before {
+  content: '';
+  position: absolute; inset: -30% -20% auto -20%;
+  height: 70%;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 55% at 25% 40%, var(--rg-aura-1) 0%, transparent 70%),
+    radial-gradient(40% 50% at 75% 30%, var(--rg-aura-2) 0%, transparent 70%);
+  filter: blur(28px);
+  opacity: .85;
+  animation: rg-drift 18s ease-in-out infinite alternate;
+}
+@keyframes rg-drift {
+  from { transform: translate3d(-4%, -2%, 0) scale(1); }
+  to   { transform: translate3d(6%, 4%, 0) scale(1.12); }
+}
+
+/* Fine starfield over the top, so the empty areas are not flat colour. */
+.rg-page::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(1.5px 1.5px at 18% 22%, rgba(255, 255, 255, .55), transparent),
+    radial-gradient(1.5px 1.5px at 72% 14%, rgba(255, 255, 255, .4), transparent),
+    radial-gradient(1.2px 1.2px at 42% 62%, rgba(255, 255, 255, .35), transparent),
+    radial-gradient(1.8px 1.8px at 86% 48%, rgba(255, 230, 180, .5), transparent),
+    radial-gradient(1.2px 1.2px at 12% 76%, rgba(255, 255, 255, .3), transparent);
+  opacity: .6;
+  animation: rg-twinkle 4.5s ease-in-out infinite alternate;
+}
+@keyframes rg-twinkle { from { opacity: .35; } to { opacity: .75; } }
+
+.rg-stage, .rg-betting { position: relative; z-index: 1; }
+
+/* Gilded frame around the play area. */
+.rg-stage {
+  margin: 12px 12px 0;
+  padding: 20px 14px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 215, 106, .28);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(0, 0, 0, .22));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .16),
+    0 18px 40px rgba(0, 0, 0, .45);
+}
+
+.rg-clock {
+  padding: 3px 12px; border-radius: 999px;
+  background: rgba(0, 0, 0, .35);
+  box-shadow: inset 0 0 0 1px rgba(126, 240, 164, .35);
+}
+.rg-clock.is-closing {
+  box-shadow: inset 0 0 0 1px rgba(255, 123, 107, .5);
+  animation: rg-pulse 1s ease-in-out infinite;
+}
+@keyframes rg-pulse { 50% { transform: scale(1.06); } }
+
+/* Picks: raised, gilded, and they light up when chosen. */
+.rg-pick {
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .05));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .25),
+    0 4px 0 rgba(0, 0, 0, .35);
+  transition: transform .12s var(--ease-out, ease), box-shadow .2s ease, filter .2s ease;
+}
+.rg-pick:active { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 1px 0 rgba(0,0,0,.35); }
+.rg-pick.is-chosen {
+  filter: brightness(1.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .35),
+    0 4px 0 rgba(0, 0, 0, .35),
+    0 0 22px rgba(255, 215, 106, .55);
+}
+
+.slot-spin {
+  background: linear-gradient(180deg, #ffe49a, #f0a92a);
+  box-shadow: 0 4px 0 #a86f10, 0 8px 24px rgba(240, 169, 42, .35);
+}
+.slot-spin:disabled { box-shadow: 0 4px 0 #6b4a11; }
+
+/* --------------------------------------------------------- Fish vs Tiger */
+
+.fishtiger-page {
+  --rg-aura-1: rgba(0, 190, 210, .5);
+  --rg-aura-2: rgba(255, 90, 60, .38);
+  background: linear-gradient(165deg, #0a3d47 0%, #06202a 45%, #030d13 100%);
+}
+
+/* Felt under the cards, with a soft spotlight from above. */
+.ft-table {
+  padding: 16px 8px;
+  border-radius: 16px;
+  background:
+    radial-gradient(70% 60% at 50% 0%, rgba(255, 255, 255, .12), transparent 70%),
+    linear-gradient(180deg, rgba(6, 60, 66, .8), rgba(3, 26, 32, .9));
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, .5);
+}
+
+.ft-seat-name {
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(0, 0, 0, .3);
+}
+.ft-seat.is-fish .ft-seat-name { box-shadow: inset 0 0 0 1px rgba(111, 196, 255, .45); }
+.ft-seat.is-tiger .ft-seat-name { box-shadow: inset 0 0 0 1px rgba(255, 143, 128, .45); }
+
+.ft-versus {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: linear-gradient(180deg, #ffd76a, #c98a12);
+  color: #2a1600; opacity: 1;
+  box-shadow: 0 0 18px rgba(255, 215, 106, .45);
+}
+
+.ft-card {
+  position: relative;
+  border: 1px solid rgba(0, 0, 0, .25);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, .55),
+    inset 0 1px 0 rgba(255, 255, 255, .9);
+  overflow: hidden;
+}
+/* A single light sweep as the card turns, so it reads as a glossy face
+   catching the light rather than a flat rectangle appearing. */
+.ft-card::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, .75) 50%, transparent 65%);
+  transform: translateX(-130%);
+  animation: ft-shine .7s ease .18s;
+}
+@keyframes ft-shine { to { transform: translateX(130%); } }
+
+/* The winning seat gets the glow; the loser dims, so the result is legible
+   at a glance rather than by comparing two numbers. */
+.rg-stage.win-fish .ft-seat.is-tiger,
+.rg-stage.win-tiger .ft-seat.is-fish { filter: brightness(.6) saturate(.7); }
+.rg-stage.win-fish .ft-seat.is-fish .ft-card,
+.rg-stage.win-tiger .ft-seat.is-tiger .ft-card {
+  box-shadow:
+    0 0 26px rgba(255, 215, 106, .8),
+    0 10px 22px rgba(0, 0, 0, .55),
+    inset 0 1px 0 rgba(255, 255, 255, .9);
+  animation: ft-win 1.4s ease-in-out infinite;
+}
+@keyframes ft-win { 50% { transform: translateY(-4px) scale(1.03); } }
+.rg-stage.win-tie .ft-card { box-shadow: 0 0 20px rgba(126, 240, 164, .6), 0 10px 22px rgba(0,0,0,.5); }
+
+/* ---------------------------------------------------------------- Vortex */
+
+.vortex-page {
+  --rg-aura-1: rgba(120, 80, 255, .55);
+  --rg-aura-2: rgba(255, 120, 40, .35);
+  background: linear-gradient(165deg, #251a63 0%, #120c33 45%, #05030f 100%);
+}
+
+.vx-reel { position: relative; width: min(70vw, 280px); margin: 4px auto 0; }
+
+/* Halo behind the reel that turns slowly -- the "vortex" the game is named
+   after, without a single image file. */
+.vx-glow {
+  position: absolute; left: 50%; top: 50%;
+  width: 150%; aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    rgba(255, 215, 106, .35), rgba(160, 90, 214, .3), rgba(47, 111, 208, .3),
+    rgba(255, 118, 58, .3), rgba(255, 215, 106, .35));
+  filter: blur(26px);
+  opacity: .55;
+  animation: vx-swirl 9s linear infinite;
+  pointer-events: none;
+}
+@keyframes vx-swirl { to { transform: translate(-50%, -50%) rotate(360deg); } }
+
+.vx-window {
+  position: relative;
+  height: clamp(210px, 52vw, 280px);
+  border-radius: 18px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0b0722, #16103c);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 215, 106, .4),
+    inset 0 22px 30px -18px rgba(0, 0, 0, .95),
+    inset 0 -22px 30px -18px rgba(0, 0, 0, .95),
+    0 16px 36px rgba(0, 0, 0, .5);
+}
+/* Top and bottom fade, so tiles arrive and leave instead of popping. */
+.vx-window::before {
+  content: '';
+  position: absolute; inset: 0; z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(8, 5, 25, .95) 0%, transparent 26%,
+                              transparent 74%, rgba(8, 5, 25, .95) 100%);
+}
+
+.vx-strip {
+  position: absolute; left: 0; right: 0; top: 0;
+  display: grid;
+  will-change: transform;
+}
+.vx-tile {
+  height: clamp(52px, 13vw, 68px);
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, .07);
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, .6);
+}
+.vx-tile b { font-size: clamp(18px, 5.5vw, 24px); }
+.vx-tile i { font-style: normal; font-size: 12px; opacity: .7; }
+.vx-base { background: linear-gradient(180deg, #1b3a72, #16305c); }
+.vx-low  { background: linear-gradient(180deg, #3a80e6, #2f6fd0); }
+.vx-mid  { background: linear-gradient(180deg, #b46ce6, #a05ad6); }
+.vx-high { background: linear-gradient(180deg, #ff8f4d, #e8763a); }
+.vx-top  { background: linear-gradient(180deg, #ffe49a, #ffd76a); color: #2a1600; text-shadow: none; }
+
+/* The marker the reel settles against. */
+.vx-marker {
+  position: absolute; left: 0; right: 0; top: 50%; z-index: 4;
+  height: clamp(52px, 13vw, 68px);
+  transform: translateY(-50%);
+  border-top: 2px solid rgba(255, 215, 106, .9);
+  border-bottom: 2px solid rgba(255, 215, 106, .9);
+  box-shadow: 0 0 26px rgba(255, 215, 106, .35), inset 0 0 26px rgba(255, 215, 106, .15);
+  pointer-events: none;
+}
+
+.vx-tile.is-landed {
+  animation: vx-land .7s ease;
+  filter: brightness(1.25);
+}
+@keyframes vx-land {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.09); }
+  100% { transform: scale(1); }
+}
+
+.vx-hist.is-big { box-shadow: 0 0 12px rgba(255, 215, 106, .55); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rg-page::before, .rg-page::after, .vx-glow,
+  .ft-card::after, .rg-clock.is-closing { animation: none; }
+}
+

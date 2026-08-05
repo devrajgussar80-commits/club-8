@@ -56,8 +56,19 @@ GAMES = {
         # Plus any face 1-6, typed straight into the box.
         "forced_choices": ["lose", "win"],
     },
+    "fishtiger": {
+        "label": "Fish vs Tiger",
+        "can_force": True,
+        "forced_choices": ["fish", "tiger", "tie"],
+    },
+    "vortex": {
+        "label": "Vortex",
+        "can_force": True,
+        # The multipliers the wheel carries.
+        "forced_choices": ["1.96", "3.92", "7.84", "11.76", "23.52"],
+    },
     "aviator": {
-        "label": "Aviator",
+        "label": "XAviator",
         "can_force": True,
         # A multiplier typed in as text, e.g. "1.00" for an instant bust.
         "forced_choices": ["1.00", "1.50", "2.00", "5.00", "10.00"],

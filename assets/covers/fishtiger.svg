@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320" width="240" height="320" role="img" aria-label="Fish vs Tiger">
+  <defs>
+    <linearGradient id="bg-ft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d5a63"/><stop offset="100%" stop-color="#04171b"/>
+    </linearGradient>
+    <radialGradient id="glow-ft" cx="50%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity=".20"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="scrim-ft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity=".82"/>
+    </linearGradient>
+  </defs>
+  <rect width="240" height="320" fill="url(#bg-ft)"/>
+  <rect width="240" height="320" fill="url(#glow-ft)"/>
+  <g transform="translate(66 118) rotate(-12)">
+    <rect x="-34" y="-46" width="68" height="92" rx="8" fill="#fdfbf4" stroke="#c9bfa6"/>
+    <text x="0" y="10" text-anchor="middle" font-size="40" font-weight="800" fill="#1f7ac4" font-family="Segoe UI, sans-serif">K</text>
+    <text x="0" y="34" text-anchor="middle" font-size="18" fill="#1f7ac4">♦</text>
+  </g>
+  <g transform="translate(168 128) rotate(10)">
+    <rect x="-34" y="-46" width="68" height="92" rx="8" fill="#fdfbf4" stroke="#c9bfa6"/>
+    <text x="0" y="10" text-anchor="middle" font-size="40" font-weight="800" fill="#c8261d" font-family="Segoe UI, sans-serif">9</text>
+    <text x="0" y="34" text-anchor="middle" font-size="18" fill="#c8261d">♥</text>
+  </g>
+  <text x="120" y="62" text-anchor="middle" fill="#ffd76a" font-size="15" font-weight="800" letter-spacing="3" font-family="Segoe UI, sans-serif">VS</text>
+  <rect y="224" width="240" height="96" fill="url(#scrim-ft)"/>
+  <text x="16" y="280" fill="#fff" font-family="Segoe UI, Roboto, sans-serif" font-size="26" font-weight="800" letter-spacing="-.5">Fish vs Tiger</text>
+  <text x="16" y="300" fill="#ffd76a" font-family="Segoe UI, Roboto, sans-serif" font-size="11" font-weight="700" letter-spacing="1.6">HIGHER CARD WINS · 1.96x</text>
+</svg>

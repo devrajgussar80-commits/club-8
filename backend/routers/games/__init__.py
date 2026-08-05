@@ -7,11 +7,13 @@ from routers.games import (
     aviator,
     chicken,
     dice,
+    fishtiger,
     lottery,
     megaslots,
     mines,
     roulette,
     slots,
+    vortex,
 )
 
 __all__ = [
@@ -22,5 +24,7 @@ __all__ = [
     "dice",
     "chicken",
     "mines",
+    "fishtiger",
+    "vortex",
     "lottery",
 ]

@@ -424,6 +424,41 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_lottery_tickets_utr
 CREATE INDEX IF NOT EXISTS idx_game_rounds_game_time ON game_rounds(game, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_game_rounds_user ON game_rounds(user_id, created_at DESC);
 
+-- Shared-round games that are not WinGo or Dice (Fish vs Tiger, Vortex).
+-- One pair of tables keyed by `game` rather than a pair per title: these games
+-- differ only in what a selection means and what it pays, so giving each its
+-- own tables would duplicate the round clock and the settlement claim -- the
+-- two places a bug would cost real money.
+CREATE TABLE IF NOT EXISTS round_games (
+    game TEXT NOT NULL,
+    period TEXT NOT NULL,
+    status TEXT DEFAULT 'open',
+    -- Whatever the game needs to redraw the result (cards, wheel segment).
+    outcome JSONB,
+    settled_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (game, period)
+);
+
+CREATE TABLE IF NOT EXISTS round_bets (
+    id TEXT PRIMARY KEY,
+    game TEXT NOT NULL,
+    period TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    selection TEXT NOT NULL,
+    amount DOUBLE PRECISION NOT NULL,
+    status TEXT DEFAULT 'pending',
+    payout DOUBLE PRECISION DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_round_bets_open
+    ON round_bets(game, period) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_round_bets_user
+    ON round_bets(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_round_games_settled
+    ON round_games(game, period DESC) WHERE status = 'settled';
+
 -- Anonymous visitor tracking. A row appears the moment someone lands on the
 -- site, long before they have an account, so `user_id` stays NULL until they
 -- register or log in -- that transition is exactly what the funnel measures.
