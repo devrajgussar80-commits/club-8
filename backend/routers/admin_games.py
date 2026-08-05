@@ -229,7 +229,103 @@ def read_controls(game: str, _: bool = Depends(require_admin)):
         {**dict(row), "profit": round(float(row["payout"]) - float(row["stake"]), 2)}
         for row in recent
     ]
+    controls["live_bets"] = live_bets(game)
     return controls
+
+
+# Shared-round games hold open bets until the round settles, so for those the
+# admin can see the table as it stands: who is on which selection, right now.
+# The one-shot games (slots, roulette, dice single-player) have nothing open to
+# show -- their round is already over by the time it reaches the database.
+# Every column is written with the `b.` alias below, because `users` also has
+# `status` and joining the two made an unqualified `WHERE status = 'pending'`
+# ambiguous -- Postgres rejects the query outright.
+LIVE_BET_SOURCES = {
+    "wingo": {
+        "table": "bets",
+        "selection": "b.select_type || ':' || b.selection",
+        "stake": "b.total_stake",
+        "open": "b.status = 'pending'",
+    },
+    "dice": {
+        "table": "dice_bets",
+        "selection": "b.bet_type || ':' || b.selection",
+        "stake": "b.amount",
+        "open": "b.status = 'pending'",
+    },
+}
+
+
+def live_bets(game: str) -> dict:
+    """Who is betting on what in the round that is open right now."""
+    source = LIVE_BET_SOURCES.get(game)
+    if not source:
+        return {"supported": False, "selections": [], "players": []}
+
+    conn = get_db_connection()
+    try:
+        if not _table_exists(conn, source["table"]):
+            return {"supported": False, "selections": [], "players": []}
+
+        # Grouped by what was picked: the shape an operator actually reads
+        # before a round closes -- where the money is, and what it would cost.
+        selections = conn.execute(
+            f"""
+            SELECT {source['selection']} AS selection,
+                   COUNT(DISTINCT b.user_id) AS players,
+                   COUNT(*) AS bets,
+                   COALESCE(SUM({source['stake']}), 0) AS staked
+            FROM {source['table']} b
+            WHERE {source['open']}
+            GROUP BY 1 ORDER BY staked DESC
+            """
+        ).fetchall()
+
+        players = conn.execute(
+            f"""
+            SELECT u.username, u.phone,
+                   {source['selection']} AS selection,
+                   {source['stake']} AS staked
+            FROM {source['table']} b JOIN users u ON u.id = b.user_id
+            WHERE {source['open']}
+            ORDER BY staked DESC LIMIT 50
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {
+        "supported": True,
+        "total_players": len({row["username"] for row in players}),
+        "total_staked": round(sum(float(row["staked"]) for row in players), 2),
+        "selections": [
+            {
+                "selection": row["selection"],
+                "players": int(row["players"]),
+                "bets": int(row["bets"]),
+                "staked": round(float(row["staked"]), 2),
+            }
+            for row in selections
+        ],
+        "players": [
+            {
+                "username": row["username"],
+                "phone": row["phone"],
+                "selection": row["selection"],
+                "staked": round(float(row["staked"]), 2),
+            }
+            for row in players
+        ],
+    }
+
+
+def _table_exists(conn, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema = current_schema() AND table_name = ?",
+        (table,),
+    ).fetchone()
+    return bool(row)
 
 
 @router.put("/controls/{game}")

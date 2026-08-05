@@ -14,6 +14,7 @@ import { LotteryEngine } from './lottery.js?v=1';
 import { VisitorTracker } from './tracker.js?v=1';
 import { initInteractions } from './interactions.js?v=1';
 import { initAdminMobileTables } from './admin-mobile.js?v=1';
+import { AppShare } from './app-share.js?v=1';
 
 class App {
   constructor() {
@@ -584,6 +585,11 @@ class App {
     // One delegated listener, so buttons rendered later still get feedback.
     initInteractions();
     initAdminMobileTables();
+    this.appShare = new AppShare({
+      apiBaseUrl: this.apiBaseUrl,
+      toast: (msg, type) => this.showToast(msg, type)
+    });
+    this.appShare.init();
 
     this.handleRouting();
     window.openClubPage = (page) => {
@@ -1767,6 +1773,9 @@ class App {
               data-game="${game.game}" aria-selected="false">
         <i class="ng-tab-dot${game.live_players ? ' is-live' : ''}"></i>
         <b>${game.label}</b>
+        ${game.live_players
+          ? `<em class="ng-tab-live" title="${game.live_players} playing now">${game.live_players}</em>`
+          : ''}
         ${game.mode === 'manual' ? '<em class="ng-tab-manual">MANUAL</em>' : ''}
         ${game.enabled ? '' : '<em class="ng-tab-off">OFF</em>'}
       </button>`).join('');
@@ -1876,6 +1885,8 @@ class App {
         choices.querySelectorAll('[data-forced]').forEach(b => b.classList.toggle('is-active', b === button));
       }));
 
+    this.paintLiveBets(data.live_bets);
+
     // Absent when painting from the cached list entry -- leave whatever the
     // table already shows rather than blanking it.
     if (!data.recent) return;
@@ -1890,6 +1901,47 @@ class App {
             <td class="${round.profit <= 0 ? 'ng-up' : 'ng-down'}">${money(-round.profit)}</td>
           </tr>`).join('')
       : '<tr><td colspan="5" class="nd-empty">No rounds yet</td></tr>';
+  }
+
+
+  /**
+   * The open round of a shared-round game: what everyone has backed so far.
+   *
+   * Only WinGo and Dice have anything to show -- the one-shot games settle
+   * inside the request, so by the time a round reaches the database it is
+   * already over and there is no "live" table to read.
+   */
+  paintLiveBets(live) {
+    const panel = document.getElementById('ng-live-bets');
+    if (!panel) return;
+    if (!live || !live.supported) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+
+    const money = value => `₹${Number(value || 0).toFixed(2)}`;
+    document.getElementById('ng-live-summary').textContent =
+      `${live.total_players} player${live.total_players === 1 ? '' : 's'} · ${money(live.total_staked)}`;
+
+    const top = Math.max(1, ...live.selections.map(s => s.staked));
+    document.getElementById('ng-live-selections').innerHTML = live.selections.length
+      ? live.selections.map(sel => `
+          <div class="ng-live-sel">
+            <span class="ng-live-bar" style="--w:${Math.round(sel.staked / top * 100)}%"></span>
+            <b>${sel.selection}</b>
+            <em>${sel.players} player${sel.players === 1 ? '' : 's'}</em>
+            <strong>${money(sel.staked)}</strong>
+          </div>`).join('')
+      : '<p class="ng-hint">No bets on the current round yet.</p>';
+
+    document.getElementById('ng-live-players').innerHTML = live.players.length
+      ? live.players.map(p => `
+          <tr>
+            <td>${p.username}</td><td>${p.phone}</td>
+            <td><b>${p.selection}</b></td><td>${money(p.staked)}</td>
+          </tr>`).join('')
+      : '<tr><td colspan="4" class="nd-empty">Nobody has bet yet</td></tr>';
   }
 
   async saveAdminGameControls() {

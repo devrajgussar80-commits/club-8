@@ -255,11 +255,22 @@ def local_push(req: LocalPushRequest, _: bool = Depends(require_admin)):
 
     _git(["add", "-A"], repo)
 
-    # Nothing staged -> nothing to deploy.
-    if _git(["diff", "--cached", "--quiet"], repo).returncode == 0:
-        return {"status": "noop", "detail": "No changes to deploy — already up to date."}
+    # Nothing staged is NOT the same as nothing to deploy: commits made outside
+    # this button (or an earlier run whose push failed) sit unpushed, and
+    # returning here left them stranded while the dashboard kept reporting
+    # "already up to date". Only skip the commit; the push below still runs.
+    nothing_to_commit = _git(["diff", "--cached", "--quiet"], repo).returncode == 0
+    if nothing_to_commit:
+        ahead = _git(["rev-list", "--count", "@{u}..HEAD"], repo)
+        pending = (ahead.stdout or "0").strip()
+        if ahead.returncode != 0:
+            # No upstream configured -- nothing this button can push to.
+            return {"status": "noop", "detail": "No changes to deploy — already up to date."}
+        if pending in ("", "0"):
+            return {"status": "noop", "detail": "No changes to deploy — already up to date."}
+        message = f"{pending} commit(s) already made"
 
-    commit = _git(
+    commit = None if nothing_to_commit else _git(
         [
             "-c", "user.email=devrajgussar80@gmail.com",
             "-c", "user.name=devrajgussar80-commits",
@@ -267,7 +278,7 @@ def local_push(req: LocalPushRequest, _: bool = Depends(require_admin)):
         ],
         repo,
     )
-    if commit.returncode != 0:
+    if commit is not None and commit.returncode != 0:
         raise HTTPException(status_code=500, detail=f"commit failed: {commit.stderr[:300]}")
 
     try:
@@ -300,7 +311,9 @@ def local_push(req: LocalPushRequest, _: bool = Depends(require_admin)):
     return {
         "status": "success",
         "message": message,
-        "detail": "Pushed to GitHub. Vercel and Render will redeploy automatically.",
+        "detail": ("Pushed to GitHub. Vercel and Render will redeploy automatically."
+                   if not nothing_to_commit
+                   else "Pushed commits that were waiting. Vercel and Render will redeploy."),
     }
 
 
