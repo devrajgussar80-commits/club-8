@@ -5,15 +5,11 @@ wallet when an admin approves it; a withdrawal reserves funds immediately and
 refunds them once on rejection.
 """
 
-import io
 import re
 import uuid
 from datetime import datetime, timezone
-from urllib.parse import urlencode
 
-import qrcode
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 
 import config
 from database import get_db_connection
@@ -26,15 +22,12 @@ router = APIRouter(prefix="/api/wallet", tags=["wallet"])
 
 ORDER_ID_RE = re.compile(config.ORDER_ID_PATTERN)
 
-
 def _qr_limits(qr) -> tuple:
     return float(qr["min_amount"] or 100), float(qr["max_amount"] or 50000)
-
 
 @router.get("/active-qr")
 def get_active_qr():
     return python_engine.get_active_qr_code()
-
 
 @router.get("/qr-pool")
 def get_qr_pool():
@@ -45,7 +38,6 @@ def get_qr_pool():
     ).fetchall()
     conn.close()
     return {"qr_codes": [dict(r) for r in rows], "count": len(rows)}
-
 
 @router.post("/deposit-order")
 def create_deposit_order(req: DepositOrderRequest, current_user: dict = Depends(get_current_user)):
@@ -109,7 +101,6 @@ def create_deposit_order(req: DepositOrderRequest, current_user: dict = Depends(
             "max_amount": maximum,
         },
     }
-
 
 @router.post("/deposit")
 def submit_deposit(req: DepositRequest, current_user: dict = Depends(get_current_user)):
@@ -178,7 +169,6 @@ def submit_deposit(req: DepositRequest, current_user: dict = Depends(get_current
     conn.close()
     return {"status": "success", "deposit_id": dep_id}
 
-
 @router.post("/withdraw")
 def submit_withdraw(req: WithdrawRequest, current_user: dict = Depends(get_current_user)):
     amount = round(float(req.amount), 2)
@@ -220,7 +210,6 @@ def submit_withdraw(req: WithdrawRequest, current_user: dict = Depends(get_curre
     conn.close()
     return {"status": "success", "withdrawal_id": wth_id}
 
-
 @router.get("/deposits")
 def get_my_deposits(current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
@@ -231,7 +220,6 @@ def get_my_deposits(current_user: dict = Depends(get_current_user)):
     ).fetchall()
     conn.close()
     return {"deposits": [dict(row) for row in rows]}
-
 
 @router.get("/withdrawals")
 def get_my_withdrawals(current_user: dict = Depends(get_current_user)):
@@ -244,52 +232,9 @@ def get_my_withdrawals(current_user: dict = Depends(get_current_user)):
     conn.close()
     return {"withdrawals": [dict(row) for row in rows]}
 
-
 @router.get("/settings")
 def get_public_wallet_settings():
     conn = get_db_connection()
     result = get_wallet_settings(conn)
     conn.close()
     return result
-
-
-@router.get("/payment-qr")
-def generate_payment_qr(amount: float, qr_id: str, order_id: str):
-    amount = round(float(amount), 2)
-    order_id = order_id.strip().upper()
-    if not ORDER_ID_RE.fullmatch(order_id):
-        raise HTTPException(status_code=400, detail="Invalid deposit order")
-
-    conn = get_db_connection()
-    qr_record = conn.execute(
-        "SELECT * FROM qr_codes WHERE id = ? AND is_active = 1", (qr_id,)
-    ).fetchone()
-    conn.close()
-    if not qr_record or not (qr_record["upi_id"] or "").strip():
-        raise HTTPException(status_code=404, detail="Active UPI QR not available")
-    minimum, maximum = _qr_limits(qr_record)
-    if amount < minimum or amount > maximum:
-        raise HTTPException(status_code=400, detail="Amount is outside active QR limits")
-
-    payload = "upi://pay?" + urlencode(
-        {
-            "pa": qr_record["upi_id"].strip(),
-            "pn": qr_record["name"].strip(),
-            "am": f"{amount:.2f}",
-            "cu": "INR",
-            "tr": order_id,
-            "tn": order_id,
-        }
-    )
-    generator = qrcode.QRCode(
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
-        box_size=8,
-        border=4,
-    )
-    generator.add_data(payload)
-    generator.make(fit=True)
-    image = generator.make_image(fill_color="black", back_color="white")
-    output = io.BytesIO()
-    image.save(output, format="PNG")
-    output.seek(0)
-    return StreamingResponse(output, media_type="image/png")

@@ -3480,17 +3480,27 @@ class App {
 
       this.pendingDeposit = { amount, qr, orderId };
       document.getElementById('deposit-payment-amount').innerText = `₹${amount.toFixed(2)}`;
-      let paymentQrUrl = this.resolveApiUrl(qr.qr_url);
+
+      // Always the image the admin uploaded. A QR generated here from the UPI
+      // id is an unsigned intent with the amount baked in, and UPI apps
+      // decline those for merchant-style payments -- that is the "transaction
+      // failed" players were hitting. A PSP-issued QR is signed by the bank,
+      // so it is the only one that reliably completes.
+      const paymentQrUrl = this.resolveApiUrl(qr.qr_url);
+
+      // The deep link still carries the amount and order reference, which the
+      // static QR cannot. It is offered alongside, not instead: if it fails on
+      // a given app the player can still scan the image.
       const intentLink = document.getElementById('deposit-upi-intent');
-      if (qr.upi_id) {
-        const upiPayment = `upi://pay?pa=${encodeURIComponent(qr.upi_id)}&pn=UPI%20Payment&am=${amount.toFixed(2)}&cu=INR&tr=${orderId}&tn=${orderId}`;
-        paymentQrUrl = `${this.apiBaseUrl}/api/wallet/payment-qr?amount=${encodeURIComponent(amount.toFixed(2))}&qr_id=${encodeURIComponent(qr.id)}&order_id=${encodeURIComponent(orderId)}`;
-        if (intentLink) {
-          intentLink.href = upiPayment;
+      if (intentLink) {
+        if (qr.upi_id) {
+          intentLink.href = `upi://pay?pa=${encodeURIComponent(qr.upi_id)}`
+            + `&pn=${encodeURIComponent(qr.name || 'Club 8')}`
+            + `&am=${amount.toFixed(2)}&cu=INR&tr=${orderId}&tn=${orderId}`;
           intentLink.hidden = false;
+        } else {
+          intentLink.hidden = true;
         }
-      } else if (intentLink) {
-        intentLink.hidden = true;
       }
       document.getElementById('deposit-payment-qr').src = paymentQrUrl;
       document.getElementById('deposit-payment-order').innerText = orderId;
