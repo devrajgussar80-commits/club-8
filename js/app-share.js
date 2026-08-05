@@ -33,6 +33,10 @@ export class AppShare {
   }
 
   init() {
+    // Not on /admin: the dashboard is served from this same document, so the
+    // download card and share sheet would otherwise appear over it.
+    if (location.pathname.startsWith('/admin')) return;
+
     this.card = document.getElementById('app-cta');
     this.meta = document.getElementById('app-cta-meta');
     this.progress = document.getElementById('app-cta-progress');

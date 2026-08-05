@@ -8598,6 +8598,11 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
 
 /* --------------------------------------------------------------- share sheet */
 
+/* The `hidden` attribute sets `display: none` from the UA stylesheet, and any
+   author `display` rule beats it. Without this the sheet was permanently
+   visible and its Close button -- which only flips `hidden` -- did nothing. */
+.app-share-sheet[hidden] { display: none; }
+
 .app-share-sheet {
   position: fixed; inset: 0; z-index: 200;
   display: flex; align-items: flex-end; justify-content: center;
