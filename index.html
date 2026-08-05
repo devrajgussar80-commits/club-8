@@ -182,14 +182,10 @@
               <small id="app-cta-meta">Faster, and works offline between rounds</small>
             </div>
             <div class="app-cta-actions">
-              <button type="button" id="app-cta-download" class="app-cta-btn">
-                <i class="bi bi-download"></i><span>Download</span>
-              </button>
-              <button type="button" id="app-cta-share" class="app-cta-btn is-ghost">
+              <button type="button" id="app-cta-share" class="app-cta-btn">
                 <i class="bi bi-share-fill"></i><span>Share</span>
               </button>
             </div>
-            <div id="app-cta-progress" class="app-cta-progress" hidden><i></i><span>0%</span></div>
           </section>
 
           <section class="lobby-mini-showcase" aria-label="Mini games">
@@ -593,11 +589,12 @@
               <button class="chip chip-amount" type="button" data-amount="3000"><span>₹</span>3K</button>
               <button class="chip chip-amount" type="button" data-amount="5000"><span>₹</span>5K</button>
             </div>
-            <div class="deposit-custom-amount">
-              <b>₹</b><span></span>
-              <input type="number" id="deposit-amount-input" min="100" max="50000" placeholder="₹100.00 - ₹50,000.00" required>
-              <button id="clear-deposit-amount" type="button" aria-label="Clear amount"><i class="bi bi-x-octagon"></i></button>
-            </div>
+            <!-- The typed amount box is gone; the chips above are the only way
+                 to choose. The field itself stays as a hidden input because the
+                 chips write the chosen amount into it and everything after --
+                 the submit button's min/max check and the deposit request --
+                 reads it from there. -->
+            <input type="hidden" id="deposit-amount-input" value="">
             <input type="hidden" id="deposit-utr-input" value="">
           </form>
 
