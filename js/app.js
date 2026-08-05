@@ -1547,38 +1547,9 @@ class App {
     }
 
     set('nv-visitors', summary.visitors);
-    set('nv-sessions', summary.sessions);
     set('nv-anonymous', summary.still_anonymous);
     set('nv-converted', summary.registered + summary.logged_in);
-    set('nv-conversion', summary.conversion_rate === null ? '—' : `${summary.conversion_rate}%`);
     set('nv-avg-time', this.formatDuration(summary.avg_seconds));
-    set('nv-bounced', summary.bounced);
-
-    // Each step as a share of the one before it, because "40% of the people
-    // who saw the form started typing" is the number that says where to fix
-    // something; a share of the original total hides which step is leaking.
-    const f = summary.funnel;
-    const steps = [
-      ['Landed on the site', f.landed, f.landed],
-      ['Saw login / register', f.saw_auth, f.landed],
-      ['Started filling the form', f.started_typing, f.saw_auth],
-      ['Pressed register', f.tried_register, f.started_typing],
-      ['Pressed login', f.tried_login, f.started_typing],
-      ['Got in', f.converted, f.started_typing]
-    ];
-    const funnelEl = document.getElementById('nv-funnel');
-    if (funnelEl) {
-      funnelEl.innerHTML = steps.map(([label, value, base]) => {
-        const pct = f.landed ? Math.round(value / f.landed * 100) : 0;
-        const rel = base ? Math.round(value / base * 100) : 0;
-        return `<li>
-            <span class="nv-step-bar" style="--w:${pct}%"></span>
-            <b>${label}</b><em>${value}</em><small>${rel}% of previous</small>
-          </li>`;
-      }).join('') + (f.had_failure
-        ? `<li class="nv-step-fail"><b>Hit an error on the form</b><em>${f.had_failure}</em></li>`
-        : '');
-    }
 
     let sessions;
     try {
@@ -1924,24 +1895,24 @@ class App {
     document.getElementById('ng-live-summary').textContent =
       `${live.total_players} player${live.total_players === 1 ? '' : 's'} · ${money(live.total_staked)}`;
 
-    const top = Math.max(1, ...live.selections.map(s => s.staked));
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    set('ng-live-total-players', live.total_players);
+    set('ng-live-total-bets', live.total_bets);
+    set('ng-live-total-staked', money(live.total_staked));
+
     document.getElementById('ng-live-selections').innerHTML = live.selections.length
       ? live.selections.map(sel => `
-          <div class="ng-live-sel">
-            <span class="ng-live-bar" style="--w:${Math.round(sel.staked / top * 100)}%"></span>
+          <article class="ng-sel-card">
+            <span class="ng-sel-fill" style="--w:${sel.share}%"></span>
             <b>${sel.selection}</b>
-            <em>${sel.players} player${sel.players === 1 ? '' : 's'}</em>
-            <strong>${money(sel.staked)}</strong>
-          </div>`).join('')
+            <strong>${sel.players}</strong>
+            <em>${sel.players === 1 ? 'player' : 'players'} · ${sel.share}%</em>
+            <span class="ng-sel-stake">${money(sel.staked)}</span>
+          </article>`).join('')
       : '<p class="ng-hint">No bets on the current round yet.</p>';
-
-    document.getElementById('ng-live-players').innerHTML = live.players.length
-      ? live.players.map(p => `
-          <tr>
-            <td>${p.username}</td><td>${p.phone}</td>
-            <td><b>${p.selection}</b></td><td>${money(p.staked)}</td>
-          </tr>`).join('')
-      : '<tr><td colspan="4" class="nd-empty">Nobody has bet yet</td></tr>';
   }
 
   async saveAdminGameControls() {

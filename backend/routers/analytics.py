@@ -331,20 +331,6 @@ def visitors_summary(hours: int = 24, _: bool = Depends(require_admin)):
             (window,),
         ).fetchone()
 
-        funnel = conn.execute(
-            """
-            SELECT COUNT(DISTINCT session_id) FILTER (WHERE name = 'auth_view') AS saw_auth,
-                   COUNT(DISTINCT session_id) FILTER (WHERE name = 'field_focus') AS started_typing,
-                   COUNT(DISTINCT session_id) FILTER (WHERE name = 'register_submit') AS tried_register,
-                   COUNT(DISTINCT session_id) FILTER (WHERE name = 'login_submit') AS tried_login,
-                   COUNT(DISTINCT session_id) FILTER (WHERE name IN ('register_failed','login_failed'))
-                       AS had_failure
-            FROM visitor_events
-            WHERE created_at >= NOW() - ?::interval
-            """,
-            (window,),
-        ).fetchone()
-
         devices = conn.execute(
             """
             SELECT device, browser, COUNT(*) AS sessions
@@ -359,6 +345,10 @@ def visitors_summary(hours: int = 24, _: bool = Depends(require_admin)):
 
     landed = int(row["sessions"] or 0)
     converted = int(row["registered"] or 0) + int(row["logged_in"] or 0)
+    # Four numbers, not ten. The earlier version also shipped a six-step funnel
+    # and separate bounce/anonymous timings; in practice the only questions
+    # asked of this screen are how many strangers arrived, how many signed up,
+    # and how long the rest stayed before giving up.
     return {
         "hours": hours,
         "visitors": int(row["visitors"] or 0),
@@ -366,20 +356,8 @@ def visitors_summary(hours: int = 24, _: bool = Depends(require_admin)):
         "registered": int(row["registered"] or 0),
         "logged_in": int(row["logged_in"] or 0),
         "still_anonymous": int(row["still_anonymous"] or 0),
-        "bounced": int(row["bounced"] or 0),
         "avg_seconds": int(row["avg_seconds"] or 0),
-        "avg_seconds_anonymous": int(row["avg_seconds_anonymous"] or 0),
-        # Undefined with no traffic -- None rather than a flattering 0%.
         "conversion_rate": round(converted / landed * 100, 1) if landed else None,
-        "funnel": {
-            "landed": landed,
-            "saw_auth": int(funnel["saw_auth"] or 0),
-            "started_typing": int(funnel["started_typing"] or 0),
-            "tried_register": int(funnel["tried_register"] or 0),
-            "tried_login": int(funnel["tried_login"] or 0),
-            "had_failure": int(funnel["had_failure"] or 0),
-            "converted": converted,
-        },
         "devices": [dict(entry) for entry in devices],
     }
 

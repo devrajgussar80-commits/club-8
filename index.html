@@ -1666,13 +1666,18 @@
                 <span id="ng-live-summary" class="nd-pill"></span>
               </h3>
             </div>
-            <div id="ng-live-selections" class="ng-live-selections"></div>
-            <div class="nd-table-wrap">
-              <table class="nd-table">
-                <thead><tr><th>Player</th><th>Phone</th><th>Bet on</th><th>Staked</th></tr></thead>
-                <tbody id="ng-live-players"></tbody>
-              </table>
+            <div class="ng-live-totals">
+              <div class="ng-live-total">
+                <small>Total players</small><b id="ng-live-total-players">0</b>
+              </div>
+              <div class="ng-live-total">
+                <small>Bets placed</small><b id="ng-live-total-bets">0</b>
+              </div>
+              <div class="ng-live-total is-money">
+                <small>Total staked</small><b id="ng-live-total-staked">₹0.00</b>
+              </div>
             </div>
+            <div id="ng-live-selections" class="ng-live-selections"></div>
           </div>
 
           <div class="nd-table-wrap">
@@ -1761,17 +1766,11 @@
         </div>
 
         <div class="ng-kpis">
-          <div class="ng-kpi"><small>Unique visitors</small><b id="nv-visitors">0</b></div>
-          <div class="ng-kpi"><small>Visits</small><b id="nv-sessions">0</b></div>
-          <div class="ng-kpi"><small>Never signed up</small><b id="nv-anonymous">0</b></div>
+          <div class="ng-kpi"><small>Visitors</small><b id="nv-visitors">0</b></div>
+          <div class="ng-kpi"><small>Left without signing up</small><b id="nv-anonymous">0</b></div>
           <div class="ng-kpi is-ggr"><small>Signed up / in</small><b id="nv-converted">0</b></div>
-          <div class="ng-kpi"><small>Conversion</small><b id="nv-conversion">—</b></div>
           <div class="ng-kpi"><small>Avg time on site</small><b id="nv-avg-time">0s</b></div>
-          <div class="ng-kpi"><small>Left immediately</small><b id="nv-bounced">0</b></div>
         </div>
-
-        <div class="nd-panel-head"><h3>Signup funnel <small>where strangers drop off</small></h3></div>
-        <ul id="nv-funnel" class="nv-funnel"></ul>
 
         <div class="nd-panel-head">
           <h3>Visits</h3>

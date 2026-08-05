@@ -281,41 +281,42 @@ def live_bets(game: str) -> dict:
             """
         ).fetchall()
 
-        players = conn.execute(
+        # Counted straight from the round, not by summing the per-selection
+        # rows: one player betting on both red and green is two rows but one
+        # player, so adding the groups up would overstate the headcount.
+        totals = conn.execute(
             f"""
-            SELECT u.username, u.phone,
-                   {source['selection']} AS selection,
-                   {source['stake']} AS staked
-            FROM {source['table']} b JOIN users u ON u.id = b.user_id
+            SELECT COUNT(DISTINCT b.user_id) AS players,
+                   COUNT(*) AS bets,
+                   COALESCE(SUM({source['stake']}), 0) AS staked
+            FROM {source['table']} b
             WHERE {source['open']}
-            ORDER BY staked DESC LIMIT 50
             """
-        ).fetchall()
+        ).fetchone()
     finally:
         conn.close()
 
+    total_players = int(totals["players"] or 0)
+    rows = [
+        {
+            "selection": row["selection"],
+            "players": int(row["players"]),
+            "bets": int(row["bets"]),
+            "staked": round(float(row["staked"]), 2),
+            # Share of everyone in the round, so "20 of 100 backed green" reads
+            # directly off the card.
+            "share": round(int(row["players"]) / total_players * 100)
+            if total_players else 0,
+        }
+        for row in selections
+    ]
+
     return {
         "supported": True,
-        "total_players": len({row["username"] for row in players}),
-        "total_staked": round(sum(float(row["staked"]) for row in players), 2),
-        "selections": [
-            {
-                "selection": row["selection"],
-                "players": int(row["players"]),
-                "bets": int(row["bets"]),
-                "staked": round(float(row["staked"]), 2),
-            }
-            for row in selections
-        ],
-        "players": [
-            {
-                "username": row["username"],
-                "phone": row["phone"],
-                "selection": row["selection"],
-                "staked": round(float(row["staked"]), 2),
-            }
-            for row in players
-        ],
+        "total_players": total_players,
+        "total_bets": int(totals["bets"] or 0),
+        "total_staked": round(float(totals["staked"] or 0), 2),
+        "selections": rows,
     }
 
 

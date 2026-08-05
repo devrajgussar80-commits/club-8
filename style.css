@@ -8632,3 +8632,71 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
   background: #131a38; color: #fff; font-size: 13px; font-weight: 700;
 }
 
+
+/* ------------------------------- admin: live round analytics (card layout) */
+
+.ng-live-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ng-live-total {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+.ng-live-total small { display: block; font-size: 11px; opacity: .65; }
+.ng-live-total b {
+  display: block; margin-top: 4px;
+  font-size: 22px; font-weight: 800; letter-spacing: -.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ng-live-total.is-money b { color: var(--ad-good, #35d68a); }
+
+/* One card per selection: the headcount is the headline, because "20 of 100
+   backed green" is the question being asked here â€” the money is secondary. */
+.ng-live-selections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+.ng-sel-card {
+  position: relative;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 255, 255, .08);
+  overflow: hidden;
+}
+/* Fill scaled to the share of players, so a crowded selection is obvious
+   before any number is read. */
+.ng-sel-fill {
+  position: absolute; inset: auto 0 0 0;
+  height: var(--w, 0%);
+  background: linear-gradient(0deg, rgba(53, 214, 138, .22), rgba(53, 214, 138, .04));
+  transition: height .3s ease;
+}
+.ng-sel-card > *:not(.ng-sel-fill) { position: relative; }
+.ng-sel-card b {
+  display: block;
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; opacity: .8;
+}
+.ng-sel-card strong {
+  display: block; margin-top: 6px;
+  font-size: 26px; font-weight: 800; letter-spacing: -.6px;
+  font-variant-numeric: tabular-nums;
+}
+.ng-sel-card em {
+  display: block; font-style: normal;
+  font-size: 11px; opacity: .6;
+}
+.ng-sel-stake {
+  display: block; margin-top: 6px;
+  font-size: 12px; font-weight: 700;
+  color: var(--ad-good, #35d68a);
+  font-variant-numeric: tabular-nums;
+}
+
