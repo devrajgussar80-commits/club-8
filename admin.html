@@ -55,7 +55,12 @@
     </div>
 
     <!-- ADMIN DASHBOARD -->
-    <div id="admin-dashboard-view" class="view-viewport nd-root">
+<!-- `active` is in the markup: in this document the dashboard is the only
+         view, and .view-viewport is display:none until something adds that
+         class. Waiting for script to add it meant the whole page measured
+         zero and rendered blank whenever the unlock path did not run. The
+         gate overlay still covers it until the admin signs in. -->
+    <div id="admin-dashboard-view" class="view-viewport nd-root active">
 
       <!-- Navigation exists twice for two shapes of screen: a labelled rail on
            desktop, a thumb-reachable bar at the bottom on a phone. Both render

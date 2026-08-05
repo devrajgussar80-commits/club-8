@@ -8158,46 +8158,40 @@ textarea {
   .nd-flush-confirm { flex-direction: column; }
   .nd-flush-confirm input, .nd-danger-btn { width: 100%; }
 
-  /* ---- tables become cards ---- */
-  .nd-table-wrap { overflow: visible; }
-  /* Drops the desktop `min-width: 620px`, which otherwise keeps the table
-     wider than the phone even after it becomes a stack of cards. */
-  .nd-table { display: block; width: 100%; min-width: 0; }
-  .nd-table thead { display: none; }
-  .nd-table tbody { display: block; }
-  .nd-table tbody tr {
-    display: block;
-    margin-bottom: 8px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, .05);
-    border: 1px solid rgba(255, 255, 255, .07);
+  /* ---- tables scroll sideways ----
+     Stacking each row into a card was tried and made every table very tall:
+     a hundred visits became a hundred blocks to scroll past. A real table that
+     scrolls horizontally keeps a row on one line, so rows stay comparable and
+     the section stays short. The wrapper is the scroll container; the table
+     keeps its min-width so columns are never crushed to fit. */
+  .nd-table-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    /* Room for the scrollbar so it never sits on top of the last row. */
+    padding-bottom: 4px;
+    /* Fades at both edges say "there is more this way" without a scrollbar,
+       which mobile browsers only show while actually scrolling. */
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 12px,
+                                        #000 calc(100% - 12px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 12px,
+                                #000 calc(100% - 12px), transparent 100%);
   }
-  .nd-table tbody td {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 4px 0;
-    border: 0;
-    text-align: right;
-    font-size: 12px;
+  .nd-table-wrap::-webkit-scrollbar { height: 5px; }
+  .nd-table-wrap::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .22);
   }
-  /* The column name, from the data-label the JS copies off the header. */
-  .nd-table tbody td::before {
-    content: attr(data-label);
-    flex: 0 0 auto;
-    text-align: left;
-    font-size: 11px;
-    font-weight: 600;
-    opacity: .6;
+  .nd-table { font-size: 12px; }
+  .nd-table th, .nd-table td { padding: 9px 10px; white-space: nowrap; }
+  /* The first column is the row's identity, so it stays put while the rest
+     scrolls -- otherwise you scroll right and lose track of whose row it is. */
+  .nd-table th:first-child, .nd-table td:first-child {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--ad-surface, #121826);
   }
-  /* An action cell has no meaningful label and its buttons need the width. */
-  .nd-table tbody td:last-child { justify-content: flex-end; padding-top: 8px; }
-  .nd-table tbody td:last-child:empty { display: none; }
-  .nd-table tbody td[colspan] { justify-content: center; text-align: center; }
-  .nd-table tbody td[colspan]::before { content: none; }
-  .nd-table tbody td .nd-mini { margin: 2px 0 2px 4px; }
+  .nd-table thead th:first-child { background: var(--ad-bg, #0b0f1a); }
 
   /* Panels that are already card-shaped just need to breathe less. */
   .nd-queue-card, .ng-detail, .nd-danger { padding: 12px; }

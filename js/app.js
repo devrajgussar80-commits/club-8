@@ -13,7 +13,6 @@ import { DiceEngine } from './dice-engine.js?v=1';
 import { LotteryEngine } from './lottery.js?v=1';
 import { VisitorTracker } from './tracker.js?v=1';
 import { initInteractions } from './interactions.js?v=1';
-import { initAdminMobileTables } from './admin-mobile.js?v=1';
 import { AppShare } from './app-share.js?v=1';
 
 class App {
@@ -584,7 +583,6 @@ class App {
 
     // One delegated listener, so buttons rendered later still get feedback.
     initInteractions();
-    initAdminMobileTables();
     this.appShare = new AppShare({
       apiBaseUrl: this.apiBaseUrl,
       toast: (msg, type) => this.showToast(msg, type)
