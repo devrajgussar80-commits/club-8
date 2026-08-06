@@ -2664,7 +2664,11 @@ body[data-club-page]:not([data-club-page="game"]) .mobile-frame {
 .hero-coins { z-index: 2; display: flex; flex-direction: column; justify-content: space-between; color: #ffdc66; font-size: 30px; }
 
 .club-hero-carousel {
-  height:170px;
+  /* One fixed rectangle for every slide. It is an aspect ratio rather than a
+     pixel height so the banners keep their proportions on any width -- at a
+     fixed 170px a wide screen stretched the box to nearly 3:1 and cropped the
+     artwork's edges away. */
+  aspect-ratio:16 / 9;
   position:relative;
   overflow:hidden;
   border-radius:10px;
@@ -2680,7 +2684,8 @@ body[data-club-page]:not([data-club-page="game"]) .mobile-frame {
   pointer-events:none;
 }
 .club-hero-slide.active { opacity:1;transform:scale(1); }
-.club-hero-slide svg { width:100%;height:100%;display:block; }
+.club-hero-slide svg,
+.club-hero-slide img { width:100%;height:100%;display:block;object-fit:cover; }
 .club-hero-dots {
   position:absolute;
   left:50%;
