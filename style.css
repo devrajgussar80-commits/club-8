@@ -3723,7 +3723,14 @@ body[data-club-page="activity"] .add-desktop-pill { display:flex; }
 .money-page .amount-chips { display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px; }
 .money-page .chip { padding:9px 5px;border:1px solid #f1f1f3;border-radius:4px;background:#fff;color:#d45b70;text-align:center;font-size:10px; }
 .money-page .chip.active { background:#f65d70;color:#fff;border-color:#f65d70; }
-.money-page .form-control { height:43px;border-color:#f0f1f4;background:#fafbfe; }
+.money-page .withdraw-chip { cursor:pointer;font-weight:600;font-size:12px; }
+.withdraw-amount-hint { margin:7px 2px 0;font-size:11px;color:#8b91a0; }
+.withdraw-amount-hint.is-blocked { color:#d53d4d;font-weight:600; }
+/* These sit on a near-white card, but .form-control's base colour is the dark
+   theme's near-white text -- so what you typed was invisible against it. */
+.money-page .form-control { height:43px;border-color:#f0f1f4;background:#fafbfe;color:#1c2333; }
+.money-page .form-control::placeholder { color:#9aa0ae;opacity:1; }
+.money-page .form-control:focus { border-color:#f65d70;background:#fff; }
 .recharge-instructions { margin:12px 0;padding:13px;border-radius:7px;background:#fff; }
 .recharge-instructions h3{margin:0 0 10px;font-size:12px}.recharge-instructions p{margin:6px 0;color:#777c87;font-size:9px;line-height:1.45}
 .arpay-banner { margin:10px 0;padding:13px;display:flex;gap:10px;align-items:center;border-radius:7px;background:linear-gradient(135deg,#ea5369,#ff8a8c);color:#fff; }
@@ -4319,11 +4326,31 @@ body[data-club-page="activity"] .add-desktop-pill { display:flex; }
 .deposit-page .recharge-instructions p { margin:0 0 9px;padding-left:17px;position:relative;color:#687091;font-size:13px;line-height:1.7; }
 .deposit-page .recharge-instructions p:last-child { margin-bottom:0; }
 .deposit-page .recharge-instructions p::before { content:"◆";position:absolute;left:0;top:1px;color:#ff6871;font-size:8px; }
-.deposit-history-title { margin:14px 3px 0;display:flex;align-items:center;gap:10px;font-size:17px;font-weight:600; }
-.deposit-history-title i { color:#ff5d68;font-size:23px; }
-.deposit-empty-state { min-height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#b7bdcf; }
-.deposit-empty-state i { color:#d4d6dc;font-size:86px;filter:drop-shadow(-16px 10px 0 #e3e4e8); }
-.deposit-empty-state span { font-size:14px; }
+/* Recent deposits / withdrawals, at the foot of the page they were made on.
+   Shorter than the full history page: a heading with a way through to it, then
+   the last few records. */
+.money-recent-head {
+  margin:16px 3px 8px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+}
+.money-recent-head > span { display:flex;align-items:center;gap:9px;font-size:16px;font-weight:600;color:#252a35; }
+.money-recent-head i { color:#ff5d68;font-size:20px; }
+.money-recent-head > button {
+  padding:5px 10px;border:0;border-radius:999px;
+  background:#fff1f2;color:#f65d70;
+  font-size:11px;font-weight:600;
+  display:inline-flex;align-items:center;gap:3px;
+}
+.money-recent-head > button i { font-size:11px;color:inherit; }
+.money-recent-list { display:grid;gap:8px; }
+.money-recent-list .wallet-history-row { margin:0; }
+.money-recent-empty {
+  min-height:140px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  border-radius:8px;background:#fff;color:#b7bdcf;
+}
+.money-recent-empty i { color:#d4d6dc;font-size:62px;filter:drop-shadow(-12px 8px 0 #e3e4e8); }
+.money-recent-empty span { font-size:13px; }
 .deposit-sticky-bar {
   height:70px;
   padding:10px 12px;
@@ -8185,13 +8212,9 @@ textarea {
   }
   .nd-table { font-size: 12px; }
   .nd-table th, .nd-table td { padding: 9px 10px; white-space: nowrap; }
-  /* The first column is the row's identity, so it stays put while the rest
-     scrolls -- otherwise you scroll right and lose track of whose row it is. */
-  .nd-table th:first-child, .nd-table td:first-child {
-    position: sticky; left: 0; z-index: 2;
-    background: var(--ad-surface, #121826);
-  }
-  .nd-table thead th:first-child { background: var(--ad-bg, #0b0f1a); }
+  /* No sticky first column: pinning it made that column look frozen, and on a
+     narrow screen it ate the width the rest of the row needed. The whole row
+     scrolls together. */
 
   /* Panels that are already card-shaped just need to breathe less. */
   .nd-queue-card, .ng-detail, .nd-danger { padding: 12px; }
@@ -9125,3 +9148,77 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
 .cover-info small { display: block; font-size: 10px; opacity: .6; }
 .cover-actions { display: flex; gap: 6px; }
 .cover-actions .nd-mini { flex: 1; }
+
+
+/* ============================================================================
+   LOADING BAR
+   ============================================================================
+   A single bar pinned to the top of the viewport, above everything including
+   the sticky page heads. It is a scaleX on one element, so it animates on the
+   compositor and cannot reflow the page underneath it while it runs.
+   ============================================================================ */
+
+.app-progress {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.app-progress.is-active { opacity: 1; }
+
+.app-progress > span {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, #f65d70, #ff9a5a, #f65d70);
+  background-size: 200% 100%;
+  box-shadow: 0 0 10px rgba(246, 93, 112, .55);
+  /* The crawl itself is set frame by frame, so only the finishing run to 100%
+     needs easing here. */
+  transition: transform .18s ease-out;
+  animation: app-progress-sheen 1.6s linear infinite;
+}
+@keyframes app-progress-sheen {
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-progress > span { animation: none; }
+}
+
+
+/* Online / offline dot in the players table. Colour alone would not survive a
+   colourblind reader, so the word is there too. */
+.nd-presence {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600;
+  color: var(--ad-text-dim, #94a3b8);
+}
+.nd-presence > i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #64748b;
+}
+.nd-presence.is-online { color: #34d399; }
+/* The "last seen" line belongs under the word, not run on after it. */
+.nd-presence + .nd-player-sub { display: block; margin-top: 2px; }
+
+.nd-presence.is-online > i {
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, .18);
+  animation: nd-presence-pulse 2s ease-in-out infinite;
+}
+@keyframes nd-presence-pulse {
+  50% { box-shadow: 0 0 0 6px rgba(52, 211, 153, .06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The "last seen" line belongs under the word, not run on after it. */
+.nd-presence + .nd-player-sub { display: block; margin-top: 2px; }
+
+.nd-presence.is-online > i { animation: none; }
+}

@@ -15,6 +15,7 @@ import { LotteryEngine } from './lottery.js?v=1';
 import { VisitorTracker } from './tracker.js?v=1';
 import { initInteractions } from './interactions.js?v=1';
 import { AppShare } from './app-share.js?v=1';
+import { progress, withProgress } from './progress.js';
 
 class App {
   constructor() {
@@ -506,12 +507,15 @@ class App {
     setupRegularRotator('casino', regularConfigs.casino, 5200);
 
     const jackpotContainer = document.getElementById('home-rotator-jackpot');
+    // screen-296 to screen-300 were never shipped, so these five slides drew
+    // from files that 404. Pointed at artwork that exists; the labels and
+    // multipliers are unchanged.
     const jackpotSlides = [
-      { screen:296, labels:['Ways of the Qilin','Pirate Queen','Money Coming Expand Bets'], mult:['91.3X','13.9X','10.22X'], prices:['₹300.00','₹35.00','₹35.00'] },
-      { screen:297, labels:['Fortune Gems','Jackpot Fishing','Fortune Coins'], mult:['14.4X','10X','20X'], prices:['₹35.00','₹35.00','₹70.00'] },
-      { screen:298, labels:['Alibaba','Fortune Garuda 500','Circus Jackpot'], mult:['12.4X','18X','11.67X'], prices:['₹35.00','₹35.00','₹35.00'] },
-      { screen:299, labels:['Fortune Garuda 500'], mult:['10X'], prices:['₹35.00'] },
-      { screen:300, labels:['Ways of the Qilin','Pirate Queen','Money Coming Expand Bets'], mult:['91.3X','13.9X','10.22X'], prices:['₹300.00','₹35.00','₹35.00'] }
+      { screen:291, labels:['Ways of the Qilin','Pirate Queen','Money Coming Expand Bets'], mult:['91.3X','13.9X','10.22X'], prices:['₹300.00','₹35.00','₹35.00'] },
+      { screen:292, labels:['Fortune Gems','Jackpot Fishing','Fortune Coins'], mult:['14.4X','10X','20X'], prices:['₹35.00','₹35.00','₹70.00'] },
+      { screen:293, labels:['Alibaba','Fortune Garuda 500','Circus Jackpot'], mult:['12.4X','18X','11.67X'], prices:['₹35.00','₹35.00','₹35.00'] },
+      { screen:294, labels:['Fortune Garuda 500'], mult:['10X'], prices:['₹35.00'] },
+      { screen:295, labels:['Ways of the Qilin','Pirate Queen','Money Coming Expand Bets'], mult:['91.3X','13.9X','10.22X'], prices:['₹300.00','₹35.00','₹35.00'] }
     ];
     let jackpotIndex = 0;
     const showJackpot = nextIndex => {
@@ -584,7 +588,6 @@ class App {
 
     // One delegated listener, so buttons rendered later still get feedback.
     initInteractions();
-    this.applyCustomCovers();
     this.appShare = new AppShare({
       apiBaseUrl: this.apiBaseUrl,
       toast: (msg, type) => this.showToast(msg, type)
@@ -609,8 +612,14 @@ class App {
     this.startHomeBannerCarousel();
     this.startRecommendedCarousel();
     this.startHomeGameRotators();
-    this.initMinesGame();
-    this.initArcadeGames();
+    // The admin console loads this same script but carries none of the arcade
+    // markup, so wiring the game engines there threw on the first missing
+    // node -- and because that happened inside init, everything after it,
+    // including loading the dashboard's data, never ran.
+    if (!this.isAdminConsole()) {
+      this.initMinesGame();
+      this.initArcadeGames();
+    }
     appState.subscribe((state) => this.render(state));
     this.startBackendSync();
     this.render(appState.getState());
@@ -897,31 +906,15 @@ class App {
    * the whole lobby behind it -- the bundled SVGs are static files and must
    * keep rendering even when the API is slow or down.
    */
-  async applyCustomCovers() {
-    if (location.pathname.startsWith('/admin')) return;
-    // Lobby tile name -> the key the covers API uses.
-    const keys = {
-      'WinGo': 'wingo', 'XAviator': 'aviator', 'Aviator 10 sec': 'aviator10',
-      'Chicken Road 2': 'chicken-road', 'Lucky Reels': 'slots', 'Mega Slots': 'megaslots',
-      'Roulette': 'roulette', 'Dice Roll': 'dice', 'Fish vs Tiger': 'fishtiger',
-      'Vortex': 'vortex', 'Daily Lottery': 'lottery', 'Mines': 'mines',
-      'Mines Pro': 'mines-pro', 'Ronaldinho da Sorte': 'ronaldinho', 'PUBG 1MIN': 'pubg',
-      'Cricket': 'cricket', 'Limbo': 'limbo', 'Javelin': 'javelin'
-    };
-    let custom;
-    try {
-      ({ custom } = await (await fetch(`${this.apiBaseUrl}/api/covers`)).json());
-    } catch (error) {
-      return;  // Bundled artwork already on screen; nothing to undo.
-    }
-    const overridden = new Set(custom || []);
-    document.querySelectorAll('.lobby-cover-card').forEach(card => {
-      const key = keys[card.dataset.miniGame];
-      if (!key || !overridden.has(key)) return;
-      const img = card.querySelector('img');
-      if (img) img.src = `${this.apiBaseUrl}/api/cover/${key}`;
-    });
-  }
+  /**
+   * Covers are ordinary files now, not a runtime lookup.
+   *
+   * The lobby used to fetch `/api/covers` on load and repoint each tile, which
+   * is why the bundled artwork appeared first and was replaced a moment later.
+   * `backend/export_covers.py` writes the uploads into `assets/covers` instead,
+   * so the browser has the right image before it paints and the lobby does not
+   * need the API to be up at all.
+   */
 
   /** Push the current balance into every arcade screen's wallet readout. */
   refreshArcadeWallets() {
@@ -1000,6 +993,10 @@ class App {
     try {
       const data = await this.fetchApi('/api/auth/me');
       const user = data.user || {};
+      // Link this visit to the account here as well as at login. Most sessions
+      // start from a token already in storage and never pass through the login
+      // form, and an unlinked session cannot show the player as online.
+      if (user.id) this.tracker?.identify(user.id);
       const wasEnabled = this.gameAccessEnabled;
       this.gameAccessEnabled = Boolean(user.game_access_enabled);
       this.approvedDepositTotal = Number(user.approved_deposit_total || 0);
@@ -1018,7 +1015,8 @@ class App {
       state.user.id = user.id || state.user.id;
       state.user.name = user.username || user.name || state.user.name;
       state.user.phone = user.phone || state.user.phone;
-      state.user.balance = Number(user.balance ?? state.user.balance);
+      const meBalance = Number(user.balance);
+      if (Number.isFinite(meBalance)) state.user.balance = meBalance;
       if (user.referral_code) {
         this.referralCode = user.referral_code;
         localStorage.setItem('PREDICT_REFERRAL_CODE', user.referral_code);
@@ -1152,7 +1150,30 @@ class App {
     appState.saveState();
   }
 
+  /**
+   * Endpoints that are polled rather than requested by the player.
+   *
+   * The round clocks and the tracker fire every couple of seconds; showing the
+   * loading bar for those would leave it permanently on screen and tell the
+   * player nothing.
+   */
+  static QUIET_ENDPOINTS = [
+    '/state', '/api/game/status', '/api/game/history', '/api/game/my-bets',
+    '/api/track', '/api/covers'
+  ];
+
+  isQuietEndpoint(url) {
+    return App.QUIET_ENDPOINTS.some(part => url.includes(part));
+  }
+
   async fetchApi(url, method = 'GET', body = null) {
+    if (!this.isQuietEndpoint(url)) {
+      return withProgress(this.rawFetchApi(url, method, body));
+    }
+    return this.rawFetchApi(url, method, body);
+  }
+
+  async rawFetchApi(url, method = 'GET', body = null) {
     const headers = { 'Content-Type': 'application/json' };
     if (this.authToken) {
       headers['Authorization'] = `Bearer ${this.authToken}`;
@@ -1206,7 +1227,12 @@ class App {
       // settles on the backend. It used to have a local "arcade delta" added
       // on top, which is exactly how chicken-road/mines wins inflated the
       // wallet with money that was never really there.
-      state.user.balance = Number(Number(data.user_balance).toFixed(2));
+      // Keep the last good figure if the field is missing: writing NaN here
+      // is what left the wallet reading as empty on a funded account.
+      const serverBalance = Number(data.user_balance);
+      if (Number.isFinite(serverBalance)) {
+        state.user.balance = Number(serverBalance.toFixed(2));
+      }
 
       appState.saveState();
       this.syncHistoryAndOrders(requestedRoom);
@@ -1242,11 +1268,14 @@ class App {
         depositButton.disabled = !settings.deposits_enabled || amount < minimum || amount > maximum;
         depositButton.textContent = settings.deposits_enabled ? 'Deposit' : 'Deposits paused';
       }
+      this.withdrawMin = Number(settings.withdrawal_min || 200);
+      this.withdrawalsEnabled = Boolean(settings.withdrawals_enabled);
       const withdrawInput = document.getElementById('withdraw-amount-input');
       if (withdrawInput) {
-        withdrawInput.min = String(settings.withdrawal_min || 200);
-        withdrawInput.placeholder = `Minimum ₹${Number(settings.withdrawal_min || 200).toFixed(0)}`;
+        withdrawInput.min = String(this.withdrawMin);
+        withdrawInput.placeholder = `Minimum ₹${this.withdrawMin.toFixed(0)}`;
       }
+      this.renderWithdrawHint();
       const withdrawButton = document.getElementById('withdraw-submit-button');
       if (withdrawButton) {
         withdrawButton.disabled = !settings.withdrawals_enabled;
@@ -1255,6 +1284,68 @@ class App {
           : 'Withdrawals paused';
       }
     } catch (e) {}
+  }
+
+  /**
+   * Why a withdrawal will or will not be accepted, before it is attempted.
+   *
+   * The server refuses below the admin's minimum and above the balance, and
+   * both were only discoverable by trying: the reason arrived in a toast that
+   * disappeared. The same two numbers now sit under the field.
+   */
+  /**
+   * The wallet balance, or null when this client does not have it yet.
+   *
+   * `state.user.balance` is refreshed from the server and can briefly be
+   * missing or NaN -- before the first sync, or if a poll failed. Coercing
+   * that to 0 is what made the app claim an empty wallet on a funded account,
+   * so "unknown" is kept distinct from "zero".
+   */
+  currentBalance() {
+    const value = Number(appState.getState().user?.balance);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  renderWithdrawHint() {
+    const hint = document.getElementById('withdraw-amount-hint');
+    if (!hint) return;
+    const minimum = Number(this.withdrawMin || 200);
+    const balance = this.currentBalance();
+    const typed = Number(document.getElementById('withdraw-amount-input')?.value || 0);
+
+    let message = `Minimum ₹${minimum.toFixed(0)}`;
+    if (balance !== null) message += ` · Available ₹${balance.toFixed(2)}`;
+    let tone = '';
+    if (typed > 0 && typed < minimum) {
+      message = `Minimum withdrawal is ₹${minimum.toFixed(0)}.`;
+      tone = 'is-blocked';
+    } else if (balance !== null && typed > balance) {
+      message = `You only have ₹${balance.toFixed(2)} available.`;
+      tone = 'is-blocked';
+    }
+    hint.textContent = message;
+    hint.className = `withdraw-amount-hint ${tone}`;
+  }
+
+  /**
+   * The reason an amount cannot be sent, or null to let the request through.
+   *
+   * Deliberately does NOT refuse on balance. The server checks that under a
+   * row lock against the real wallet, which is the only copy that can be
+   * trusted; refusing here as well meant a client whose balance had not synced
+   * yet blocked a withdrawal the account could well afford.
+   */
+  withdrawBlockReason(amount) {
+    const minimum = Number(this.withdrawMin || 200);
+    if (!amount || !Number.isFinite(amount)) return 'Enter an amount to withdraw.';
+    if (amount < minimum) return `Minimum withdrawal is ₹${minimum.toFixed(0)}.`;
+    return null;
+  }
+
+  /** True on the standalone admin console, which shares this script. */
+  isAdminConsole() {
+    return document.body.classList.contains('admin-mode')
+      || location.pathname.startsWith('/admin');
   }
 
   resolveApiUrl(url) {
@@ -1268,34 +1359,61 @@ class App {
     })[character]);
   }
 
+  /** "6 Aug, 2:50 pm" -- the server sends a raw ISO timestamp. */
+  formatMoment(value) {
+    if (!value) return '';
+    const when = new Date(String(value).replace(' ', 'T'));
+    if (Number.isNaN(when.getTime())) return String(value);
+    return when.toLocaleString('en-IN', {
+      day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true
+    });
+  }
+
+  /** One deposit or withdrawal, as a row. */
+  walletHistoryRow(item, subtitle) {
+    return `
+      <article class="wallet-history-row">
+        <strong>${this.escapeHtml(item.order_id || item.id)}</strong><b>₹${Number(item.amount).toFixed(2)}</b>
+        <small>${subtitle}</small>
+        <span class="wallet-history-status ${this.escapeHtml(item.status)}">${this.escapeHtml(item.status)}</span>
+      </article>`;
+  }
+
+  /**
+   * Fill a history list, or show why it is empty.
+   *
+   * `limit` is for the short lists at the foot of the deposit and withdraw
+   * pages: the same records as the full history page, cut to the few most
+   * recent so they do not push the page down.
+   */
+  fillWalletHistory(id, rows, render, emptyLabel, limit = 0) {
+    const list = document.getElementById(id);
+    if (!list) return;
+    const shown = limit ? rows.slice(0, limit) : rows;
+    list.innerHTML = shown.length
+      ? shown.map(render).join('')
+      : `<div class="${limit ? 'money-recent-empty' : 'club-no-data'}">`
+        + `<i class="bi bi-file-earmark-x-fill"></i><span>${emptyLabel}</span></div>`;
+  }
+
   async syncWalletHistory() {
     try {
       const [depositData, withdrawalData] = await Promise.all([
         this.fetchApi('/api/wallet/deposits'),
         this.fetchApi('/api/wallet/withdrawals')
       ]);
-      const depositList = document.getElementById('user-deposit-history-list');
-      if (depositList) {
-        depositList.innerHTML = depositData.deposits?.length
-          ? depositData.deposits.map(item => `
-            <article class="wallet-history-row">
-              <strong>${this.escapeHtml(item.order_id || item.id)}</strong><b>₹${Number(item.amount).toFixed(2)}</b>
-              <small>UTR ${this.escapeHtml(item.utr)} · ${this.escapeHtml(item.timestamp)}</small>
-              <span class="wallet-history-status ${this.escapeHtml(item.status)}">${this.escapeHtml(item.status)}</span>
-            </article>`).join('')
-          : '<div class="club-no-data"><i class="bi bi-file-earmark-x-fill"></i><span>No deposits yet</span></div>';
-      }
-      const withdrawalList = document.getElementById('user-withdraw-history-list');
-      if (withdrawalList) {
-        withdrawalList.innerHTML = withdrawalData.withdrawals?.length
-          ? withdrawalData.withdrawals.map(item => `
-            <article class="wallet-history-row">
-              <strong>${this.escapeHtml(item.id)}</strong><b>₹${Number(item.amount).toFixed(2)}</b>
-              <small>${this.escapeHtml(item.upi_id)} · ${this.escapeHtml(item.timestamp)}</small>
-              <span class="wallet-history-status ${this.escapeHtml(item.status)}">${this.escapeHtml(item.status)}</span>
-            </article>`).join('')
-          : '<div class="club-no-data"><i class="bi bi-file-earmark-x-fill"></i><span>No withdrawals yet</span></div>';
-      }
+      const deposits = depositData.deposits || [];
+      const withdrawals = withdrawalData.withdrawals || [];
+      const asDeposit = item => this.walletHistoryRow(item,
+        `UTR ${this.escapeHtml(item.utr)} · ${this.escapeHtml(this.formatMoment(item.timestamp))}`);
+      const asWithdrawal = item => this.walletHistoryRow(item,
+        `${this.escapeHtml(item.upi_id)} · ${this.escapeHtml(this.formatMoment(item.timestamp))}`);
+
+      this.fillWalletHistory('user-deposit-history-list', deposits, asDeposit, 'No deposits yet');
+      this.fillWalletHistory('user-withdraw-history-list', withdrawals, asWithdrawal, 'No withdrawals yet');
+      // The same records at the foot of the pages they were made on.
+      this.fillWalletHistory('deposit-recent-list', deposits, asDeposit, 'No deposits yet', 5);
+      this.fillWalletHistory('withdraw-recent-list', withdrawals, asWithdrawal, 'No withdrawals yet', 5);
     } catch {}
   }
 
@@ -2660,11 +2778,37 @@ class App {
     host.dataset.rendered = '1';
   }
 
+  /**
+   * Online or offline, from the player's last tracked heartbeat.
+   *
+   * The tracker only beats while the tab is visible, so this says "in the app
+   * now" rather than "has it open somewhere". Offline rows carry how long ago
+   * they were last seen, which is the useful part once they are not online.
+   */
+  renderPresenceCell(user) {
+    if (user.is_online) {
+      return '<span class="nd-presence is-online"><i></i>Online</span>';
+    }
+    return `<span class="nd-presence"><i></i>Offline</span>`
+      + `<span class="nd-player-sub">${this.escapeHtml(this.lastSeenLabel(user.last_seen_at))}</span>`;
+  }
+
+  /** "12m ago", "3d ago", or "Never seen" for a player who never loaded a page. */
+  lastSeenLabel(timestamp) {
+    if (!timestamp) return 'Never seen';
+    const seen = new Date(timestamp.replace(' ', 'T'));
+    const minutes = Math.floor((Date.now() - seen.getTime()) / 60000);
+    if (Number.isNaN(minutes)) return '';
+    if (minutes < 60) return `${Math.max(1, minutes)}m ago`;
+    if (minutes < 1440) return `${Math.floor(minutes / 60)}h ago`;
+    return `${Math.floor(minutes / 1440)}d ago`;
+  }
+
   renderAdminUsers(users) {
     const body = document.getElementById('admin-users-table-body');
     if (!body) return;
     if (!users.length) {
-      body.innerHTML = `<tr><td colspan="6" class="nd-empty">No players yet</td></tr>`;
+      body.innerHTML = `<tr><td colspan="7" class="nd-empty">No players yet</td></tr>`;
       return;
     }
     body.innerHTML = users.map(u => {
@@ -2677,6 +2821,7 @@ class App {
             <span class="nd-player-name">${this.escapeHtml(u.username || '-')}</span>
             <span class="nd-player-sub">${this.escapeHtml(u.phone || '')} · ${this.escapeHtml(u.id)}</span>
           </td>
+          <td>${this.renderPresenceCell(u)}</td>
           <td data-user-balance>₹${Number(u.balance || 0).toFixed(2)}</td>
           <td class="nd-recharge" data-approved-total="${approved}">₹${approved.toFixed(2)}</td>
           <td class="admin-game-access">${this.renderUserAccessCell(u.id, approved, Boolean(u.game_access_enabled))}</td>
@@ -3788,6 +3933,13 @@ class App {
         }
       }
 
+      const blocked = this.withdrawBlockReason(amount);
+      if (blocked) {
+        this.renderWithdrawHint();
+        this.showToast(blocked, 'error');
+        return;
+      }
+
       try {
         await this.fetchApi('/api/wallet/withdraw', 'POST', { amount, upi_id });
         this.showToast(`${this.withdrawMethod === 'bank' ? 'Bank' : 'UPI'} withdrawal request submitted!`, 'success');
@@ -3800,6 +3952,22 @@ class App {
     };
     document.getElementById('form-withdrawal')?.addEventListener('submit', submitWithdrawal);
     document.getElementById('withdraw-submit-button')?.addEventListener('click', submitWithdrawal);
+
+    const withdrawAmount = document.getElementById('withdraw-amount-input');
+    document.querySelectorAll('[data-withdraw-amount]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('[data-withdraw-amount]')
+          .forEach(item => item.classList.remove('active'));
+        chip.classList.add('active');
+        if (withdrawAmount) withdrawAmount.value = chip.dataset.withdrawAmount;
+        this.renderWithdrawHint();
+      });
+    });
+    withdrawAmount?.addEventListener('input', () => {
+      document.querySelectorAll('[data-withdraw-amount]').forEach(item =>
+        item.classList.toggle('active', item.dataset.withdrawAmount === withdrawAmount.value));
+      this.renderWithdrawHint();
+    });
 
     // Admin Add QR Form Submit
   }
@@ -3945,8 +4113,16 @@ class App {
     this.tracker?.pageView(pageId);
     if (pageId === 'auth') this.tracker?.event('auth_view');
 
-    if (pageId === 'deposit-history' || pageId === 'withdraw-history') {
+    // The deposit and withdraw pages carry a short history of their own now,
+    // so they need the same sync the full history pages do.
+    if (['deposit-history', 'withdraw-history', 'recharge', 'withdraw'].includes(pageId)) {
       this.syncWalletHistory();
+      // And the balance straight from the server: these are the two screens
+      // where acting on a stale figure actually costs the player something.
+      void this.syncUserAccess().then(() => {
+        this.render(appState.getState());
+        this.renderWithdrawHint();
+      });
     }
     if (pageId === 'promotion') {
       void this.loadReferrals();
