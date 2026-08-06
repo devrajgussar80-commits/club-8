@@ -15,7 +15,10 @@ loads it straight into an <img> on the home screen. It serves artwork, not
 anything private.
 """
 
+import io
+
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from PIL import Image, UnidentifiedImageError
 
 from database import get_db_connection
 from deps import require_admin
@@ -55,6 +58,36 @@ ALLOWED = {
 }
 MAX_BYTES = 4 * 1024 * 1024
 
+# A lobby tile is about 180 CSS pixels wide, so this is already generous at 3x
+# and still a fraction of a 4K upload. Eighteen originals is tens of megabytes
+# on a phone, which is long enough for the bundled artwork to sit on screen
+# waiting -- the whole reason covers appeared to "change" after loading.
+THUMB_BOX = (720, 960)
+THUMB_TYPE = "image/webp"
+
+
+def _make_thumb(data: bytes):
+    """Rescale an upload to tile size. Returns None if it cannot be read.
+
+    SVG is already small and resolution-independent, so it is left alone --
+    Pillow cannot open it anyway, which is what the None path covers.
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image = image.convert("RGBA" if image.mode in ("RGBA", "LA", "P") else "RGB")
+            image.thumbnail(THUMB_BOX, Image.LANCZOS)
+            out = io.BytesIO()
+            image.save(out, format="WEBP", quality=82, method=4)
+            return out.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None
+
+
+def _version(uploaded_at, size_bytes) -> str:
+    """Short token that changes whenever the artwork does."""
+    stamp = int(uploaded_at.timestamp()) if uploaded_at else 0
+    return f"{stamp:x}{int(size_bytes or 0):x}"
+
 
 @router.get("/api/covers")
 def public_covers():
@@ -64,20 +97,37 @@ def public_covers():
     routing every tile through the API -- the frontend is served from a static
     host, and the bundled art should keep working even if the API is down.
     """
-    conn = get_db_connection()
+    conn = get_db_connection(readonly=True)
     try:
-        rows = conn.execute("SELECT game FROM game_covers").fetchall()
+        rows = conn.execute(
+            "SELECT game, uploaded_at, size_bytes FROM game_covers"
+        ).fetchall()
     finally:
         conn.close()
-    return {"custom": [row["game"] for row in rows]}
+
+    # A version per cover, so the client can ask for an exact revision and keep
+    # it in the browser cache for good. Without one the tile had to re-check
+    # the API on every load, and the bundled art showed until it answered.
+    versions = {
+        row["game"]: _version(row["uploaded_at"], row["size_bytes"])
+        for row in rows
+    }
+    return {"custom": sorted(versions), "versions": versions}
 
 
 @router.get("/api/cover/{game}")
-def serve_cover(game: str):
-    conn = get_db_connection()
+def serve_cover(game: str, v: str = "", full: bool = False):
+    """The cover a lobby tile shows.
+
+    Serves the rescaled copy, not the original: `full=true` is for the admin
+    panel, which is reviewing the actual upload.
+    """
+    conn = get_db_connection(readonly=True)
     try:
         row = conn.execute(
-            "SELECT data, content_type FROM game_covers WHERE game = ?", (game,)
+            "SELECT data, content_type, uploaded_at, size_bytes, thumb, thumb_type "
+            "FROM game_covers WHERE game = ?",
+            (game,),
         ).fetchone()
     finally:
         conn.close()
@@ -85,13 +135,50 @@ def serve_cover(game: str):
     if not row or not row["data"]:
         raise HTTPException(status_code=404, detail="No custom cover for this game.")
 
-    return Response(
-        content=bytes(row["data"]),
-        media_type=row["content_type"] or "image/png",
-        # Uploads replace the row in place, so a long cache would keep serving
-        # the old art. Short and revalidating rather than immutable.
-        headers={"Cache-Control": "public, max-age=60, must-revalidate"},
+    body, media = bytes(row["data"]), row["content_type"] or "image/png"
+    if not full:
+        if row["thumb"]:
+            body, media = bytes(row["thumb"]), row["thumb_type"] or THUMB_TYPE
+        else:
+            # Uploaded before rescaling existed. Build it now and keep it, so
+            # this costs one request per cover rather than every request.
+            made = _make_thumb(body)
+            if made:
+                body, media = made, THUMB_TYPE
+                _store_thumb(game, made)
+
+    # A request that names a version is asking for that exact image, and the
+    # version changes on every upload -- so it can be cached for good. Without
+    # one the URL is "whatever is current", which must be revalidated.
+    current = _version(row["uploaded_at"], row["size_bytes"])
+    cache = (
+        "public, max-age=31536000, immutable"
+        if v and v == current
+        else "public, max-age=60, must-revalidate"
     )
+
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Cache-Control": cache},
+    )
+
+
+def _store_thumb(game: str, thumb: bytes) -> None:
+    """Keep a thumbnail built on the fly. Failure here is not worth an error:
+    the image has already been rescaled and is about to be served either way.
+    """
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "UPDATE game_covers SET thumb = ?, thumb_type = ? WHERE game = ?",
+            (thumb, THUMB_TYPE, game),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 @router.get("/api/admin/covers")
@@ -113,7 +200,11 @@ def list_covers(_: bool = Depends(require_admin)):
         out.append({
             "game": game,
             "label": label,
-            "default_url": f"assets/covers/{slug}.svg",
+            # What the lobby actually shows. `export_covers.py` writes these
+            # from the uploads below, so this is the live artwork, not a
+            # fallback -- the lobby no longer reads covers from the database.
+            "live_url": f"assets/covers/{slug}.webp",
+            "default_url": f"assets/covers/{slug}.webp",
             "custom": bool(custom),
             "filename": custom["filename"] if custom else None,
             "size_bytes": int(custom["size_bytes"] or 0) if custom else 0,
@@ -145,20 +236,27 @@ async def upload_cover(game: str, file: UploadFile = File(...), _: bool = Depend
                    f"{MAX_BYTES // 1048576} MB.",
         )
 
+    thumb = _make_thumb(data)
+
     conn = get_db_connection()
     try:
         conn.execute(
             """
-            INSERT INTO game_covers (game, filename, content_type, data, size_bytes, uploaded_at)
-            VALUES (?, ?, ?, ?, ?, NOW())
+            INSERT INTO game_covers
+                (game, filename, content_type, data, size_bytes, uploaded_at,
+                 thumb, thumb_type)
+            VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)
             ON CONFLICT (game) DO UPDATE SET
                 filename = excluded.filename,
                 content_type = excluded.content_type,
                 data = excluded.data,
                 size_bytes = excluded.size_bytes,
-                uploaded_at = NOW()
+                uploaded_at = NOW(),
+                thumb = excluded.thumb,
+                thumb_type = excluded.thumb_type
             """,
-            (game, file.filename, content_type, data, len(data)),
+            (game, file.filename, content_type, data, len(data),
+             thumb, THUMB_TYPE if thumb else None),
         )
         conn.commit()
     except Exception:
