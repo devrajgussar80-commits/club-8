@@ -24,6 +24,7 @@ House edge, and where it comes from: 1 round in 33 crashes instantly at
 which is the point of a crash game -- no target is better than any other.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -151,12 +152,80 @@ class _Round:
 _current = None
 _history = []
 
+# Rounds are stored under the shared round table so they outlive the process.
+# Zero padded because `period` is text: without it "9" sorts after "10" and the
+# history comes back in the wrong order.
+_PERIOD_WIDTH = 12
+
+
+def _period(number: int) -> str:
+    return f"{number:0{_PERIOD_WIDTH}d}"
+
+
+def _load_from_db() -> int:
+    """Warm `_history` and return the number of the last round that finished.
+
+    The round counter and the results used to live only in this process, so a
+    restart -- a redeploy, or the host simply going to sleep -- put the game
+    back to round 1 with an empty history. A player opening XAviator then saw
+    no previous round at all, which is the bug this fixes; it also means the
+    crash seed chain carries on instead of replaying from the start.
+    """
+    global _history
+    conn = get_db_connection(readonly=True)
+    try:
+        rows = conn.execute(
+            "SELECT period, outcome FROM round_games "
+            "WHERE game = ? AND status = 'settled' AND outcome IS NOT NULL "
+            "ORDER BY period DESC LIMIT 25",
+            (GAME,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    _history = []
+    for row in rows:
+        try:
+            data = row["outcome"] if isinstance(row["outcome"], dict) else json.loads(row["outcome"])
+        except (TypeError, ValueError):
+            continue
+        _history.append({
+            "round": int(row["period"]),
+            "crash": float(data.get("crash", 1.0)),
+            "seed": data.get("seed", ""),
+        })
+    return _history[0]["round"] if _history else 0
+
+
+def _store_round(rnd: "_Round") -> None:
+    """Keep the result, whether or not anybody bet on it.
+
+    Rounds with no bets used to be dropped entirely, so a quiet spell left a
+    hole in the history and the game looked like it had only just started.
+    """
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO round_games (game, period, status, outcome, settled_at)
+            VALUES (?, ?, 'settled', ?, NOW())
+            ON CONFLICT (game, period) DO NOTHING
+            """,
+            (GAME, _period(rnd.number),
+             json.dumps({"crash": rnd.crash, "seed": server_seed(rnd.number)})),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        conn.close()
+
 
 def _advance(now: float) -> "_Round":
     """Return the live round, settling and rolling over any that have ended."""
     global _current
     if _current is None:
-        _current = _Round(1, now)
+        _current = _Round(_load_from_db() + 1, now)
         return _current
 
     while now >= _current.ends_at:
@@ -165,6 +234,23 @@ def _advance(now: float) -> "_Round":
     if now >= _current.crashed_at:
         _settle(_current)
     return _current
+
+
+async def run_clock() -> None:
+    """Keep the round clock turning with nobody watching.
+
+    `_advance` only ran when a request asked for the state, so the game did not
+    exist between visits: the first player to arrive started round 1 and there
+    was nothing behind them. Now it runs on its own, and a player who opens the
+    screen joins a game already in progress.
+    """
+    while True:
+        try:
+            await asyncio.to_thread(current_round)
+        except Exception:
+            # A database blip must not stop the clock permanently.
+            pass
+        await asyncio.sleep(1.0)
 
 
 def current_round() -> "_Round":
@@ -192,6 +278,7 @@ def _settle(rnd: "_Round") -> None:
 
     _record_round(rnd, payouts)
 
+    _store_round(rnd)
     _history.insert(0, {"round": rnd.number, "crash": rnd.crash, "seed": server_seed(rnd.number)})
     del _history[25:]
 

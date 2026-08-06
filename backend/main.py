@@ -54,10 +54,14 @@ async def lifespan(_: FastAPI):
     # Fish vs Tiger and Vortex settle on their own clock for the same reason,
     # so no player's poll ever pays for a round boundary.
     table_clock = asyncio.create_task(shared_rounds.run_clock())
+    # XAviator too: its rounds only advanced when a request asked for them, so
+    # the game did not exist between visits and the first player to arrive
+    # started it from round one with nothing behind them.
+    aviator_clock = asyncio.create_task(aviator.run_clock())
     try:
         yield
     finally:
-        for task in (clock, table_clock):
+        for task in (clock, table_clock, aviator_clock):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
