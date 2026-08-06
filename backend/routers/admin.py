@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 import auth as auth_helpers
 import config
 import referrals_core
-from database import get_db_connection
+from database import QR_CODE_COLUMNS, get_db_connection
 from deps import get_admin_user, require_admin
 from game_engine import python_engine
 from schemas import (
@@ -44,16 +44,38 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ADMIN_SESSION_DAYS = 30
 
+# A player counts as online while one of their tracked sessions is still
+# reporting. The tracker heartbeats only while the tab is VISIBLE, so this is
+# "using the app now" rather than "left it open in a background tab".
+ONLINE_WINDOW_MINUTES = 5
+
+QR_CODE_FIELDS = f"SELECT {QR_CODE_COLUMNS} FROM qr_codes"
+
 USERS_WITH_DEPOSIT_TOTALS = """
     SELECT u.id, u.phone, u.username, u.balance, u.status, u.created_at,
            u.referral_code, u.game_access_enabled,
            COALESCE(SUM(CASE WHEN d.status = 'approved' THEN d.amount ELSE 0 END), 0)
-               AS approved_deposit_total
+               AS approved_deposit_total,
+           (SELECT MAX(vs.last_seen_at) FROM visitor_sessions vs
+             WHERE vs.user_id = u.id) AS last_seen_at
     FROM users u
     LEFT JOIN upi_deposits d ON d.user_id = u.id
     GROUP BY u.id
     ORDER BY u.created_at DESC
 """
+
+
+def with_presence(rows):
+    """Tag each user row online or offline from its last tracked heartbeat."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=ONLINE_WINDOW_MINUTES)
+    out = []
+    for row in rows:
+        user = dict(row)
+        seen = user.get("last_seen_at")
+        user["is_online"] = bool(seen and seen > cutoff)
+        user["last_seen_at"] = str(seen) if seen else None
+        out.append(user)
+    return out
 
 FINANCIAL_SUMMARY = """
     SELECT
@@ -332,7 +354,7 @@ def get_admin_dashboard(_: bool = Depends(require_admin)):
     metrics = _round_metrics(cursor)
     financial = dict(cursor.execute(FINANCIAL_SUMMARY).fetchone())
 
-    users = [dict(u) for u in cursor.execute(USERS_WITH_DEPOSIT_TOTALS).fetchall()]
+    users = with_presence(cursor.execute(USERS_WITH_DEPOSIT_TOTALS).fetchall())
     deposits = [
         dict(r)
         for r in cursor.execute("SELECT * FROM upi_deposits ORDER BY timestamp DESC LIMIT 300").fetchall()
@@ -344,7 +366,7 @@ def get_admin_dashboard(_: bool = Depends(require_admin)):
         ).fetchall()
     ]
     qr_codes = [
-        dict(q) for q in cursor.execute("SELECT * FROM qr_codes ORDER BY created_at DESC").fetchall()
+        dict(q) for q in cursor.execute(QR_CODE_FIELDS + " ORDER BY created_at DESC").fetchall()
     ]
     conn.close()
 
@@ -432,7 +454,7 @@ def get_all_users(_: bool = Depends(require_admin)):
     conn = get_db_connection()
     users = conn.execute(USERS_WITH_DEPOSIT_TOTALS).fetchall()
     conn.close()
-    return {"users": [dict(u) for u in users]}
+    return {"users": with_presence(users), "online_window_minutes": ONLINE_WINDOW_MINUTES}
 
 
 @router.get("/users/daily")
@@ -978,7 +1000,7 @@ def reject_withdrawal(wth_id: str, _: bool = Depends(require_admin)):
 @router.get("/qr-codes")
 def get_admin_qr_codes(_: bool = Depends(require_admin)):
     conn = get_db_connection()
-    qrs = conn.execute("SELECT * FROM qr_codes ORDER BY created_at DESC").fetchall()
+    qrs = conn.execute(QR_CODE_FIELDS + " ORDER BY created_at DESC").fetchall()
     conn.close()
     return {"qr_codes": [dict(q) for q in qrs]}
 
@@ -1069,7 +1091,7 @@ def activate_admin_qr_code(qr_id: str, enabled: bool = True, _: bool = Depends(r
 @router.delete("/qr-codes/{qr_id}")
 def delete_admin_qr_code(qr_id: str, _: bool = Depends(require_admin)):
     conn = get_db_connection()
-    qr = conn.execute("SELECT * FROM qr_codes WHERE id = ?", (qr_id,)).fetchone()
+    qr = conn.execute(QR_CODE_FIELDS + " WHERE id = ?", (qr_id,)).fetchone()
     if not qr:
         conn.close()
         raise HTTPException(status_code=404, detail="QR code not found")

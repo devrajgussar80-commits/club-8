@@ -7,7 +7,7 @@ import threading
 import time
 from datetime import datetime
 
-from database import UniqueViolation, get_db_connection
+from database import QR_CODE_COLUMNS, UniqueViolation, get_db_connection
 
 
 ROOM_CONFIG = {
@@ -266,7 +266,8 @@ class PythonGameEngine:
         qrs = [
             dict(row)
             for row in conn.execute(
-                "SELECT * FROM qr_codes ORDER BY is_active DESC, created_at DESC"
+                f"SELECT {QR_CODE_COLUMNS} FROM qr_codes "
+                "ORDER BY is_active DESC, created_at DESC"
             ).fetchall()
         ]
         conn.close()

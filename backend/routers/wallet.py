@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 import config
-from database import get_db_connection
+from database import QR_CODE_COLUMNS, get_db_connection
 from deps import get_current_user
 from game_engine import python_engine
 from schemas import DepositOrderRequest, DepositRequest, WithdrawRequest
@@ -58,9 +58,9 @@ def create_deposit_order(req: DepositOrderRequest, current_user: dict = Depends(
     # you cannot COALESCE a timestamptz with an empty string.
     # FOR UPDATE serialises the rotation so two orders never take the same QR.
     qr = cursor.execute(
-        """SELECT * FROM qr_codes WHERE is_active = 1
-           ORDER BY last_used_at ASC NULLS FIRST, created_at ASC
-           LIMIT 1 FOR UPDATE"""
+        f"""SELECT {QR_CODE_COLUMNS} FROM qr_codes WHERE is_active = 1
+            ORDER BY last_used_at ASC NULLS FIRST, created_at ASC
+            LIMIT 1 FOR UPDATE"""
     ).fetchone()
     if not qr:
         conn.rollback()
@@ -131,7 +131,9 @@ def submit_deposit(req: DepositRequest, current_user: dict = Depends(get_current
     ).fetchone()
     qr_id = order["qr_id"] if order else req.qr_id
 
-    qr = cursor.execute("SELECT * FROM qr_codes WHERE id = ?", (qr_id,)).fetchone()
+    qr = cursor.execute(
+        f"SELECT {QR_CODE_COLUMNS} FROM qr_codes WHERE id = ?", (qr_id,)
+    ).fetchone()
     if not qr:
         conn.close()
         raise HTTPException(
