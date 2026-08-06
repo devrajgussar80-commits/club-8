@@ -14,7 +14,7 @@ from database import get_db_connection
 def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
         if config.ALLOW_DEMO_USER:
-            conn = get_db_connection()
+            conn = get_db_connection(readonly=True)
             user = conn.execute(
                 "SELECT * FROM users WHERE id = ?", (config.DEMO_USER_ID,)
             ).fetchone()
@@ -28,7 +28,9 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    conn = get_db_connection()
+    # Every authenticated request runs this, including the once-a-second game
+    # state polls, and it only ever reads.
+    conn = get_db_connection(readonly=True)
     user = conn.execute("SELECT * FROM users WHERE id = ?", (payload.get("user_id"),)).fetchone()
     conn.close()
 
@@ -105,7 +107,7 @@ def get_admin_user(authorization: Optional[str] = Header(None)) -> dict:
     if not payload or not payload.get("is_admin"):
         raise HTTPException(status_code=401, detail="Admin session required")
 
-    conn = get_db_connection()
+    conn = get_db_connection(readonly=True)
     user = conn.execute("SELECT * FROM users WHERE id = ?", (payload.get("user_id"),)).fetchone()
     conn.close()
     if not user or not user["is_admin"]:

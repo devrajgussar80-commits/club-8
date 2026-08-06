@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 import config
 import database
+import shared_rounds
 from game_engine import python_engine
 from routers import (
     admin,
@@ -50,12 +51,16 @@ async def lifespan(_: FastAPI):
     ticks lazily on every read. Both paths take the engine's tick lock.
     """
     clock = asyncio.create_task(python_engine.start_loop())
+    # Fish vs Tiger and Vortex settle on their own clock for the same reason,
+    # so no player's poll ever pays for a round boundary.
+    table_clock = asyncio.create_task(shared_rounds.run_clock())
     try:
         yield
     finally:
-        clock.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await clock
+        for task in (clock, table_clock):
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         # Hand the Postgres connections back before the process exits, so Neon
         # is not left holding sockets against the connection limit.
         database.close_pool()
@@ -78,9 +83,10 @@ def create_app() -> FastAPI:
     @application.middleware("http")
     async def disable_local_preview_cache(request, call_next):
         response = await call_next(request)
-        # QR images are immutable per id and are loaded on every deposit
-        # screen, so they keep the cache headers their route already set.
-        if request.url.path.startswith("/api/qr-image/"):
+        # Images keep whatever their route decided. QR codes are immutable per
+        # id, and a cover URL names the exact revision it wants -- caching them
+        # is the point, and stamping no-store here would defeat it.
+        if request.url.path.startswith(("/api/qr-image/", "/api/cover/")):
             return response
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
         response.headers["Pragma"] = "no-cache"

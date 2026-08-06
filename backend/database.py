@@ -33,6 +33,18 @@ if not DATABASE_URL:
     )
 
 
+# Every column of qr_codes except the uploaded image itself.
+#
+# Never "SELECT *" from this table: image_data is raw bytes, and bytes in a
+# JSON response cannot be encoded -- once an admin uploaded a QR, the dashboard
+# returned 500 and the whole console came up empty. Callers get a has_image
+# flag instead; the image is served by /api/qr-image/{id}.
+QR_CODE_COLUMNS = (
+    "id, name, note, qr_url, upi_id, min_amount, max_amount, is_active, "
+    "created_at, last_used_at, (image_data IS NOT NULL) AS has_image, image_type"
+)
+
+
 class Row(dict):
     """Mapping row that also allows positional access.
 
@@ -94,6 +106,7 @@ class _Connection:
     def __init__(self, connection):
         self._connection = connection
         self._closed = False
+        self._readonly = False
 
     def execute(self, sql, params=None):
         return self.cursor().execute(sql, params)
@@ -111,12 +124,41 @@ class _Connection:
         if self._closed:
             return
         self._closed = True
-        # Roll back anything uncommitted so the connection goes back to the
-        # pool clean instead of holding an idle-in-transaction lock.
         try:
-            self._connection.rollback()
+            if self._readonly:
+                # Nothing to roll back: an autocommit connection never opened a
+                # transaction. Skipping it saves a network round trip, and put
+                # the connection back the way the pool handed it over.
+                self._connection.autocommit = False
+            else:
+                # Roll back anything uncommitted so the connection goes back to
+                # the pool clean instead of holding an idle-in-transaction lock.
+                self._connection.rollback()
         finally:
+            self._connection._club8_returned_at = time.monotonic()
             _pool().putconn(self._connection)
+
+
+# How long a connection may sit unused before it has to prove it is alive.
+# Neon only drops sockets after minutes of inactivity, so anything handed back
+# within this window is trusted without a probe.
+CHECK_AFTER_IDLE = 30.0
+
+
+def _check_if_idle(connection) -> None:
+    """Pool health check that skips the probe on a warm connection.
+
+    `ConnectionPool.check_connection` runs a query on every single checkout,
+    which is a full round trip to a database on another host -- on the game
+    state endpoints, polled every couple of seconds, that probe was about half
+    the response time. A connection returned to the pool a moment ago has not
+    had time to die, so it is only re-probed once it has been sitting idle long
+    enough for Neon to have suspended underneath it.
+    """
+    last = getattr(connection, "_club8_returned_at", None)
+    if last is not None and (time.monotonic() - last) < CHECK_AFTER_IDLE:
+        return
+    ConnectionPool.check_connection(connection)
 
 
 def _configure(connection) -> None:
@@ -140,7 +182,12 @@ def _pool() -> ConnectionPool:
     if _POOL is None:
         _POOL = ConnectionPool(
             DATABASE_URL,
-            min_size=1,
+            # Opening a Neon connection costs a TLS handshake, about two
+            # seconds. One request needs two of them (the auth lookup, then the
+            # work), and the background round clock holds one while it settles,
+            # so a pool that started at one had callers paying that handshake
+            # mid-request. Keep a few warm instead.
+            min_size=int(os.environ.get("DB_POOL_MIN", "4")),
             max_size=int(os.environ.get("DB_POOL_MAX", "10")),
             # Long enough to survive a Neon cold start, short enough that a
             # genuinely wrong URL still fails instead of hanging forever.
@@ -159,7 +206,7 @@ def _pool() -> ConnectionPool:
             # with it. Without this check the pool hands out a dead connection
             # and the next query fails with "server closed the connection
             # unexpectedly"; with it, the pool discards and reconnects.
-            check=ConnectionPool.check_connection,
+            check=_check_if_idle,
             # Same reason: do not keep a connection alive for hours hoping it
             # survives, recycle it well before Neon's idle timeout.
             max_idle=300,
@@ -168,8 +215,24 @@ def _pool() -> ConnectionPool:
     return _POOL
 
 
-def get_db_connection() -> _Connection:
-    return _Connection(_pool().getconn())
+def get_db_connection(readonly: bool = False) -> _Connection:
+    """Check a connection out of the pool.
+
+    `readonly=True` runs it in autocommit. Psycopg opens a transaction on the
+    first statement otherwise, which costs a BEGIN on the way in and a ROLLBACK
+    on the way back to the pool -- two extra round trips to a database on
+    another host, for a request that only ever reads. On the polled game state
+    endpoints that was over half the response time.
+
+    Only pass it when the work genuinely cannot write: without a transaction
+    there is nothing to roll back, so a multi-statement write would be able to
+    land half-applied.
+    """
+    conn = _Connection(_pool().getconn())
+    if readonly:
+        conn._readonly = True
+        conn._connection.autocommit = True
+    return conn
 
 
 def close_pool() -> None:
@@ -436,6 +499,14 @@ CREATE TABLE IF NOT EXISTS game_covers (
     size_bytes INTEGER,
     uploaded_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- What the lobby actually serves: the upload rescaled to tile size. The
+-- originals are 4K and a couple of megabytes each, and eighteen of those is
+-- tens of megabytes on a phone -- long enough that the bundled artwork sat on
+-- screen first. `data` above keeps the original untouched, so this is only
+-- ever a derived copy and can be rebuilt.
+ALTER TABLE game_covers ADD COLUMN IF NOT EXISTS thumb BYTEA;
+ALTER TABLE game_covers ADD COLUMN IF NOT EXISTS thumb_type TEXT;
 
 -- Shared-round games that are not WinGo or Dice (Fish vs Tiger, Vortex).
 -- One pair of tables keyed by `game` rather than a pair per title: these games

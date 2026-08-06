@@ -11,7 +11,11 @@
  */
 
 const money = value => Number(value || 0).toFixed(2);
-const POLL_MS = 1000;
+// The countdown runs locally; polling only resynchronises it. A poll to a
+// network database takes a second or more, so a clock driven straight off the
+// response visibly froze between them.
+const POLL_MS = 2000;
+const CLOCK_MS = 250;
 
 class RoundGameUI {
   constructor(options, config) {
@@ -43,6 +47,7 @@ class RoundGameUI {
     this.buildChips();
     this.betBtn?.addEventListener('click', () => this.placeBet());
     this.poll();
+    this.startClock();
   }
 
   isVisible() {
@@ -78,6 +83,47 @@ class RoundGameUI {
     });
   }
 
+  /**
+   * Tick the countdown between polls.
+   *
+   * `seconds_left` is only true at the instant the response was built, so it
+   * is stored with the time it arrived and counted down from there. Without
+   * this the number sat still for a second or more at a time and the round
+   * looked stuck even though the server was fine.
+   */
+  startClock() {
+    clearInterval(this.clockTimer);
+    this.clockTimer = setInterval(() => {
+      const visible = this.isVisible();
+      // Opening the game shows whatever the last poll left behind, which may
+      // be a round that ended while the player was elsewhere. Refresh on the
+      // way in rather than making them watch a stale clock until the next one.
+      if (visible && !this.wasVisible) this.poll();
+      this.wasVisible = visible;
+      if (!this.state || !visible) return;
+      const left = this.secondsLeft();
+      if (left === this.shownSecond) return;
+      const rolledOver = left === 0 && this.shownSecond > 0;
+      this.shownSecond = left;
+      this.render();
+      // The clock reaching zero means a new round has started. Fetch it now
+      // instead of sitting on 00:00 until the next scheduled poll comes round.
+      if (rolledOver) this.poll();
+    }, CLOCK_MS);
+  }
+
+  /** Seconds before the round ends in which bets stop being accepted. */
+  freeze() {
+    return Number(this.state?.freeze ?? 3);
+  }
+
+  /** Seconds left right now, not when the last response was built. */
+  secondsLeft() {
+    if (!this.state) return 0;
+    const elapsed = (Date.now() - (this.syncedAt || Date.now())) / 1000;
+    return Math.max(0, Math.round(this.state.seconds_left - elapsed));
+  }
+
   async poll() {
     clearTimeout(this.timer);
     if (this.isVisible() && this.canPlay()) {
@@ -89,6 +135,7 @@ class RoundGameUI {
   async sync() {
     const data = await this.api(`/api/games/${this.config.game}/state`);
     this.state = data;
+    this.syncedAt = Date.now();
     // Settlement credits winners without this client asking for anything, so
     // the authoritative balance comes back with every poll.
     if (typeof data.balance === 'number') this.setBalance(data.balance);
@@ -131,7 +178,7 @@ class RoundGameUI {
     if (this.busy || !this.selection) return;
     if (!this.canPlay()) return this.denyPlay();
     if (this.chip > this.getBalance()) return this.toast('Wallet balance kam hai.', 'error');
-    if (!this.state?.betting_open) return this.toast('Betting band hai — agla round rukiye.', 'error');
+    if (this.secondsLeft() <= this.freeze()) return this.toast('Betting band hai — agla round rukiye.', 'error');
 
     this.busy = true;
     this.render();
@@ -165,14 +212,17 @@ class RoundGameUI {
       button.dataset.staked = staked.has(key) ? `₹${staked.get(key)}` : '';
     });
 
+    const left = this.secondsLeft();
+    // Betting closes on the clock, not on the last response: the freeze is
+    // shorter than the poll interval, so waiting for the server to say so left
+    // a window where the button looked live but the bet would be rejected.
+    const open = Boolean(this.state) && left > this.freeze();
     if (this.clockEl) {
-      const left = this.state?.seconds_left ?? 0;
       this.clockEl.textContent = `00:${String(left).padStart(2, '0')}`;
-      this.clockEl.classList.toggle('is-closing', !this.state?.betting_open);
+      this.clockEl.classList.toggle('is-closing', !open);
     }
     if (this.statusEl && !this.busy) {
-      this.statusEl.textContent = this.state?.betting_open
-        ? 'Betting open' : 'Round closing…';
+      this.statusEl.textContent = open ? 'Betting open' : 'Round closing…';
     }
     if (this.slipEl) {
       this.slipEl.textContent = staked.size
@@ -180,7 +230,7 @@ class RoundGameUI {
         : 'Is round mein koi bet nahi';
     }
     if (this.betBtn) {
-      this.betBtn.disabled = this.busy || !this.selection || !this.state?.betting_open;
+      this.betBtn.disabled = this.busy || !this.selection || !open;
       this.betBtn.textContent = this.selection
         ? `Bet ₹${this.chip} on ${this.selection}` : 'Pick a side';
     }
