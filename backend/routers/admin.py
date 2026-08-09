@@ -10,7 +10,7 @@ import subprocess
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
 import auth as auth_helpers
 import config
@@ -47,6 +47,12 @@ from settings_store import (
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 ADMIN_SESSION_DAYS = 30
+
+# Staff photos. Smaller cap than the game artwork on purpose -- these render
+# at avatar size in two lists, and a 5 MB portrait would be re-downloaded on
+# every dashboard poll for no visible gain.
+PHOTO_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
+PHOTO_MAX_BYTES = 2 * 1024 * 1024
 
 # A player counts as online while one of their tracked sessions is still
 # reporting. The tracker heartbeats only while the tab is VISIBLE, so this is
@@ -1046,12 +1052,14 @@ def team_create(req: TeamCreateRequest, _: bool = Depends(require_admin)):
 
         user_id = f"USR{uuid.uuid4().hex[:10].upper()}"
         own_code = referrals_core.new_user_code(conn)
+        # is_employee is set here, not derived from the win rate: an operator
+        # may well want a recruiter on 0% who still signs in to the portal.
         cursor.execute(
             """
             INSERT INTO users
                 (id, phone, username, password_hash, balance, status,
-                 referral_code, game_access_enabled, team_win_rate)
-            VALUES (?, ?, ?, ?, 0, 'active', ?, 1, ?)
+                 referral_code, game_access_enabled, team_win_rate, is_employee)
+            VALUES (?, ?, ?, ?, 0, 'active', ?, 1, ?, 1)
             """,
             (
                 user_id,
@@ -1085,6 +1093,8 @@ def team_list(_: bool = Depends(require_admin)):
             """
             SELECT u.id, u.phone, u.username, u.balance, u.status,
                    u.referral_code, u.team_win_rate, u.created_at,
+                   u.is_employee, u.photo IS NOT NULL AS has_photo,
+                   u.photo_updated_at,
                    COALESCE(dep.total, 0) AS own_deposits
             FROM users u
             LEFT JOIN (
@@ -1135,6 +1145,14 @@ def team_list(_: bool = Depends(require_admin)):
                 "status": m["status"],
                 "referral_code": m["referral_code"],
                 "win_rate": float(m["team_win_rate"] or 0),
+                "is_employee": bool(m["is_employee"]),
+                "has_photo": bool(m["has_photo"]),
+                # Cache buster for the dashboard's <img>: the photo lives at a
+                # URL keyed only by user id, so without this a replacement
+                # would keep showing the old picture.
+                "photo_version": (
+                    m["photo_updated_at"].isoformat() if m["photo_updated_at"] else None
+                ),
                 "own_deposits": float(m["own_deposits"] or 0),
                 "referrals": refs,
                 "referral_count": len(refs),
@@ -1155,10 +1173,90 @@ def team_update(user_id: str, req: TeamUpdateRequest, _: bool = Depends(require_
         conn.execute(
             "UPDATE users SET team_win_rate = ? WHERE id = ?", (float(req.win_rate), user_id)
         )
+        # Only when asked. Sending just a win rate must not take away a
+        # portal login as a side effect of nudging someone to 0%.
+        if req.is_employee is not None:
+            conn.execute(
+                "UPDATE users SET is_employee = ? WHERE id = ?",
+                (1 if req.is_employee else 0, user_id),
+            )
         conn.commit()
     finally:
         conn.close()
     return {"status": "success", "id": user_id, "win_rate": float(req.win_rate)}
+
+
+@router.post("/team/{user_id}/photo")
+async def team_photo_upload(
+    user_id: str, file: UploadFile = File(...), _: bool = Depends(require_admin)
+):
+    """Store a staff photo on the user row.
+
+    In the database rather than on disk for the same reason as the deposit QR
+    and the cover art: the host wipes its filesystem on every deploy, so a
+    file written to disk lasts until the next push and then quietly 404s.
+    """
+    content_type = (file.content_type or "").lower()
+    if content_type not in PHOTO_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Use a PNG, JPG or WEBP. Got {content_type or 'an unknown type'}.",
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="That file is empty.")
+    if len(data) > PHOTO_MAX_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too large: {len(data) / 1048576:.1f} MB. Keep it under "
+                   f"{PHOTO_MAX_BYTES // 1048576} MB.",
+        )
+
+    conn = get_db_connection()
+    try:
+        if not conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute(
+            "UPDATE users SET photo = ?, photo_type = ?, photo_updated_at = NOW() "
+            "WHERE id = ?",
+            (data, content_type, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id, "size_bytes": len(data)}
+
+
+@router.delete("/team/{user_id}/photo")
+def team_photo_delete(user_id: str, _: bool = Depends(require_admin)):
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET photo = NULL, photo_type = NULL, photo_updated_at = NULL "
+            "WHERE id = ?",
+            (user_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id}
+
+
+@router.get("/team/{user_id}/photo")
+def team_photo_get(user_id: str, _: bool = Depends(require_admin)):
+    """The dashboard's copy of a staff photo, so the Team tab can show it."""
+    conn = get_db_connection(readonly=True)
+    try:
+        row = conn.execute(
+            "SELECT photo, photo_type FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or not dict(row)["photo"]:
+        raise HTTPException(status_code=404, detail="No photo for this account")
+    r = dict(row)
+    return Response(content=bytes(r["photo"]), media_type=r["photo_type"] or "image/jpeg",
+                    headers={"Cache-Control": "private, max-age=300"})
 
 
 # ----------------- WITHDRAWALS -----------------

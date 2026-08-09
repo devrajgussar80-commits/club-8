@@ -115,5 +115,33 @@ def get_admin_user(authorization: Optional[str] = Header(None)) -> dict:
     return dict(user)
 
 
+def get_employee_user(authorization: Optional[str] = Header(None)) -> dict:
+    """The signed-in staff account, for every /api/employee route.
+
+    Deliberately re-reads `is_employee` from the row rather than trusting the
+    claim in the token: revoking someone's portal access has to take effect on
+    their next request, not whenever their week-long token happens to expire.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Please sign in to continue")
+    payload = auth.decode_access_token(authorization.split(" ", 1)[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    conn = get_db_connection(readonly=True)
+    user = conn.execute("SELECT * FROM users WHERE id = ?", (payload.get("user_id"),)).fetchone()
+    conn.close()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    row = dict(user)
+    if not row.get("is_employee"):
+        raise HTTPException(status_code=403, detail="This account is not an employee account")
+    if row.get("status") == "disabled":
+        raise HTTPException(status_code=403, detail="Your account has been suspended by Admin.")
+    return row
+
+
 AdminAuth = Depends(require_admin)
 CurrentUser = Depends(get_current_user)
+EmployeeUser = Depends(get_employee_user)

@@ -24,6 +24,7 @@ from routers import (
     analytics,
     app_download,
     auth,
+    employee,
     game,
     pages,
     referrals,
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     application.include_router(wallet.router)
     application.include_router(referrals.router)
     application.include_router(app_download.router)
+    application.include_router(employee.router)
     application.include_router(admin.router)
     application.include_router(admin_games.router)
     application.include_router(admin_covers.router)

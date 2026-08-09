@@ -19,6 +19,7 @@ INDEX_HTML = os.path.join(config.FRONTEND_DIR, "index.html")
 # markup was live at once, so player-facing overlays could paint over the
 # console and each side had to keep opting out of the other by pathname.
 ADMIN_HTML = os.path.join(config.FRONTEND_DIR, "admin.html")
+EMPLOYEE_HTML = os.path.join(config.FRONTEND_DIR, "employee.html")
 DOWNLOAD_HTML = os.path.join(config.FRONTEND_DIR, "download.html")
 
 
@@ -97,3 +98,10 @@ def serve_download():
 @router.get("/admin", response_class=FileResponse)
 def serve_admin():
     return FileResponse(ADMIN_HTML)
+
+
+@router.get("/employee", response_class=FileResponse)
+def serve_employee():
+    """The staff portal. Its own document, like the admin console -- it shares
+    no markup with the player app and should not carry its weight."""
+    return FileResponse(EMPLOYEE_HTML)

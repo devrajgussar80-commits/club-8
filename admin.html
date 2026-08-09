@@ -444,8 +444,8 @@
           <h3>Team accounts <small>players set to win most of the time</small></h3>
         </div>
         <div class="nd-control-card" style="margin-bottom:16px">
-          <h4><i class="bi bi-person-plus-fill"></i> Create team account</h4>
-          <p class="nd-hint">Win rate applies to single-player games (Slots, Mega Slots, Roulette). Shared-round games (WinGo, Dice) deal one result to everyone and cannot be tilted per player.</p>
+          <h4><i class="bi bi-person-plus-fill"></i> Create employee account</h4>
+          <p class="nd-hint">These accounts sign in at <code>/employee</code>, where they can see their own referrals, chain and earnings — nothing else. Win rate applies to single-player games (Slots, Mega Slots, Roulette); shared-round games (WinGo, Dice) deal one result to everyone and cannot be tilted per player. Leave it at 0 for a recruiter who never plays.</p>
           <form id="admin-team-form" class="nd-form-row">
             <input id="team-username" class="form-control" placeholder="Name" required>
             <input id="team-phone" class="form-control" placeholder="Mobile number" required>
@@ -453,6 +453,16 @@
             <input id="team-winrate" class="form-control" type="number" min="0" max="100" value="80" placeholder="Win %">
             <button class="btn-primary" type="submit"><i class="bi bi-plus-lg"></i> Create</button>
           </form>
+          <div class="nd-photo-row" style="margin-top:14px">
+            <div id="team-photo-preview" class="nd-photo-preview"><i class="bi bi-person-fill"></i></div>
+            <div>
+              <input id="team-photo" class="form-control" type="file" accept="image/png,image/jpeg,image/webp">
+              <p class="nd-hint" style="margin:6px 0 0">
+                Optional. PNG, JPG or WEBP up to 2 MB — uploaded straight after the
+                account is created, and shown to the whole team in their portal.
+              </p>
+            </div>
+          </div>
         </div>
         <div id="admin-team-list" class="nd-daily"></div>
       </section>

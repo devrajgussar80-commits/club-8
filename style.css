@@ -9268,3 +9268,138 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
 /* Four money limits side by side, so min and max read as a pair. */
 .nd-limit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 420px) { .nd-limit-grid { grid-template-columns: 1fr; } }
+
+/* ============================================================ EMPLOYEE PORTAL
+   The staff portal at /employee. Rides on the admin console's dark shell
+   (.admin-mode) and its .nd-* panel, table and KPI classes; everything below
+   is only what the portal adds on top. */
+
+.emp-mode { min-height: 100vh; }
+
+.emp-gate {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; padding: 24px;
+}
+.emp-gate-card {
+  width: 100%; max-width: 380px; padding: 28px 24px 24px;
+  background: var(--nd-card, #131a2b); border: 1px solid var(--nd-line, #223052);
+  border-radius: 18px; box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+}
+.emp-brand { font-family: Outfit, Inter, sans-serif; font-weight: 800; letter-spacing: .06em; opacity: .85; }
+.emp-brand span {
+  display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 6px;
+  border-radius: 8px; background: linear-gradient(135deg, #f0b429, #e8590c); color: #10131c;
+}
+.emp-gate-card h1 { margin: 14px 0 4px; font-size: 1.5rem; }
+.emp-gate-sub { margin: 0 0 18px; font-size: .86rem; opacity: .7; }
+.emp-gate-card .nd-field { margin-bottom: 14px; }
+.emp-gate-card .btn-primary { width: 100%; margin-top: 6px; }
+.emp-remember { display: flex; align-items: center; gap: 8px; font-size: .84rem; opacity: .8; margin-bottom: 14px; }
+.emp-gate-error {
+  margin: 0 0 12px; padding: 9px 12px; border-radius: 10px; font-size: .84rem;
+  background: rgba(220, 53, 69, .14); border: 1px solid rgba(220, 53, 69, .4); color: #ffb3ba;
+}
+
+.emp-app { max-width: 1080px; margin: 0 auto; padding: 18px 16px 60px; }
+
+.emp-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--nd-line, #223052);
+}
+.emp-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.emp-identity strong { display: block; font-size: 1.05rem; }
+.emp-identity small { display: block; font-size: .78rem; opacity: .62; }
+.emp-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.emp-avatar {
+  display: grid; place-items: center; flex-shrink: 0;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: #1c2540 center/cover no-repeat; border: 1px solid var(--nd-line, #223052);
+  font-size: 1.2rem; opacity: .9;
+}
+.emp-avatar.has-photo { border-color: rgba(240, 180, 41, .55); }
+.emp-avatar-sm { width: 34px; height: 34px; font-size: .9rem; }
+
+.emp-invite {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px; justify-content: space-between;
+  padding: 16px; margin-bottom: 18px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(240, 180, 41, .12), rgba(232, 89, 12, .08));
+  border: 1px solid rgba(240, 180, 41, .3);
+}
+.emp-invite-label { display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; opacity: .65; }
+.emp-code { font-family: Outfit, monospace; font-size: 1.5rem; letter-spacing: .1em; }
+.emp-invite-link { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.emp-invite-link code {
+  padding: 8px 12px; border-radius: 9px; font-size: .8rem; word-break: break-all;
+  background: rgba(0, 0, 0, .28); border: 1px solid var(--nd-line, #223052);
+}
+
+.emp-tabs { margin-bottom: 16px; }
+.emp-panel { margin-bottom: 18px; }
+.emp-filter { margin-left: auto; }
+
+.emp-yes { color: #4ade80; font-weight: 600; }
+.emp-no { color: #94a3b8; }
+.emp-wait { color: #fbbf24; font-weight: 600; }
+
+/* Chain: nested lists with a rule down the left, so depth reads at a glance
+   without needing a colour per level. */
+.emp-chain-list { list-style: none; margin: 0; padding: 0 0 0 18px; }
+.emp-chain > .emp-chain-list { padding-left: 0; }
+.emp-chain-list .emp-chain-list { border-left: 2px solid var(--nd-line, #223052); margin-left: 10px; }
+.emp-chain-node {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 9px 12px; margin: 6px 0; border-radius: 10px;
+  background: var(--nd-card, #131a2b); border: 1px solid var(--nd-line, #223052);
+}
+.emp-depth {
+  padding: 2px 7px; border-radius: 6px; font-size: .7rem; font-weight: 700;
+  background: rgba(240, 180, 41, .16); color: #f0b429;
+}
+.emp-chain-node small { opacity: .6; font-size: .78rem; }
+
+.emp-earnings { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.emp-earn-card {
+  padding: 16px; border-radius: 13px;
+  background: var(--nd-card, #131a2b); border: 1px solid var(--nd-line, #223052);
+}
+.emp-earn-card span { display: block; font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; opacity: .6; }
+.emp-earn-card strong { display: block; margin: 6px 0 4px; font-size: 1.5rem; font-family: Outfit, sans-serif; }
+.emp-earn-card small { font-size: .76rem; opacity: .6; }
+.emp-earn-paid { border-color: rgba(74, 222, 128, .4); }
+.emp-earn-paid strong { color: #4ade80; }
+.emp-earn-wait { border-color: rgba(251, 191, 36, .4); }
+.emp-earn-wait strong { color: #fbbf24; }
+
+.emp-colleagues { display: flex; flex-direction: column; gap: 8px; }
+.emp-colleague {
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  border-radius: 12px; background: var(--nd-card, #131a2b); border: 1px solid var(--nd-line, #223052);
+}
+.emp-colleague.is-me { border-color: rgba(240, 180, 41, .5); background: rgba(240, 180, 41, .07); }
+.emp-rank { width: 24px; font-family: Outfit, sans-serif; font-weight: 700; opacity: .5; text-align: center; }
+.emp-colleague-who { flex: 1; min-width: 0; }
+.emp-colleague-who strong { display: block; font-size: .94rem; }
+.emp-colleague-who em { font-style: normal; opacity: .6; font-weight: 500; }
+.emp-colleague-who small { font-size: .74rem; opacity: .55; }
+.emp-colleague-nums { display: flex; flex-wrap: wrap; gap: 14px; font-size: .78rem; opacity: .8; }
+.emp-colleague-nums b { font-family: Outfit, sans-serif; }
+
+.emp-status { margin-top: 18px; font-size: .76rem; opacity: .45; text-align: center; }
+
+/* The admin Team tab's photo control. */
+.nd-photo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.nd-photo-preview {
+  width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: #1c2540 center/cover no-repeat; border: 1px solid var(--nd-line, #223052);
+}
+
+@media (max-width: 640px) {
+  .emp-invite { flex-direction: column; align-items: stretch; }
+  .emp-invite-link { flex-direction: column; align-items: stretch; }
+  .emp-invite-link .btn-primary, .emp-invite-link .nd-ghost { width: 100%; }
+  .emp-colleague { flex-wrap: wrap; }
+  .emp-colleague-nums { width: 100%; padding-left: 36px; }
+  .emp-header { flex-direction: column; align-items: flex-start; }
+}

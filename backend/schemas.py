@@ -54,6 +54,14 @@ class TeamCreateRequest(BaseModel):
 
 class TeamUpdateRequest(BaseModel):
     win_rate: float = Field(ge=0, le=100)
+    # Portal access, independent of the win rate. None leaves it as it is, so
+    # a dashboard that only sends a win rate cannot revoke someone's login.
+    is_employee: Optional[bool] = Field(default=None)
+
+
+class EmployeeLoginRequest(BaseModel):
+    phone: str = Field(min_length=4, max_length=32)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class AdminCredentialsRequest(BaseModel):

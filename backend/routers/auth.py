@@ -137,9 +137,19 @@ def get_profile(current_user: dict = Depends(get_current_user)):
 
     user_data = dict(current_user)
     user_data.pop("password_hash", None)
-    # How the run is going is the server's business. Handing the player their
-    # own target and progress would tell them exactly when the boost stops.
-    for column in ("luck_target", "luck_progress", "luck_done", "team_win_rate"):
+    # This route returns the whole row minus what is dropped here, so every
+    # column added to `users` lands in a player's profile until it is named.
+    #
+    # luck_*/team_win_rate: how the run is going is the server's business --
+    #   handing the player their target and progress would tell them exactly
+    #   when the boost stops.
+    # photo: raw BYTEA. An employee who also signs into the player app would
+    #   otherwise get their own portrait serialised into this response, which
+    #   is not JSON and would 500 the one route the app cannot start without.
+    for column in (
+        "luck_target", "luck_progress", "luck_done", "team_win_rate",
+        "photo", "photo_type", "photo_updated_at",
+    ):
         user_data.pop(column, None)
 
     user_data["approved_deposit_total"] = approved_total

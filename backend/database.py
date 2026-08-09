@@ -167,14 +167,25 @@ def _check_if_idle(connection) -> None:
 def _configure(connection) -> None:
     """Point a freshly opened connection at DB_SCHEMA.
 
-    Production runs on `public`, so this is a no-op there. Tests set a
-    throwaway schema, and for those TEST_DATABASE_URL must be Neon's *direct*
-    string (host without "-pooler") -- in the pooler's transaction mode a SET
-    does not survive between transactions.
+    Set unconditionally, `public` included. It used to be skipped there on the
+    grounds that public is already the default -- but the default is a
+    property of the *server* connection, and behind Neon's pgbouncer those are
+    handed round between clients. One process that runs `SET search_path` to
+    something else (the test suite, pointed at a throwaway schema) leaves that
+    setting on the server connection, and the next client to be given it
+    inherits a search_path naming a schema that may not even exist any more.
+    Every query then fails with "relation ... does not exist" on a database
+    where the table is perfectly intact.
+
+    Two lines to make the app state its own schema rather than inherit
+    whatever the last tenant left behind.
+
+    Tests still want the *direct* string (host without "-pooler") in
+    TEST_DATABASE_URL: in the pooler's transaction mode a SET does not survive
+    between transactions, so a throwaway schema cannot be held that way.
     """
-    if DB_SCHEMA != "public":
-        connection.execute(f'SET search_path TO "{DB_SCHEMA}"')
-        connection.commit()
+    connection.execute(f'SET search_path TO "{DB_SCHEMA}"')
+    connection.commit()
 
 
 _POOL = None
@@ -423,6 +434,24 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS luck_target DOUBLE PRECISION;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS luck_progress DOUBLE PRECISION;
 -- INTEGER, not BOOLEAN, to match game_access_enabled and its `= 1` reads.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS luck_done INTEGER DEFAULT 0;
+
+-- Staff accounts, which sign in at /employee instead of the player app.
+-- Kept separate from team_win_rate on purpose: that column says how often an
+-- account wins, which is a knob an operator may well want at zero for a
+-- recruiter who never plays. Conflating the two meant turning someone's win
+-- rate off also took away their portal.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_employee INTEGER DEFAULT 0;
+-- Everyone who already had a win rate was created through the team form, so
+-- they are staff; this is the one-off backfill for accounts made before the
+-- flag existed. Narrowed to rows still at 0 so it cannot undo a later change.
+UPDATE users SET is_employee = 1 WHERE team_win_rate > 0 AND COALESCE(is_employee, 0) = 0;
+
+-- Staff photo, in the database for the same reason as the QR images and the
+-- cover art: the host wipes its filesystem on every deploy, so a file written
+-- to disk survives until the next push and no longer.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo BYTEA;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_type TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_updated_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code
     ON users(referral_code) WHERE referral_code IS NOT NULL;
 

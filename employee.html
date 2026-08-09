@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f1a">
+  <!-- Staff portal, never a public page. -->
+  <meta name="robots" content="noindex, nofollow">
+  <title>Club 8 — Employee Portal</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="style.css?v=employee-1">
+</head>
+<!-- Painted in the console's colours from the first frame, like admin.html,
+     rather than flashing the player app's light theme first. -->
+<body class="admin-mode emp-mode">
+
+  <!-- ---------------------------------------------------------- SIGN IN -->
+  <div id="emp-gate" class="emp-gate">
+    <form id="emp-login-form" class="emp-gate-card">
+      <div class="emp-brand"><span>8</span> CLUB 8</div>
+      <h1>Employee portal</h1>
+      <p class="emp-gate-sub">Sign in with the account your admin created for you.</p>
+
+      <label class="nd-field">
+        <span>Mobile number</span>
+        <input id="emp-phone" class="form-control" inputmode="numeric"
+               autocomplete="username" placeholder="10-digit number" required>
+      </label>
+      <label class="nd-field">
+        <span>Password</span>
+        <input id="emp-password" class="form-control" type="password"
+               autocomplete="current-password" placeholder="Your password" required>
+      </label>
+      <label class="emp-remember">
+        <input id="emp-remember" type="checkbox" checked> Keep me signed in
+      </label>
+
+      <p id="emp-gate-error" class="emp-gate-error" hidden></p>
+      <button class="btn-primary" type="submit">Sign in</button>
+      <p class="nd-hint" style="margin-top:14px">
+        Player account? <a href="/login">Sign in to the app instead</a>.
+      </p>
+    </form>
+  </div>
+
+  <!-- ----------------------------------------------------------- PORTAL -->
+  <div id="emp-app" class="emp-app" hidden>
+    <header class="emp-header">
+      <div class="emp-identity">
+        <div id="emp-avatar" class="emp-avatar"><i class="bi bi-person-fill"></i></div>
+        <div>
+          <strong id="emp-name">—</strong>
+          <small id="emp-meta">—</small>
+        </div>
+      </div>
+      <div class="emp-header-actions">
+        <button id="emp-refresh" class="nd-ghost" type="button" title="Refresh">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        <button id="emp-logout" class="nd-ghost" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <!-- The invite link is the job, so it sits above everything else. -->
+    <section class="emp-invite">
+      <div>
+        <span class="emp-invite-label">Your referral code</span>
+        <strong id="emp-code" class="emp-code">—</strong>
+      </div>
+      <div class="emp-invite-link">
+        <code id="emp-link">—</code>
+        <button id="emp-copy" class="btn-primary" type="button">
+          <i class="bi bi-clipboard"></i> Copy link
+        </button>
+        <button id="emp-share" class="nd-ghost" type="button">
+          <i class="bi bi-share-fill"></i> Share
+        </button>
+      </div>
+    </section>
+
+    <div id="emp-kpis" class="ng-kpis"></div>
+
+    <nav class="nd-seg emp-tabs" role="tablist">
+      <button class="active" data-emp-tab="referrals" type="button">My referrals</button>
+      <button data-emp-tab="chain" type="button">Referral chain</button>
+      <button data-emp-tab="earnings" type="button">Earnings</button>
+      <button data-emp-tab="team" type="button">Team</button>
+    </nav>
+
+    <section id="emp-panel-referrals" class="nd-panel emp-panel">
+      <div class="nd-panel-head">
+        <h3>People you invited <small id="emp-ref-count"></small></h3>
+        <div class="nd-seg emp-filter" role="tablist">
+          <button class="active" data-emp-filter="all" type="button">All</button>
+          <button data-emp-filter="earned" type="button">Earned</button>
+          <button data-emp-filter="waiting" type="button">Waiting</button>
+          <button data-emp-filter="none" type="button">No deposit</button>
+        </div>
+      </div>
+      <div class="nd-table-wrap">
+        <table class="nd-table">
+          <thead>
+            <tr><th>Player</th><th>Joined</th><th>Deposited</th><th>Reward</th><th>Status</th></tr>
+          </thead>
+          <tbody id="emp-referrals-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="emp-panel-chain" class="nd-panel emp-panel" hidden>
+      <div class="nd-panel-head">
+        <h3>Referral chain <small id="emp-chain-count"></small></h3>
+      </div>
+      <p class="nd-hint">
+        Everyone below you, level by level: who you invited, then who
+        <em>they</em> invited. Only direct invites at level 1 pay you a reward.
+      </p>
+      <div id="emp-chain" class="emp-chain"></div>
+    </section>
+
+    <section id="emp-panel-earnings" class="nd-panel emp-panel" hidden>
+      <div class="nd-panel-head"><h3>Earnings</h3></div>
+      <div id="emp-earnings" class="emp-earnings"></div>
+      <div class="nd-table-wrap" style="margin-top:18px">
+        <table class="nd-table">
+          <thead><tr><th>Player</th><th>Why</th><th>Amount</th></tr></thead>
+          <tbody id="emp-earnings-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="emp-panel-team" class="nd-panel emp-panel" hidden>
+      <div class="nd-panel-head">
+        <h3>Team <small>ranked by referrals paid out</small></h3>
+      </div>
+      <p class="nd-hint">
+        Names and totals only — nobody's phone numbers, wallets or referral
+        lists, including yours.
+      </p>
+      <div id="emp-colleagues" class="emp-colleagues"></div>
+    </section>
+
+    <p id="emp-status" class="emp-status"></p>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="js/config.js"></script>
+  <script type="module" src="js/employee.js?v=employee-1"></script>
+</body>
+</html>

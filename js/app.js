@@ -2777,13 +2777,58 @@ class App {
       const res = await this.adminApi('/api/admin/team/create', 'POST', {
         username, phone, password, win_rate: winRate
       });
-      this.showToast(`Team account bana: ${res.username} (${res.win_rate}% win). Code ${res.referral_code}.`, 'success');
+      // The photo is a second request on purpose: it is optional, and a
+      // failed upload must not cost the account that was just created.
+      const photo = document.getElementById('team-photo')?.files?.[0];
+      if (photo) {
+        try {
+          await this.uploadTeamPhoto(res.id, photo);
+        } catch (error) {
+          this.showToast(`Account bana, photo nahi chadhi: ${error.message}`, 'error');
+        }
+      }
+      this.showToast(`Employee account bana: ${res.username} (${res.win_rate}% win). Code ${res.referral_code}. Portal: /employee`, 'success');
       document.getElementById('admin-team-form')?.reset();
       const wr = document.getElementById('team-winrate'); if (wr) wr.value = '80';
+      const preview = document.getElementById('team-photo-preview');
+      if (preview) { preview.style.backgroundImage = ''; preview.innerHTML = '<i class="bi bi-person-fill"></i>'; }
+      const picker = document.getElementById('team-photo'); if (picker) picker.value = '';
       this.loadTeam();
     } catch (error) {
       this.showToast(error.message, 'error');
     }
+  }
+
+  /** multipart, so it cannot go through adminApi's JSON path. */
+  async uploadTeamPhoto(userId, file) {
+    const form = new FormData();
+    form.append('file', file);
+    const headers = this.adminHeaders();
+    // FormData sets its own multipart boundary; sending our JSON content-type
+    // would make the server parse the body with the wrong one.
+    delete headers['Content-Type'];
+    const res = await fetch(
+      `${this.apiBaseUrl}/api/admin/team/${encodeURIComponent(userId)}/photo`,
+      { method: 'POST', headers, body: form }
+    );
+    let payload = {};
+    try { payload = await res.json(); } catch (_) {}
+    if (!res.ok) throw new Error(payload.detail || `Upload failed (${res.status})`);
+    return payload;
+  }
+
+  /** Staff photos sit behind the admin session, so a plain <img src> would
+   *  401. Fetched with the auth header and swapped in as a blob. */
+  async paintTeamPhoto(el, userId) {
+    try {
+      const res = await fetch(
+        `${this.apiBaseUrl}/api/admin/team/${encodeURIComponent(userId)}/photo`,
+        { headers: this.adminHeaders() }
+      );
+      if (!res.ok) return;
+      el.style.backgroundImage = `url(${URL.createObjectURL(await res.blob())})`;
+      el.innerHTML = '';
+    } catch (_) { /* the placeholder icon stays */ }
   }
 
   async loadTeam() {
@@ -2805,7 +2850,13 @@ class App {
     host.innerHTML = team.map(m => `
       <details class="nd-day" data-date="${m.id}"${openIds.has(m.id) ? ' open' : ''}>
         <summary class="nd-day-head">
-          <h4>${this.escapeHtml(m.username)} <small style="color:#8a93ab">${this.escapeHtml(m.phone)}</small></h4>
+          <h4 style="display:flex; align-items:center; gap:10px">
+            <span class="nd-photo-preview" style="width:34px;height:34px" data-team-photo="${m.id}">
+              ${m.has_photo ? '' : '<i class="bi bi-person-fill"></i>'}
+            </span>
+            ${this.escapeHtml(m.username)} <small style="color:#8a93ab">${this.escapeHtml(m.phone)}</small>
+            ${m.is_employee ? '<small class="ref-yes">portal</small>' : '<small class="ref-no">no portal</small>'}
+          </h4>
           <span class="nd-day-sum">
             win ${Math.round(m.win_rate)}% · bal ${money(m.balance)} · code ${this.escapeHtml(m.referral_code || '—')} · ${m.referral_count} referrals · their deposits ${money(m.referred_deposit_total)}
           </span>
@@ -2815,7 +2866,15 @@ class App {
             Win rate %
             <input type="number" min="0" max="100" value="${Math.round(m.win_rate)}" data-team-rate="${m.id}" class="form-control" style="width:80px">
           </label>
+          <label class="nd-hint" style="display:flex; align-items:center; gap:6px">
+            <input type="checkbox" data-team-portal="${m.id}"${m.is_employee ? ' checked' : ''}>
+            Portal access
+          </label>
           <button type="button" class="nd-mini ok" data-team-save="${m.id}">Save</button>
+          <label class="nd-mini" style="cursor:pointer">
+            ${m.has_photo ? 'Replace photo' : 'Add photo'}
+            <input type="file" accept="image/png,image/jpeg,image/webp" hidden data-team-photo-input="${m.id}">
+          </label>
           <span class="nd-hint">Own deposits: ${money(m.own_deposits)}</span>
         </div>
         <div class="nd-table-wrap">
@@ -2838,14 +2897,43 @@ class App {
       button.addEventListener('click', () => {
         const id = button.dataset.teamSave;
         const input = host.querySelector(`[data-team-rate="${id}"]`);
-        this.updateTeamRate(id, Number(input?.value || 0));
+        const portal = host.querySelector(`[data-team-portal="${id}"]`);
+        this.updateTeamRate(id, Number(input?.value || 0), portal?.checked);
       }));
+
+    host.querySelectorAll('[data-team-photo-input]').forEach(input =>
+      input.addEventListener('change', async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          await this.uploadTeamPhoto(input.dataset.teamPhotoInput, file);
+          this.showToast('Photo updated.', 'success');
+          this.loadTeam();
+        } catch (error) {
+          this.showToast(error.message, 'error');
+        }
+      }));
+
+    team.filter(m => m.has_photo).forEach(m => {
+      const el = host.querySelector(`[data-team-photo="${m.id}"]`);
+      if (el) void this.paintTeamPhoto(el, m.id);
+    });
   }
 
-  async updateTeamRate(userId, winRate) {
+  async updateTeamRate(userId, winRate, isEmployee) {
     try {
-      await this.adminApi(`/api/admin/team/${userId}`, 'PUT', { win_rate: winRate });
-      this.showToast(`Win rate updated to ${Math.round(winRate)}%.`, 'success');
+      // is_employee is only sent when the caller actually read a checkbox.
+      // The server leaves the flag alone when it is absent, so an older call
+      // site that passes a rate on its own cannot revoke a portal login.
+      const body = { win_rate: winRate };
+      if (typeof isEmployee === 'boolean') body.is_employee = isEmployee;
+      await this.adminApi(`/api/admin/team/${userId}`, 'PUT', body);
+      this.showToast(
+        `Win rate updated to ${Math.round(winRate)}%${
+          typeof isEmployee === 'boolean'
+            ? `, portal ${isEmployee ? 'on' : 'off'}` : ''}.`,
+        'success'
+      );
       this.loadTeam();
     } catch (error) {
       this.showToast(error.message, 'error');
@@ -3630,6 +3718,21 @@ class App {
     document.getElementById('admin-team-form')?.addEventListener('submit', e => {
       e.preventDefault();
       void this.createTeamUser();
+    });
+
+    // Preview the chosen photo before the account exists, so a wrong file is
+    // caught here rather than after it is attached to a real employee.
+    document.getElementById('team-photo')?.addEventListener('change', event => {
+      const file = event.target.files?.[0];
+      const preview = document.getElementById('team-photo-preview');
+      if (!preview) return;
+      if (!file) {
+        preview.style.backgroundImage = '';
+        preview.innerHTML = '<i class="bi bi-person-fill"></i>';
+        return;
+      }
+      preview.style.backgroundImage = `url(${URL.createObjectURL(file)})`;
+      preview.innerHTML = '';
     });
 
     // The queue filter and the games range share the .nd-seg-btn look, so each
