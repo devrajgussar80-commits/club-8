@@ -25,11 +25,22 @@ class App {
     this.selectedQuantity = 1;
     this.authToken = localStorage.getItem('PREDICT_AUTH_TOKEN') || null;
     this.referralCode = localStorage.getItem('PREDICT_REFERRAL_CODE') || '';
+    // Somebody else's code, picked up from the invite link that brought this
+    // visitor here. Kept apart from `referralCode` -- that one is the code
+    // this account shares, and mixing the two would have people inviting
+    // themselves. Read before anything else so a link opened straight into a
+    // deep page still credits the inviter.
+    this.invitedByCode = this.captureInviteCode();
     this.generatedOtp = '';
     // Cached from the last /api/auth/me so a page refresh restores the unlocked
     // state immediately instead of flashing the "locked" modal before the sync.
     this.gameAccessEnabled = localStorage.getItem('PREDICT_GAME_ACCESS') === '1';
     this.approvedDepositTotal = Number(localStorage.getItem('PREDICT_APPROVED_TOTAL') || 0);
+    // A signup bonus still on its run unlocks the arcade too -- a ₹100 wallet
+    // can never clear the deposit threshold, so without this the bonus would
+    // have nothing to be played on. Defaults to true for a fresh install so a
+    // new account is not locked out for the moment before the first sync.
+    this.bonusRunActive = localStorage.getItem('PREDICT_BONUS_RUN') !== '0';
     // Mirrors config.GAME_ACCESS_MIN_DEPOSIT. Refreshed from /api/game/status,
     // which is the server's own value, so changing it there is enough.
     this.gameAccessMinDeposit = Number(localStorage.getItem('PREDICT_ACCESS_MIN') || 300);
@@ -590,9 +601,13 @@ class App {
     initInteractions();
     this.appShare = new AppShare({
       apiBaseUrl: this.apiBaseUrl,
-      toast: (msg, type) => this.showToast(msg, type)
+      toast: (msg, type) => this.showToast(msg, type),
+      // Read at share time, not now: the code arrives with the first
+      // /api/auth/me, which has not happened yet.
+      referralCode: () => this.referralCode
     });
     this.appShare.init();
+    this.applyInviteCode();
 
     this.handleRouting();
     window.openClubPage = (page) => {
@@ -959,14 +974,15 @@ class App {
     return new Set(['aviator', 'chicken-road', 'mines']).has(page);
   }
 
-  // Two ways in, matching the server's rule in games_core.require_game_access:
-  // the admin's manual switch, or enough approved recharge. The deposit path
-  // has to be here -- approving a deposit only credits the balance, it never
-  // flips game_access_enabled, so gating on the switch alone left players who
-  // had recharged well past the minimum still locked out.
+  // Three ways in, matching the server's rule in games_core.require_game_access:
+  // the admin's manual switch, enough approved recharge, or a signup bonus
+  // still on its run. The deposit path has to be here -- approving a deposit
+  // only credits the balance, it never flips game_access_enabled, so gating on
+  // the switch alone left players who had recharged well past the minimum
+  // still locked out.
   canEnterPremiumGames() {
     if (!this.authToken) return false;
-    return this.gameAccessEnabled || this.hasAccessDeposit();
+    return this.gameAccessEnabled || this.hasAccessDeposit() || this.bonusRunActive;
   }
 
   hasAccessDeposit() {
@@ -987,6 +1003,40 @@ class App {
     document.body.style.overflow = '';
   }
 
+  /**
+   * Why this account cannot withdraw yet, or null once it can.
+   *
+   * Mirrors settings_store.withdrawal_lock, which is the copy that decides.
+   * This one exists so the rule is explained before the form is filled in
+   * rather than after it is submitted, and it deliberately fails open: if the
+   * settings have not arrived yet the request goes to the server, which will
+   * refuse it with the real message.
+   */
+  withdrawLockReason() {
+    const settings = this.walletSettings || {};
+    const minimum = Number(settings.withdrawal_min_deposit || 0);
+    if (!minimum) return null;
+    if (Number(this.approvedDepositTotal || 0) >= minimum) return null;
+    return String(settings.withdrawal_locked_message || '')
+      || `Recharge at least ₹${minimum.toFixed(0)} to unlock withdrawals.`;
+  }
+
+  showWithdrawLockedModal(message) {
+    const text = document.getElementById('withdraw-locked-text');
+    if (text) text.textContent = message;
+    const modal = document.getElementById('withdraw-locked-modal');
+    modal?.classList.add('active');
+    modal?.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeWithdrawLockedModal() {
+    const modal = document.getElementById('withdraw-locked-modal');
+    modal?.classList.remove('active');
+    modal?.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
   async syncUserAccess() {
     if (!this.authToken) return;
     this.lastAccessSync = Date.now();
@@ -998,16 +1048,23 @@ class App {
       // form, and an unlinked session cannot show the player as online.
       if (user.id) this.tracker?.identify(user.id);
       const wasEnabled = this.gameAccessEnabled;
+      const couldEnter = this.canEnterPremiumGames();
       this.gameAccessEnabled = Boolean(user.game_access_enabled);
       this.approvedDepositTotal = Number(user.approved_deposit_total || 0);
+      this.bonusRunActive = Boolean(user.bonus_run_active);
       localStorage.setItem('PREDICT_GAME_ACCESS', this.gameAccessEnabled ? '1' : '0');
       localStorage.setItem('PREDICT_APPROVED_TOTAL', String(this.approvedDepositTotal));
+      localStorage.setItem('PREDICT_BONUS_RUN', this.bonusRunActive ? '1' : '0');
 
       if (this.gameAccessEnabled && !wasEnabled) {
         this.closeGameAccessModal();
         this.showToast('Game access unlocked by Admin. All games are open now.', 'success');
-      } else if (!this.gameAccessEnabled && wasEnabled && this.isPremiumGamePage(this.currentPage)) {
-        this.showToast('Game access was turned off by Admin.', 'error');
+      } else if (couldEnter && !this.canEnterPremiumGames()
+                 && this.isPremiumGamePage(this.currentPage)) {
+        // Covers both the admin switching access off and a bonus run reaching
+        // its ceiling: either way the player is standing on a page they can no
+        // longer play, and leaving them there means the next tap 403s.
+        this.showToast('Game access is locked. Recharge to keep playing.', 'error');
         this.switchSubPage('home', { record: false });
       }
 
@@ -1024,14 +1081,19 @@ class App {
         if (codeEl) codeEl.textContent = user.referral_code;
       }
       appState.saveState();
+      // The recharge gate is read off the deposit total that just changed, so
+      // the hint under the amount field has to be redrawn with it.
+      this.renderWithdrawHint();
     } catch (error) {
       if (/token|credentials|unauthorized/i.test(error.message)) {
         this.authToken = null;
         this.gameAccessEnabled = false;
         this.approvedDepositTotal = 0;
+        this.bonusRunActive = false;
         localStorage.removeItem('PREDICT_AUTH_TOKEN');
         localStorage.removeItem('PREDICT_GAME_ACCESS');
         localStorage.removeItem('PREDICT_APPROVED_TOTAL');
+        localStorage.removeItem('PREDICT_BONUS_RUN');
         this.switchSubPage('auth', { record: false });
       }
     }
@@ -1046,6 +1108,9 @@ class App {
       const code = data.referral_code || this.referralCode || '—';
       const codeEl = document.getElementById('agency-invite-code');
       if (codeEl) codeEl.textContent = code;
+      if (data.referral_code) this.referralCode = data.referral_code;
+      const linkEl = document.getElementById('agency-invite-link');
+      if (linkEl) linkEl.textContent = code === '—' ? '—' : this.appShare?.shareUrl || '—';
 
       const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
       set('promo-reward-each', money(data.reward_per_referral));
@@ -1309,6 +1374,16 @@ class App {
   renderWithdrawHint() {
     const hint = document.getElementById('withdraw-amount-hint');
     if (!hint) return;
+
+    // The recharge lock outranks the amount rules: while it is on, nothing
+    // the player types here can be sent, so say that instead of a minimum.
+    const locked = this.withdrawLockReason();
+    if (locked) {
+      hint.textContent = locked;
+      hint.className = 'withdraw-amount-hint is-blocked';
+      return;
+    }
+
     const minimum = Number(this.withdrawMin || 200);
     const balance = this.currentBalance();
     const typed = Number(document.getElementById('withdraw-amount-input')?.value || 0);
@@ -1340,6 +1415,54 @@ class App {
     if (!amount || !Number.isFinite(amount)) return 'Enter an amount to withdraw.';
     if (amount < minimum) return `Minimum withdrawal is ₹${minimum.toFixed(0)}.`;
     return null;
+  }
+
+  /**
+   * The inviter's code from the link that opened the app, remembered.
+   *
+   * `?ref=` is what the share sheet writes; `?r=` and `?invite=` are accepted
+   * too because links get shortened and rewritten on the way through
+   * messengers. It is stored rather than read at signup time: people open the
+   * link, look around, and register minutes later from a URL that no longer
+   * has the code on it, and the invite has to survive that. Stripped from the
+   * address bar afterwards so a page the visitor then shares themselves does
+   * not carry somebody else's code.
+   */
+  captureInviteCode() {
+    const stored = localStorage.getItem('PREDICT_INVITED_BY') || '';
+    let code = '';
+    try {
+      const params = new URLSearchParams(window.location.search);
+      code = params.get('ref') || params.get('r') || params.get('invite') || '';
+      code = String(code).trim().toUpperCase().slice(0, 24);
+      if (code) {
+        localStorage.setItem('PREDICT_INVITED_BY', code);
+        params.delete('ref'); params.delete('r'); params.delete('invite');
+        const query = params.toString();
+        history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+      }
+    } catch (error) {
+      // A malformed URL must not stop the app booting.
+    }
+    return code || stored;
+  }
+
+  /**
+   * Put the inviter's code into the signup form and say where it came from.
+   *
+   * The field stays editable: someone who was sent a link but has a different
+   * code from a friend should be able to use theirs.
+   */
+  applyInviteCode() {
+    const field = document.getElementById('reg-referral');
+    const note = document.getElementById('reg-referral-note');
+    const code = this.invitedByCode;
+    if (!field || !code) return;
+    if (!field.value.trim()) field.value = code;
+    if (note) {
+      note.textContent = `Invite code ${code} applied from your invite link.`;
+      note.hidden = false;
+    }
   }
 
   /** True on the standalone admin console, which shares this script. */
@@ -1614,6 +1737,7 @@ class App {
     this.renderAdminStats(data.metrics || {});
     this.renderAdminQueue();
     this.renderAdminUsers(data.users || []);
+    this.renderAdminData(data.users || []);
     void this.loadUsersDaily();
     this.renderAdminHistory();
     this.renderAdminQrCodes(data.qr_codes || []);
@@ -2175,6 +2299,7 @@ class App {
     document.getElementById('ng-ctl-forced').value = data.forced || '';
     document.getElementById('ng-ctl-bias').value = data.house_bias;
     set('ng-bias-value', `${data.house_bias}%`);
+    document.getElementById('ng-ctl-maxwin').value = data.max_win ?? 0;
     document.getElementById('ng-ctl-min').value = data.min_stake;
     document.getElementById('ng-ctl-max').value = data.max_stake;
 
@@ -2269,6 +2394,9 @@ class App {
     const canForce = this.adminGameControls?.find(g => g.game === game)?.can_force;
     const body = {
       enabled: document.getElementById('ng-ctl-enabled').checked,
+      // Sent for every game, forceable or not: a cap applies wherever the
+      // server settles the round.
+      max_win: Number(document.getElementById('ng-ctl-maxwin').value || 0),
       min_stake: Number(document.getElementById('ng-ctl-min').value),
       max_stake: Number(document.getElementById('ng-ctl-max').value)
     };
@@ -2464,6 +2592,85 @@ class App {
       button.addEventListener('click', () => this.reviewReferral(button.dataset.refApprove, 'approve')));
     body.querySelectorAll('[data-ref-reject]').forEach(button =>
       button.addEventListener('click', () => this.reviewReferral(button.dataset.refReject, 'reject')));
+
+    void this.loadReferralNetwork();
+  }
+
+  /**
+   * Chained referrals: each referrer with their whole downline.
+   *
+   * The table above lists one row per direct invite, which cannot show that
+   * someone's single invitee went on to bring in three more. This one counts
+   * every level, and a row expands into the chain itself.
+   */
+  async loadReferralNetwork() {
+    const body = document.getElementById('admin-network-table-body');
+    if (!body) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/referrals/network');
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="7" class="nd-empty">${this.escapeHtml(error.message)}</td></tr>`;
+      return;
+    }
+
+    const network = data.network || [];
+    if (!network.length) {
+      body.innerHTML = '<tr><td colspan="7" class="nd-empty">Nobody has invited anyone yet</td></tr>';
+      document.getElementById('admin-network-chain').innerHTML = '';
+      return;
+    }
+
+    body.innerHTML = network.map(row => {
+      // "L1 12 · L2 30 · L3 4" — where the network actually sits.
+      const levels = (row.levels || [])
+        .map(l => `L${l.depth} ${l.people}`).join(' · ');
+      return `
+        <tr data-search="${this.escapeHtml(`${row.name || ''} ${row.phone || ''} ${row.code || ''}`.toLowerCase())}">
+          <td>
+            <span class="nd-player-name">${this.escapeHtml(row.name || '—')}</span>
+            <span class="nd-player-sub">${this.escapeHtml(row.phone || '')} · ${this.escapeHtml(row.code || '')}</span>
+          </td>
+          <td>${row.direct}</td>
+          <td>${row.indirect}</td>
+          <td><b>${row.downline}</b><span class="nd-player-sub">${this.escapeHtml(levels)}</span></td>
+          <td>${row.depth}</td>
+          <td>₹${Number(row.deposits || 0).toFixed(0)}<span class="nd-player-sub">${row.depositors} paid</span></td>
+          <td><button type="button" class="nd-mini" data-chain="${this.escapeHtml(row.id)}">View chain</button></td>
+        </tr>`;
+    }).join('');
+
+    body.querySelectorAll('[data-chain]').forEach(button =>
+      button.addEventListener('click', () => this.showReferralChain(button.dataset.chain)));
+    this.applyAdminSearch('nd-network-search', 'admin-network-table-body');
+  }
+
+  async showReferralChain(userId) {
+    const panel = document.getElementById('admin-network-chain');
+    if (!panel) return;
+    panel.innerHTML = '<p class="nd-empty">Loading chain…</p>';
+    let data;
+    try {
+      data = await this.adminApi(`/api/admin/referrals/network/${encodeURIComponent(userId)}`);
+    } catch (error) {
+      panel.innerHTML = `<p class="nd-empty">${this.escapeHtml(error.message)}</p>`;
+      return;
+    }
+
+    const branch = nodes => nodes.map(node => `
+      <li>
+        <span class="nd-player-name">${this.escapeHtml(node.name || '—')}</span>
+        <span class="nd-player-sub">${this.escapeHtml(node.phone || '')} · ${this.escapeHtml(node.code || '')}
+          · L${node.depth} · wallet ₹${Number(node.balance || 0).toFixed(0)}
+          · ${Number(node.deposits) > 0
+            ? `recharged ₹${Number(node.deposits).toFixed(0)}`
+            : 'never recharged'}</span>
+        ${node.invited && node.invited.length ? `<ul>${branch(node.invited)}</ul>` : ''}
+      </li>`).join('');
+
+    panel.innerHTML = (data.chain || []).length
+      ? `<div class="nd-chain"><h4>Chain under this player</h4><ul>${branch(data.chain)}</ul></div>`
+      : '<p class="nd-empty">This player has not invited anyone yet</p>';
   }
 
   async reviewReferral(referralId, action) {
@@ -2835,6 +3042,71 @@ class App {
     this.applyAdminSearch('nd-user-search', 'admin-users-table-body');
   }
 
+  /**
+   * The Data tab: one row per player, everything about them side by side.
+   *
+   * Fed from the same `users` array the Players table uses, so opening this
+   * tab costs no extra request. The columns it adds over that table --
+   * whether they have ever recharged, and how many rounds they have played
+   * across both ledgers -- come from the dashboard query.
+   */
+  renderAdminData(users) {
+    const body = document.getElementById('admin-data-table-body');
+    if (!body) return;
+
+    const kpis = document.getElementById('nd-data-kpis');
+    if (kpis) {
+      const online = users.filter(u => u.is_online).length;
+      const funded = users.filter(u => Number(u.approved_deposit_total || 0) > 0).length;
+      const wallet = users.reduce((sum, u) => sum + Number(u.balance || 0), 0);
+      kpis.innerHTML = [
+        ['Players', users.length],
+        ['Online now', online],
+        ['Ever recharged', funded],
+        ['Wallets held', `₹${wallet.toFixed(2)}`]
+      ].map(([label, value]) =>
+        `<div class="ng-kpi"><small>${label}</small><b>${this.escapeHtml(String(value))}</b></div>`
+      ).join('');
+    }
+
+    if (!users.length) {
+      body.innerHTML = `<tr><td colspan="7" class="nd-empty">No players yet</td></tr>`;
+      return;
+    }
+
+    body.innerHTML = users.map(u => {
+      const id = this.escapeHtml(u.id);
+      const approved = Number(u.approved_deposit_total || 0);
+      const pending = Number(u.pending_deposit_count || 0);
+      const active = u.status === 'active';
+      // Three states, because "never recharged" and "recharge waiting for you
+      // to approve it" need different action from the operator.
+      const deposit = approved > 0
+        ? `<span class="nd-badge ok">₹${approved.toFixed(2)}</span>`
+        : (pending
+          ? `<span class="nd-badge">${pending} pending</span>`
+          : '<span class="nd-badge bad">Never</span>');
+      return `
+        <tr data-user-id="${id}"
+            data-search="${this.escapeHtml(`${u.username || ''} ${u.phone || ''} ${u.id}`.toLowerCase())}">
+          <td>
+            <span class="nd-player-name">${this.escapeHtml(u.username || '-')}</span>
+            <span class="nd-player-sub">${this.escapeHtml(u.phone || '')} · ${id}</span>
+          </td>
+          <td>${this.renderPresenceCell(u)}</td>
+          <td>${deposit}</td>
+          <td>${Number(u.rounds_played || 0).toLocaleString('en-IN')}</td>
+          <td data-user-balance>₹${Number(u.balance || 0).toFixed(2)}</td>
+          <td><span class="nd-badge ${active ? 'ok' : 'bad'}">${active ? 'Active' : 'Disabled'}</span></td>
+          <td>
+            <button class="nd-row-btn" onclick="window.adminToggleUser('${id}', '${active ? 'disabled' : 'active'}')">${active ? 'Disable' : 'Enable'}</button>
+            <button class="nd-row-btn danger" onclick="window.adminDeleteUser('${id}')">Delete</button>
+          </td>
+        </tr>`;
+    }).join('');
+    this.applyAdminSearch('nd-data-search', 'admin-data-table-body');
+  }
+
   renderAdminHistory() {
     const body = document.getElementById('nd-history-body');
     if (!body) return;
@@ -2916,14 +3188,114 @@ class App {
     note.classList.toggle('warn', live === 0);
   }
 
+  /**
+   * The download funnel: who opened the page, who left with the app.
+   *
+   * The two numbers come from different places on purpose. Page views are the
+   * visitor tracker, so they only count people whose browser ran our script.
+   * Downloads are logged server side when the file is actually fetched, which
+   * also catches a link opened straight from a chat -- so downloads can exceed
+   * page views, and that is not an error.
+   */
+  async loadDownloadStats() {
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/app/stats');
+    } catch (error) {
+      return;
+    }
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    set('nd-dl-days', data.days);
+    set('nd-dl-views', data.page_views.toLocaleString('en-IN'));
+    set('nd-dl-visitors', `${data.page_visitors.toLocaleString('en-IN')} visitors`);
+    set('nd-dl-downloads', data.downloads.toLocaleString('en-IN'));
+    set('nd-dl-unique', `${data.unique_downloaders.toLocaleString('en-IN')} unique`
+      + (data.signed_in_downloaders ? ` · ${data.signed_in_downloaders} signed in` : ''));
+    set('nd-dl-left', data.left_without_download.toLocaleString('en-IN'));
+    set('nd-dl-conversion', `${data.conversion_percent}%`);
+    set('nd-dl-alltime', `${data.downloads_all_time.toLocaleString('en-IN')} downloads all time`);
+
+    const daily = document.getElementById('nd-dl-daily');
+    if (daily) {
+      const rows = data.daily || [];
+      const peak = Math.max(1, ...rows.map(r => r.downloads));
+      daily.innerHTML = rows.length
+        ? rows.map(row => `
+          <div class="nd-dl-day">
+            <span>${this.escapeHtml(row.day)}</span>
+            <div class="nd-bar"><i style="width:${Math.round(row.downloads / peak * 100)}%"></i></div>
+            <b>${row.downloads}</b>
+          </div>`).join('')
+        : '<p class="nd-hint">No downloads yet.</p>';
+    }
+
+    const recent = document.getElementById('nd-dl-recent');
+    if (recent) {
+      recent.innerHTML = (data.recent || []).length
+        ? data.recent.map(row => `
+          <tr>
+            <td>${this.escapeHtml(this.formatMoment(row.at))}</td>
+            <td>${this.escapeHtml(row.username || 'Not signed in')}</td>
+            <td><span class="nd-player-sub">${this.escapeHtml(this.deviceLabel(row.user_agent))}</span></td>
+            <td><code>${this.escapeHtml(row.ip || '')}</code></td>
+          </tr>`).join('')
+        : '<tr><td colspan="4" class="nd-empty">No downloads yet</td></tr>';
+    }
+  }
+
+  /** "Android · Chrome" out of a user agent, for the recent downloads table. */
+  deviceLabel(agent) {
+    const ua = String(agent || '');
+    if (!ua) return 'Unknown device';
+    const os = /Android/i.test(ua) ? 'Android'
+      : /iPhone|iPad|iOS/i.test(ua) ? 'iOS'
+      : /Windows/i.test(ua) ? 'Windows'
+      : /Mac OS/i.test(ua) ? 'macOS' : 'Other';
+    const browser = /Edg\//i.test(ua) ? 'Edge'
+      : /OPR\//i.test(ua) ? 'Opera'
+      : /Chrome\//i.test(ua) ? 'Chrome'
+      : /Firefox\//i.test(ua) ? 'Firefox'
+      : /Safari\//i.test(ua) ? 'Safari' : '';
+    return browser ? `${os} · ${browser}` : os;
+  }
+
   renderAdminControls(data) {
     const settings = data.platform_settings || {};
     const deposits = document.getElementById('admin-deposits-enabled');
     const withdrawals = document.getElementById('admin-withdrawals-enabled');
-    const min = document.getElementById('admin-withdrawal-min');
     if (deposits) deposits.checked = Boolean(settings.deposits_enabled);
     if (withdrawals) withdrawals.checked = Boolean(settings.withdrawals_enabled);
-    if (min && document.activeElement !== min) min.value = String(settings.withdrawal_min || 200);
+    // Skipped while focused, so a refresh mid-refresh does not overwrite what
+    // the admin is in the middle of typing.
+    const limits = {
+      'admin-deposit-min': settings.deposit_min ?? 100,
+      'admin-deposit-max': settings.deposit_max ?? 50000,
+      'admin-withdrawal-min': settings.withdrawal_min ?? 200,
+      'admin-withdrawal-max': settings.withdrawal_max ?? 100000,
+      'admin-withdraw-min-deposit': settings.withdrawal_min_deposit ?? 500,
+      'admin-withdraw-locked-message': settings.withdrawal_locked_message ?? ''
+    };
+    Object.entries(limits).forEach(([id, value]) => {
+      const field = document.getElementById(id);
+      if (field && document.activeElement !== field) field.value = String(value);
+    });
+
+    const run = data.bonus_run || {};
+    const runToggle = document.getElementById('admin-luck-enabled');
+    if (runToggle) runToggle.checked = Boolean(run.enabled);
+    const runFields = {
+      'admin-luck-rate': run.win_rate ?? 60,
+      'admin-luck-bonus': run.signup_bonus ?? 100,
+      'admin-luck-min': run.target_min ?? 1700,
+      'admin-luck-max': run.target_max ?? 3000
+    };
+    Object.entries(runFields).forEach(([id, value]) => {
+      const field = document.getElementById(id);
+      if (field && document.activeElement !== field) field.value = String(value);
+    });
 
     const mode = (data.metrics || {}).prediction_mode || 'auto_least';
     const modeLabel = document.getElementById('admin-kpi-current-mode');
@@ -2953,6 +3325,15 @@ class App {
   findUserRow(userId) {
     if (!userId) return null;
     return document.querySelector(`#admin-users-table-body tr[data-user-id="${CSS.escape(String(userId))}"]`);
+  }
+
+  /** Drop a deleted player from both tables that list them, not just Players. */
+  removeUserRows(userId) {
+    if (!userId) return;
+    const id = CSS.escape(String(userId));
+    document.querySelectorAll(
+      `#admin-users-table-body tr[data-user-id="${id}"], #admin-data-table-body tr[data-user-id="${id}"]`
+    ).forEach(row => row.remove());
   }
 
   findRequestCard(id) {
@@ -3129,7 +3510,12 @@ class App {
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
         if (tab.dataset.section === 'team') void this.loadTeam();
-        if (tab.dataset.section === 'security') { void this.loadAppInfo(); void this.loadDeployState(); }
+        // The APK card moved to Downloads, so its metadata loads with that tab.
+        if (tab.dataset.section === 'downloads') {
+          void this.loadAppInfo();
+          void this.loadDownloadStats();
+        }
+        if (tab.dataset.section === 'security') void this.loadDeployState();
       });
     });
 
@@ -3260,6 +3646,12 @@ class App {
     document.getElementById('nd-user-search')?.addEventListener('input', () => {
       this.applyAdminSearch('nd-user-search', 'admin-users-table-body');
     });
+    document.getElementById('nd-data-search')?.addEventListener('input', () => {
+      this.applyAdminSearch('nd-data-search', 'admin-data-table-body');
+    });
+    document.getElementById('nd-network-search')?.addEventListener('input', () => {
+      this.applyAdminSearch('nd-network-search', 'admin-network-table-body');
+    });
     document.getElementById('nd-history-search')?.addEventListener('input', () => {
       this.applyAdminSearch('nd-history-search', 'nd-history-body');
     });
@@ -3302,9 +3694,60 @@ class App {
         await this.adminApi('/api/admin/platform-settings', 'PUT', {
           deposits_enabled: document.getElementById('admin-deposits-enabled')?.checked,
           withdrawals_enabled: document.getElementById('admin-withdrawals-enabled')?.checked,
-          withdrawal_min: Number(document.getElementById('admin-withdrawal-min')?.value || 200)
+          deposit_min: Number(document.getElementById('admin-deposit-min')?.value || 100),
+          deposit_max: Number(document.getElementById('admin-deposit-max')?.value || 50000),
+          withdrawal_min: Number(document.getElementById('admin-withdrawal-min')?.value || 200),
+          withdrawal_max: Number(document.getElementById('admin-withdrawal-max')?.value || 100000)
         });
         this.showToast('Payment settings saved.', 'success');
+      } catch (error) {
+        this.showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    // The withdrawal lock rides on the same endpoint as the payment settings,
+    // which replaces every key it is sent. Re-send the payment fields with it
+    // or saving the lock would reset the deposit range to the form defaults.
+    document.getElementById('admin-withdraw-lock')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await this.adminApi('/api/admin/platform-settings', 'PUT', {
+          deposits_enabled: document.getElementById('admin-deposits-enabled')?.checked,
+          withdrawals_enabled: document.getElementById('admin-withdrawals-enabled')?.checked,
+          deposit_min: Number(document.getElementById('admin-deposit-min')?.value || 100),
+          deposit_max: Number(document.getElementById('admin-deposit-max')?.value || 50000),
+          withdrawal_min: Number(document.getElementById('admin-withdrawal-min')?.value || 200),
+          withdrawal_max: Number(document.getElementById('admin-withdrawal-max')?.value || 100000),
+          withdrawal_min_deposit:
+            Number(document.getElementById('admin-withdraw-min-deposit')?.value || 0),
+          withdrawal_locked_message:
+            document.getElementById('admin-withdraw-locked-message')?.value || ''
+        });
+        this.showToast('Withdrawal lock saved.', 'success');
+      } catch (error) {
+        this.showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    document.getElementById('admin-bonus-run')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await this.adminApi('/api/admin/bonus-run', 'PUT', {
+          enabled: document.getElementById('admin-luck-enabled')?.checked,
+          win_rate: Number(document.getElementById('admin-luck-rate')?.value || 0),
+          signup_bonus: Number(document.getElementById('admin-luck-bonus')?.value || 0),
+          target_min: Number(document.getElementById('admin-luck-min')?.value || 0),
+          target_max: Number(document.getElementById('admin-luck-max')?.value || 0)
+        });
+        this.showToast('Signup bonus run saved.', 'success');
       } catch (error) {
         this.showToast(error.message, 'error');
       } finally {
@@ -3525,6 +3968,15 @@ class App {
       }
     });
 
+    document.getElementById('share-invite-link')?.addEventListener('click', () => {
+      if (!this.referralCode) {
+        return this.showToast('Referral code load ho raha hai, ek pal ruko.', 'error');
+      }
+      // Straight to the share sheet, which already builds the link with the
+      // code on it and knows which apps this audience uses.
+      this.appShare?.openSheet();
+    });
+
     const depositMethodNames = ['Phonepe_QR', 'Innate UPI-QR', 'Expert Paytm-QR', 'UPI-QR PAY', 'USDT', 'ARPay'];
     document.querySelectorAll('.deposit-methods button').forEach((button, index) => {
       button.addEventListener('click', () => {
@@ -3739,9 +4191,21 @@ class App {
     });
 
     document.getElementById('cancel-game-access')?.addEventListener('click', () => this.closeGameAccessModal());
-    document.querySelector('.game-access-backdrop')?.addEventListener('click', () => this.closeGameAccessModal());
+    // Scoped to this dialog: the withdraw-locked dialog below reuses the same
+    // classes, so an unscoped selector would wire its backdrop to this modal.
+    document.querySelector('#game-access-modal .game-access-backdrop')
+      ?.addEventListener('click', () => this.closeGameAccessModal());
     document.getElementById('confirm-game-access')?.addEventListener('click', () => {
       this.closeGameAccessModal();
+      this.switchSubPage('recharge');
+    });
+
+    document.getElementById('cancel-withdraw-locked')
+      ?.addEventListener('click', () => this.closeWithdrawLockedModal());
+    document.querySelector('#withdraw-locked-modal .game-access-backdrop')
+      ?.addEventListener('click', () => this.closeWithdrawLockedModal());
+    document.getElementById('confirm-withdraw-locked')?.addEventListener('click', () => {
+      this.closeWithdrawLockedModal();
       this.switchSubPage('recharge');
     });
 
@@ -3789,7 +4253,10 @@ class App {
       const password = document.getElementById('reg-password')?.value;
       const confirmPassword = document.getElementById('reg-confirm-password')?.value;
       const otp = document.getElementById('reg-otp')?.value;
-      const ref = document.getElementById('reg-referral')?.value;
+      // The typed box wins if it has anything in it; otherwise the code from
+      // the invite link stands in, so a visitor who cleared the field (or
+      // reached this form before applyInviteCode ran) is still credited.
+      const ref = (document.getElementById('reg-referral')?.value || '').trim() || this.invitedByCode;
 
       this.tracker?.event('register_submit', { has_referral: Boolean(ref) });
       try {
@@ -3803,8 +4270,14 @@ class App {
         this.tracker?.identify(res.user?.id);
         this.gameAccessEnabled = false;
         this.approvedDepositTotal = 0;
+        this.bonusRunActive = true;
+        // Spent. Leaving it would attach the same inviter to the next account
+        // registered from this device.
+        this.invitedByCode = '';
+        localStorage.removeItem('PREDICT_INVITED_BY');
         await this.syncUserAccess();
-        this.showToast(`Account created! ₹100 signup bonus added for WinGo.`, 'success');
+        const bonus = Number(res.user?.balance || 100).toFixed(0);
+        this.showToast(`Account created! ₹${bonus} signup bonus added — every game is open.`, 'success');
         this.switchSubPage('home', { record: false });
       } catch (err) {
         // Records the drop-offs that never reach the server at all: a failed
@@ -3819,7 +4292,9 @@ class App {
       this.authToken = null;
       this.gameAccessEnabled = false;
       this.approvedDepositTotal = 0;
+      this.bonusRunActive = false;
       localStorage.removeItem('PREDICT_AUTH_TOKEN');
+      localStorage.removeItem('PREDICT_BONUS_RUN');
       this.showToast('Logged out successfully', 'success');
       this.switchSubPage('auth');
     });
@@ -3933,6 +4408,14 @@ class App {
         }
       }
 
+      // The recharge lock gets a dialog rather than a toast: it is a rule the
+      // player has to act on, not a typo they can correct in the field.
+      const locked = this.withdrawLockReason();
+      if (locked) {
+        this.showWithdrawLockedModal(locked);
+        return;
+      }
+
       const blocked = this.withdrawBlockReason(amount);
       if (blocked) {
         this.renderWithdrawHint();
@@ -3947,6 +4430,13 @@ class App {
         void this.syncGameStatus();
         void this.syncWalletHistory();
       } catch (err) {
+        // The server refuses on the same rule, and its message is the
+        // authoritative one -- show it the same way rather than as a toast
+        // the player might miss.
+        if (/recharge|withdrawals? (?:are )?locked/i.test(err.message)) {
+          this.showWithdrawLockedModal(err.message);
+          return;
+        }
         this.showToast(err.message, 'error');
       }
     };
@@ -4508,10 +4998,9 @@ window.adminToggleUser = async (id, status) => {
 
 window.adminDeleteUser = async (id) => {
   if (!confirm(`Delete player ${id}? This cannot be undone.`)) return;
-  const row = app.findUserRow(id);
   try {
     await app.adminApi(`/api/admin/users/${id}`, 'DELETE');
-    row?.remove();
+    app.removeUserRows(id);
     app.showToast('Player deleted.', 'success');
     void app.loadAdmin({ silent: true });
   } catch (error) {

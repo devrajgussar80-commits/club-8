@@ -16,14 +16,33 @@ from database import QR_CODE_COLUMNS, get_db_connection
 from deps import get_current_user
 from game_engine import python_engine
 from schemas import DepositOrderRequest, DepositRequest, WithdrawRequest
-from settings_store import get_bool_setting, get_setting, get_wallet_settings
+from settings_store import (
+    get_bool_setting,
+    get_setting,
+    get_wallet_settings,
+    withdrawal_lock,
+)
 
 router = APIRouter(prefix="/api/wallet", tags=["wallet"])
 
 ORDER_ID_RE = re.compile(config.ORDER_ID_PATTERN)
 
-def _qr_limits(qr) -> tuple:
-    return float(qr["min_amount"] or 100), float(qr["max_amount"] or 50000)
+def _qr_limits(qr, conn=None) -> tuple:
+    """The deposit range in force for this QR.
+
+    Two sources, intersected: the platform-wide range the admin sets in the
+    dashboard, and this QR's own limits. Whichever is stricter wins, so raising
+    the site minimum takes effect immediately without touching every QR row --
+    which previously was the only way to change it at all, and only by deleting
+    the QR and uploading it again.
+    """
+    low = float(qr["min_amount"] or 100)
+    high = float(qr["max_amount"] or 50000)
+    if conn is not None:
+        settings = get_wallet_settings(conn)
+        low = max(low, float(settings["deposit_min"]))
+        high = min(high, float(settings["deposit_max"]))
+    return low, high
 
 @router.get("/active-qr")
 def get_active_qr():
@@ -67,7 +86,7 @@ def create_deposit_order(req: DepositOrderRequest, current_user: dict = Depends(
         conn.close()
         raise HTTPException(status_code=400, detail="Admin has not enabled any deposit QR yet")
 
-    minimum, maximum = _qr_limits(qr)
+    minimum, maximum = _qr_limits(qr, conn)
     if amount < minimum or amount > maximum:
         conn.rollback()
         conn.close()
@@ -140,7 +159,7 @@ def submit_deposit(req: DepositRequest, current_user: dict = Depends(get_current
             status_code=400, detail="That payment QR no longer exists. Start a new deposit."
         )
 
-    minimum, maximum = _qr_limits(qr)
+    minimum, maximum = _qr_limits(qr, conn)
     if amount < minimum or amount > maximum:
         conn.close()
         raise HTTPException(
@@ -180,10 +199,23 @@ def submit_withdraw(req: WithdrawRequest, current_user: dict = Depends(get_curre
     if not get_bool_setting(conn, "withdrawals_enabled", True):
         conn.close()
         raise HTTPException(status_code=503, detail="Withdrawals are temporarily paused by Admin")
+
+    # Recharge gate. Checked here as well as in the browser, because the
+    # browser's copy is only there to explain the rule before the player fills
+    # the form in -- this is the one that enforces it.
+    locked = withdrawal_lock(conn, current_user["id"])
+    if locked:
+        conn.close()
+        raise HTTPException(status_code=403, detail=locked)
+
     minimum = float(get_setting(conn, "withdrawal_min", "200"))
+    maximum = float(get_setting(conn, "withdrawal_max", "100000"))
     if amount < minimum:
         conn.close()
         raise HTTPException(status_code=400, detail=f"Minimum withdrawal is ₹{minimum:.2f}")
+    if amount > maximum:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Maximum withdrawal is ₹{maximum:.2f}")
     if not destination or len(destination) > 400:
         conn.close()
         raise HTTPException(status_code=400, detail="Add a valid bank account or UPI ID")

@@ -22,12 +22,16 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+import luck
+from database import get_db_connection
 from deps import get_current_user
+from game_controls import check_playable, get_controls
 from games_core import (
     close_round,
     hold_stake,
     load_round,
     open_round,
+    player_run,
     save_round,
     secure_below,
     settle_held,
@@ -50,17 +54,28 @@ MODES = {
 _lock = threading.RLock()
 
 
-def _multiplier(mode: str, lane: int) -> float:
-    """Multiplier after `lane` safe jumps. lane 0 (no jumps) is 1.0."""
-    return round(MODES[mode]["growth"] ** lane, 2)
+def _multiplier(mode: str, lane: int, cap: float = 0.0) -> float:
+    """Multiplier after `lane` safe jumps. lane 0 (no jumps) is 1.0.
+
+    `cap` is the game's max_win control, a multiple of the stake, so clamping
+    the multiplier itself is exactly the cap -- and it clamps the number on
+    screen at the same time. Hardcore compounds to 285x over nine lanes, which
+    is the sort of return a cap exists to stop; the ladder simply stops
+    climbing once it reaches the ceiling.
+    """
+    value = round(MODES[mode]["growth"] ** lane, 2)
+    return min(value, cap) if cap > 0 else value
 
 
-def _draw_bust_lane(mode: str) -> int:
-    """First lane the chicken fails on, drawn up front. LANES means it clears
-    every lane. Drawn once at bet time so the outcome is fixed before any jump
-    -- the reveal cannot be steered by how the player taps."""
+def _draw_bust_lane(mode: str, start: int = 0) -> int:
+    """First lane at or after `start` that the chicken fails on. LANES means
+    it clears every lane. Drawn once at bet time so the outcome is fixed
+    before any jump -- the reveal cannot be steered by how the player taps.
+
+    `start` is only ever above 0 when a bust is being re-drawn into a
+    survival, and then the lanes already crossed keep the result they had."""
     safe = MODES[mode]["safe"]
-    for lane in range(LANES):
+    for lane in range(start, LANES):
         if not secure_below(safe):
             return lane
     return LANES
@@ -78,13 +93,21 @@ class RoundRef(BaseModel):
 
 @router.get("/config")
 def config():
+    conn = get_db_connection()
+    try:
+        cap = get_controls(conn, GAME)["max_win"]
+    finally:
+        conn.close()
     return {
         "lanes": LANES,
+        "max_win": cap,
         "modes": {
             name: {
                 "safe": m["safe"],
                 "growth": m["growth"],
-                "multipliers": [_multiplier(name, lane + 1) for lane in range(LANES)],
+                # The ladder the client draws is the capped one, so a player
+                # is never shown a rung the cash-out will not honour.
+                "multipliers": [_multiplier(name, lane + 1, cap) for lane in range(LANES)],
             }
             for name, m in MODES.items()
         },
@@ -103,7 +126,7 @@ def state(current_user: dict = Depends(get_current_user)):
     if not rnd:
         return {"active": False}
     lane = rnd["lane"]
-    multiplier = _multiplier(rnd["mode"], lane)
+    multiplier = _multiplier(rnd["mode"], lane, _cap(rnd))
     return {
         "active": True,
         "round_id": rnd["id"],
@@ -115,9 +138,24 @@ def state(current_user: dict = Depends(get_current_user)):
     }
 
 
+def _cap(rnd: dict) -> float:
+    """The cap this round was opened under. Rounds opened before the control
+    existed carry none, and finish on the ladder they started on."""
+    return float(rnd.get("cap") or 0)
+
+
 @router.post("/bet")
 def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
     mode = req.mode if req.mode in MODES else "easy"
+
+    # The game's own switches: offline, and the per-game stake limits. Checked
+    # before hold_stake, so a refused round never touches the wallet.
+    conn = get_db_connection()
+    try:
+        controls = check_playable(conn, GAME, round(float(req.amount or 0), 2))
+    finally:
+        conn.close()
+
     with _lock:
         if load_round(current_user["id"], GAME):
             raise HTTPException(status_code=400, detail="Finish the current round first.")
@@ -131,6 +169,10 @@ def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
                 "mode": mode,
                 "bust_lane": _draw_bust_lane(mode),
                 "lane": 0,  # safe jumps completed so far
+                # Pinned to the round rather than re-read on every jump: a cap
+                # the admin changes mid-round must not move the ladder under
+                # a player who is already several lanes along it.
+                "cap": controls["max_win"],
             },
         )
     return {
@@ -141,6 +183,7 @@ def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
         "balance": held["balance"],
         "lane": 0,
         "multiplier": 1.0,
+        "max_win": controls["max_win"],
     }
 
 
@@ -156,6 +199,15 @@ def jump(req: RoundRef, current_user: dict = Depends(get_current_user)):
     with _lock:
         rnd = _active(current_user["id"], req.round_id)
         attempt_lane = rnd["lane"]  # 0-indexed lane being attempted now
+        rescued = bool(rnd.get("rescued"))
+
+        if attempt_lane == rnd["bust_lane"] and not rescued:
+            # The player's win rate gets one go at this per round: the bust is
+            # re-drawn somewhere further down the road and the jump lands.
+            # It is not a win yet -- from here they still have to bank it.
+            if luck.rescues(player_run(current_user)):
+                rnd["bust_lane"] = _draw_bust_lane(rnd["mode"], attempt_lane + 1)
+                rescued = True
 
         if attempt_lane == rnd["bust_lane"]:
             # Hit. Stake was already taken; settle a zero payout and close out.
@@ -177,7 +229,7 @@ def jump(req: RoundRef, current_user: dict = Depends(get_current_user)):
 
         rnd["lane"] += 1
         lane = rnd["lane"]
-        multiplier = _multiplier(rnd["mode"], lane)
+        multiplier = _multiplier(rnd["mode"], lane, _cap(rnd))
 
         # Cleared the final lane -> auto cash out at the top multiplier.
         if lane >= LANES:
@@ -200,7 +252,13 @@ def jump(req: RoundRef, current_user: dict = Depends(get_current_user)):
         # Survived: persist the new lane so a restart cannot rewind progress.
         save_round(
             current_user["id"], GAME,
-            {"mode": rnd["mode"], "bust_lane": rnd["bust_lane"], "lane": lane},
+            {
+                "mode": rnd["mode"],
+                "bust_lane": rnd["bust_lane"],
+                "lane": lane,
+                "cap": _cap(rnd),
+                "rescued": rescued,
+            },
         )
 
     return {
@@ -221,7 +279,7 @@ def cashout(req: RoundRef, current_user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=400, detail="Jump at least once before cashing out.")
         stake = rnd["stake"]
         mode = rnd["mode"]
-        multiplier = _multiplier(mode, lane)
+        multiplier = _multiplier(mode, lane, _cap(rnd))
         close_round(current_user["id"], GAME)
 
     settled = settle_held(

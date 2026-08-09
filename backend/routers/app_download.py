@@ -5,7 +5,7 @@ streamed back with an attachment header so a browser downloads the file rather
 than trying to open it. Both routes are public: an APK is meant to be shared.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from database import get_db_connection
@@ -39,8 +39,47 @@ def app_info():
     }
 
 
+def _client_ip(request: Request) -> str:
+    """The visitor's address, not the proxy's."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:64]
+    return (request.client.host if request.client else "")[:64]
+
+
+def _record_hit(request: Request, visitor: str, session: str, user: str) -> None:
+    """Log that the file was actually fetched.
+
+    The dashboard needs to separate "opened the download page" from "took the
+    app", and the page view alone cannot tell the difference. Recorded here
+    rather than in the browser because the APK is fetched by a plain navigation
+    -- no script of ours runs on that request.
+
+    Never allowed to break the download: a failure to count is not a reason to
+    withhold the file.
+    """
+    try:
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                """
+                INSERT INTO app_download_hits
+                    (visitor_id, session_id, user_id, ip, user_agent)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (visitor[:64] or None, session[:64] or None, user[:64] or None,
+                 _client_ip(request), request.headers.get("user-agent", "")[:512]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
 @router.get("/download")
-def app_download():
+def app_download(request: Request, v: str = "", s: str = "", u: str = ""):
+    _record_hit(request, v, s, u)
     conn = get_db_connection()
     try:
         row = conn.execute(

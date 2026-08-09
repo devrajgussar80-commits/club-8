@@ -197,7 +197,7 @@ def test_rejecting_a_deposit_credits_nothing(client, admin_headers, register):
 
 
 # ----------------- WITHDRAWAL MODERATION -----------------
-def test_rejecting_a_withdrawal_refunds_exactly_once(client, admin_headers, register, db):
+def test_rejecting_a_withdrawal_refunds_exactly_once(client, admin_headers, register, db, unlock_withdrawals):
     headers, user = register()
     conn = db()
     conn.execute("UPDATE users SET balance = 1000 WHERE id = ?", (user["id"],))
@@ -222,7 +222,7 @@ def test_rejecting_a_withdrawal_refunds_exactly_once(client, admin_headers, regi
     assert client.get("/api/auth/me", headers=headers).json()["user"]["balance"] == 1000.0
 
 
-def test_approving_a_withdrawal_keeps_the_funds_reserved(client, admin_headers, register, db):
+def test_approving_a_withdrawal_keeps_the_funds_reserved(client, admin_headers, register, db, unlock_withdrawals):
     headers, user = register()
     conn = db()
     conn.execute("UPDATE users SET balance = 1000 WHERE id = ?", (user["id"],))

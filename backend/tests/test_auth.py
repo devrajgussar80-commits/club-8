@@ -15,6 +15,36 @@ def test_register_returns_token_and_signup_bonus(client, register):
     assert me.json()["user"]["id"] == user["id"]
 
 
+def test_the_signup_bonus_opens_every_game_not_just_wingo(client, register):
+    """The arcade normally wants a ₹300 recharge, which a ₹100 wallet can never
+    reach. An account still on its bonus run is let in without one."""
+    headers, _ = register()
+    me = client.get("/api/auth/me", headers=headers).json()["user"]
+    assert me["game_access_enabled"] is False
+    assert me["has_approved_min_deposit"] is False
+    assert me["bonus_run_active"] is True
+    assert me["game_access_open"] is True
+
+
+def test_register_draws_a_run_target_inside_the_band(client, register, db):
+    _, user = register()
+    conn = db()
+    row = conn.execute(
+        "SELECT luck_target, luck_progress, luck_done FROM users WHERE id = ?", (user["id"],)
+    ).fetchone()
+    conn.close()
+    assert 1700 <= float(row["luck_target"]) <= 3000
+    assert float(row["luck_progress"]) == 100.0
+    assert not row["luck_done"]
+
+
+def test_the_profile_never_leaks_how_the_run_is_going(client, register):
+    """Handing a player their own target would tell them when the boost stops."""
+    me = client.get("/api/auth/me", headers=register()[0]).json()["user"]
+    for column in ("luck_target", "luck_progress", "luck_done", "team_win_rate"):
+        assert column not in me
+
+
 def test_register_rejects_duplicate_phone(client, register):
     _, user = register()
     response = client.post(

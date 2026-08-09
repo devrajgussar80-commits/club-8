@@ -106,7 +106,11 @@
                   <button type="button" data-toggle-password="reg-confirm-password" aria-label="Show password"><i class="bi bi-eye-slash"></i></button>
                 </div>
                 <label class="auth-field-label"><i class="bi bi-ticket-fill"></i> Invite code</label>
-                <div class="auth-input-wrap"><input type="text" id="reg-referral" value="" placeholder="Invite code (optional)"></div>
+                <div class="auth-input-wrap"><input type="text" id="reg-referral" value="" placeholder="Invite code (optional)" autocomplete="off" spellcheck="false"></div>
+                <!-- Filled in and shown when the visitor arrived through an
+                     invite link, so they can see who they are joining under
+                     rather than a code appearing in the box unexplained. -->
+                <small id="reg-referral-note" class="auth-referral-note" hidden></small>
                 <input type="hidden" id="reg-name">
                 <label class="auth-remember auth-agree"><input type="checkbox" checked required><span><i class="bi bi-check-lg"></i></span> I have read and agree <b>[Privacy Agreement]</b></label>
                 <div class="signup-bonus-callout"><i class="bi bi-gift-fill"></i><span>Register now and receive <b>₹100 signup bonus</b><small>Bonus can be used in WinGo without recharge.</small></span></div>
@@ -929,6 +933,14 @@
             <small id="agency-invite-code">—</small>
             <i class="bi bi-copy"></i>
           </button>
+          <!-- The link is what actually converts: it carries the code, so
+               whoever opens it is credited without typing anything. -->
+          <button id="share-invite-link" class="agency-code-card" type="button">
+            <i class="bi bi-share-fill"></i>
+            <span>Share your invite link</span>
+            <small id="agency-invite-link">—</small>
+            <i class="bi bi-box-arrow-up-right"></i>
+          </button>
 
           <section class="referral-list-card">
             <h3><i class="bi bi-people-fill"></i> People you referred</h3>
@@ -1619,6 +1631,19 @@
       <h3 id="game-access-title">Tips</h3>
       <p>Minimum recharge <b>₹300.00</b> to enter this game</p>
       <div><button id="cancel-game-access" type="button">Cancel</button><button id="confirm-game-access" type="button">Recharge</button></div>
+    </div>
+  </div>
+
+  <!-- Shown when a player tries to withdraw before their first recharge is
+       approved. Same classes as the game-access dialog above, so it inherits
+       that styling rather than growing a second look-alike in the stylesheet.
+       The wording comes from the dashboard, so it is filled in at runtime. -->
+  <div id="withdraw-locked-modal" class="game-access-modal" aria-hidden="true">
+    <div class="game-access-backdrop"></div>
+    <div class="game-access-dialog" role="dialog" aria-modal="true" aria-labelledby="withdraw-locked-title">
+      <h3 id="withdraw-locked-title">Withdrawals locked</h3>
+      <p id="withdraw-locked-text">Recharge to unlock withdrawals.</p>
+      <div><button id="cancel-withdraw-locked" type="button">Cancel</button><button id="confirm-withdraw-locked" type="button">Recharge</button></div>
     </div>
   </div>
 

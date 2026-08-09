@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from database import get_db_connection
 from deps import get_current_user
-from game_controls import apply_bias, check_playable
+from game_controls import apply_bias, capped_win, check_playable, under_cap
 from games_core import play_round, secure_unit, weighted_pick
 
 router = APIRouter(prefix="/api/games/slots", tags=["games"])
@@ -107,6 +107,12 @@ def forced_grid(token: str) -> list:
     return reels
 
 
+def result(reels: list, stake: float):
+    """`(payout, outcome)` for a grid, the shape every caller settles with."""
+    payout, lines = evaluate(reels, stake)
+    return payout, {"reels": reels, "lines": lines}
+
+
 @router.get("/paytable")
 def paytable():
     return {
@@ -126,26 +132,30 @@ def spin(req: SpinRequest, current_user: dict = Depends(get_current_user)):
     finally:
         conn.close()
 
+    def redraw_loss():
+        return 0.0, {"reels": losing_grid(), "lines": []}
+
     def resolve(stake):
         if controls["mode"] == "manual" and controls["forced"]:
-            reels = forced_grid(controls["forced"])
+            # A hand-forced result is the admin's own call, so the per-round
+            # cap does not second-guess it.
+            payout, outcome = result(forced_grid(controls["forced"]), stake)
         else:
-            reels = spin_reels()
-        payout, lines = evaluate(reels, stake)
+            payout, outcome = under_cap(
+                controls, stake, lambda: result(spin_reels(), stake), redraw_loss
+            )
 
         # Only ever turns a win into a loss, never the other way round.
-        biased = apply_bias(controls, payout, lambda: (0.0, losing_grid()))
-        if biased is not None:
-            payout, reels = biased
-            lines = []
-
-        return payout, {"reels": reels, "lines": lines}
+        biased = apply_bias(controls, payout, redraw_loss)
+        return biased if biased is not None else (payout, outcome)
 
     def redraw_win(stake):
-        # A genuine win for a team account: a forced small-win grid, evaluated
-        # normally so the reels shown and the payout paid still agree.
-        reels = forced_grid("small_win")
-        payout, lines = evaluate(reels, stake)
-        return payout, {"reels": reels, "lines": lines}
+        # A genuine win at the player's win rate: a forced small-win grid,
+        # evaluated normally so the reels shown and the payout paid agree,
+        # and held to the same per-round cap as a natural spin.
+        return capped_win(controls, stake, lambda: result(forced_grid("small_win"), stake))
 
-    return play_round(current_user, GAME, req.amount, resolve, redraw_win=redraw_win)
+    return play_round(
+        current_user, GAME, req.amount, resolve,
+        redraw_win=redraw_win, redraw_loss=redraw_loss,
+    )

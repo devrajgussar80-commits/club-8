@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 import auth as auth_helpers
 import config
+import luck
 import referrals_core
 from database import get_db_connection
 from deps import get_current_user
@@ -14,6 +15,9 @@ from settings_store import get_approved_deposit_total
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+# The wallet a new account opens with. Also the starting point of its bonus
+# run (see backend/luck.py), which is why the dashboard can change it: both
+# numbers have to move together or the run starts from the wrong place.
 SIGNUP_BONUS = 100.0
 
 
@@ -35,14 +39,24 @@ def register_user(req: RegisterRequest):
     own_code = referrals_core.new_user_code(conn)
     entered = (req.referral_code or "").strip().upper() or None
 
+    # The bonus run starts here: the wallet opens on the bonus, and the target
+    # it may climb to is drawn once, now, so it is fixed before the first
+    # round rather than decided by anything that happens during one.
+    luck_settings = luck.load_settings(conn)
+    bonus = luck_settings["signup_bonus"] or SIGNUP_BONUS
+
     cursor.execute(
         """
         INSERT INTO users
             (id, phone, username, password_hash, balance, status,
-             referral_code, referred_by, game_access_enabled)
-        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 0)
+             referral_code, referred_by, game_access_enabled,
+             luck_target, luck_progress, luck_done)
+        VALUES (?, ?, ?, ?, ?, 'active', ?, ?, 0, ?, ?, 0)
         """,
-        (user_id, req.phone, req.username, pwd_hash, SIGNUP_BONUS, own_code, entered),
+        (
+            user_id, req.phone, req.username, pwd_hash, bonus, own_code, entered,
+            luck.draw_target(luck_settings), bonus,
+        ),
     )
 
     # Link this signup to the referrer, if the entered code is real. Part of
@@ -60,7 +74,7 @@ def register_user(req: RegisterRequest):
             "id": user_id,
             "name": req.username,
             "phone": req.phone,
-            "balance": SIGNUP_BONUS,
+            "balance": bonus,
             "game_access_enabled": False,
             "approved_deposit_total": 0.0,
             "referral_code": own_code,
@@ -115,13 +129,31 @@ def login_user(req: LoginRequest):
 @router.get("/me")
 def get_profile(current_user: dict = Depends(get_current_user)):
     conn = get_db_connection()
-    approved_total = get_approved_deposit_total(conn, current_user["id"])
-    conn.close()
+    try:
+        approved_total = get_approved_deposit_total(conn, current_user["id"])
+        run = luck.Run(current_user, luck.load_settings(conn))
+    finally:
+        conn.close()
 
     user_data = dict(current_user)
     user_data.pop("password_hash", None)
+    # How the run is going is the server's business. Handing the player their
+    # own target and progress would tell them exactly when the boost stops.
+    for column in ("luck_target", "luck_progress", "luck_done", "team_win_rate"):
+        user_data.pop(column, None)
+
     user_data["approved_deposit_total"] = approved_total
     user_data["has_approved_min_deposit"] = approved_total >= config.GAME_ACCESS_MIN_DEPOSIT
     user_data["game_access_enabled"] = bool(user_data.get("game_access_enabled", 0))
     user_data["game_access_min_deposit"] = config.GAME_ACCESS_MIN_DEPOSIT
+    # The three ways into the arcade, resolved here rather than re-derived in
+    # the browser: the admin switch, enough approved deposits, or a signup
+    # bonus that has not finished its run. Whether the run is still open is
+    # the one the client cannot work out for itself.
+    user_data["bonus_run_active"] = run.open
+    user_data["game_access_open"] = bool(
+        user_data["game_access_enabled"]
+        or user_data["has_approved_min_deposit"]
+        or run.open
+    )
     return {"status": "success", "user": user_data}

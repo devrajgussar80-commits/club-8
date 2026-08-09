@@ -25,7 +25,9 @@ GAME_LABELS = {
     "roulette": "Roulette",
     "dice": "Dice Roll",
     "lottery": "Daily Lottery",
-    "chicken-road": "Chicken Road",
+    # Both keys are what the routers write into game_rounds.
+    "chicken": "Chicken Road",
+    "mines": "Mines",
     "fishtiger": "Fish vs Tiger",
     "vortex": "Vortex",
     "aviator": "XAviator",
@@ -191,6 +193,8 @@ class ControlsUpdate(BaseModel):
     mode: str | None = None
     forced: str | None = None
     house_bias: float | None = None
+    # Multiple of the stake one round may return at most. 0 is uncapped.
+    max_win: float | None = None
     enabled: bool | None = None
     min_stake: float | None = None
     max_stake: float | None = None

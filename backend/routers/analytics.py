@@ -44,6 +44,8 @@ EVENTS = {
     "login_submit",
     "login_success",
     "login_failed",
+    "download_page_view",  # the public /download page was opened
+    "app_download",        # the download button on that page was tapped
     "heartbeat",         # still here, tab visible (meta.seconds)
     "exit",              # tab hidden or closing (meta.seconds)
 }

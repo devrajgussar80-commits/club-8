@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from database import get_db_connection
 from deps import get_current_user
-from game_controls import apply_bias, check_playable
+from game_controls import apply_bias, capped_win, check_playable, under_cap
 from games_core import play_round, secure_unit, weighted_pick
 
 router = APIRouter(prefix="/api/games/megaslots", tags=["games"])
@@ -150,16 +150,35 @@ def losing_grid() -> list:
     return [["cherry"] * ROWS, ["lemon"] * ROWS] + [["bell"] * ROWS] * (REELS - 2)
 
 
-def forced_grid(token: str) -> list:
-    """Manual mode. A forced win runs the symbol across the MIDDLE payline."""
+def forced_grid(token: str, run: int = REELS) -> list:
+    """Manual mode. A forced win runs the symbol along the MIDDLE payline.
+
+    `run` is how many reels from the left carry it. Five is the full line the
+    dashboard's tiers mean; three is the shortest run that pays anything, and
+    is what a re-drawn win uses -- across five reels even the cheapest symbol
+    returns 340 times the *line* stake, which is 38 times the round's, and a
+    "small win" that pays 38x is not a small win.
+    """
     if token == "lose" or token not in FORCED_TIERS:
         return losing_grid()
     tier = FORCED_TIERS[token]
     symbol = tier[int(secure_unit() * len(tier)) % len(tier)]
+    run = max(3, min(run, REELS))
     reels = losing_grid()
-    for reel in range(REELS):
+    for reel in range(run):
         reels[reel][1] = symbol
+    # Stop the run where it was asked to stop: the losing grid underneath may
+    # already carry the same symbol on the next reel, which would quietly pay
+    # the longer line instead.
+    if run < REELS and reels[run][1] == symbol:
+        reels[run][1] = next(key for key in WEIGHTS if key != symbol)
     return reels
+
+
+def result(reels: list, stake: float):
+    """`(payout, outcome)` for a grid, the shape every caller settles with."""
+    payout, wins = evaluate(reels, stake)
+    return payout, {"reels": reels, "wins": wins}
 
 
 @router.get("/paytable")
@@ -183,25 +202,33 @@ def spin(req: SpinRequest, current_user: dict = Depends(get_current_user)):
     finally:
         conn.close()
 
+    def redraw_loss():
+        return 0.0, {"reels": losing_grid(), "wins": []}
+
     def resolve(stake):
         if controls["mode"] == "manual" and controls["forced"]:
-            reels = forced_grid(controls["forced"])
+            # A hand-forced result is the admin's own call, so the per-round
+            # cap does not second-guess it.
+            payout, outcome = result(forced_grid(controls["forced"]), stake)
         else:
-            reels = spin_reels()
-        payout, wins = evaluate(reels, stake)
+            payout, outcome = under_cap(
+                controls, stake, lambda: result(spin_reels(), stake), redraw_loss
+            )
 
-        biased = apply_bias(controls, payout, lambda: (0.0, losing_grid()))
-        if biased is not None:
-            payout, reels = biased
-            wins = []
-
-        return payout, {"reels": reels, "wins": wins}
+        biased = apply_bias(controls, payout, redraw_loss)
+        return biased if biased is not None else (payout, outcome)
 
     def redraw_win(stake):
-        # Genuine win for a team account: a forced small-win grid, evaluated
-        # normally so reels and payout still agree.
-        reels = forced_grid("small_win")
-        payout, wins = evaluate(reels, stake)
-        return payout, {"reels": reels, "wins": wins}
+        # A genuine win at the player's win rate: the shortest paying run of a
+        # cheap symbol, evaluated normally so reels and payout still agree.
+        # Still capped -- writing a symbol across the middle row can light up
+        # the diagonal lines that cross it, and three of those together reach
+        # far past what a "small win" should pay.
+        return capped_win(
+            controls, stake, lambda: result(forced_grid("small_win", run=3), stake)
+        )
 
-    return play_round(current_user, GAME, req.amount, resolve, redraw_win=redraw_win)
+    return play_round(
+        current_user, GAME, req.amount, resolve,
+        redraw_win=redraw_win, redraw_loss=redraw_loss,
+    )

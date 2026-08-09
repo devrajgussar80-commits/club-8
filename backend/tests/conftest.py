@@ -125,3 +125,20 @@ def db(app_env):
     from database import get_db_connection
 
     return get_db_connection
+
+
+@pytest.fixture()
+def unlock_withdrawals(db):
+    """Switch the recharge-before-withdrawal gate off.
+
+    It is the first thing /api/wallet/withdraw checks after the pause switch,
+    so a test about the minimum, the balance or the destination would only
+    ever reach the gate. Tests that are about the gate itself leave it alone.
+    """
+    conn = db()
+    conn.execute(
+        "INSERT INTO system_settings (key, value) VALUES ('withdrawal_min_deposit', '0') "
+        "ON CONFLICT (key) DO UPDATE SET value = excluded.value"
+    )
+    conn.commit()
+    conn.close()

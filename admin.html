@@ -70,12 +70,14 @@
         <div class="ad-rail-brand"><i class="bi bi-shield-lock-fill"></i><span>Club 8</span></div>
         <nav class="ad-rail-nav" role="tablist">
           <button type="button" class="nd-tab ad-rail-item active" data-section="users"><i class="bi bi-people-fill"></i><span>Players</span></button>
+          <button type="button" class="nd-tab ad-rail-item" data-section="data"><i class="bi bi-table"></i><span>Data</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="history"><i class="bi bi-clock-history"></i><span>History</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="games"><i class="bi bi-controller"></i><span>Games</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="covers"><i class="bi bi-images"></i><span>Cover Arts</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="visitors"><i class="bi bi-people"></i><span>Visitors</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="referrals"><i class="bi bi-people-fill"></i><span>Referrals</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="team"><i class="bi bi-person-badge-fill"></i><span>Team</span></button>
+          <button type="button" class="nd-tab ad-rail-item" data-section="downloads"><i class="bi bi-download"></i><span>Downloads</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="qr"><i class="bi bi-qr-code"></i><span>Payment QR</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="controls"><i class="bi bi-sliders"></i><span>Controls</span></button>
           <button type="button" class="nd-tab ad-rail-item" data-section="security"><i class="bi bi-shield-lock-fill"></i><span>Security</span></button>
@@ -159,6 +161,55 @@
         <div id="admin-users-daily" class="nd-daily"></div>
       </section>
 
+      <!-- DATA: one row per player, everything about them in one place. -->
+      <section id="nd-section-data" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>Data <small>one row per player</small></h3>
+          <input id="nd-data-search" class="nd-search" type="search" placeholder="Search name, phone or ID…" autocomplete="off">
+        </div>
+        <div class="ng-kpis" id="nd-data-kpis"></div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead>
+              <tr>
+                <th>Player</th><th>Online</th><th>Deposit</th>
+                <th>Games played</th><th>Wallet</th><th>Account</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="admin-data-table-body"></tbody>
+          </table>
+        </div>
+
+        <div class="nd-controls-grid" style="margin-top:22px">
+          <div class="nd-control-card">
+            <h4>Deposit pop-up</h4>
+            <p class="nd-hint">
+              Players cannot withdraw until their approved recharges reach this
+              total. Anyone who tries before then is shown the message below in
+              a pop-up, with a button that takes them to the recharge screen.
+            </p>
+            <form id="admin-withdraw-lock" class="nd-settings">
+              <label class="nd-field">
+                <span>Recharge required before withdrawing (₹)</span>
+                <input id="admin-withdraw-min-deposit" class="form-control"
+                       type="number" min="0" step="1" value="500">
+              </label>
+              <label class="nd-field">
+                <span>Pop-up message</span>
+                <textarea id="admin-withdraw-locked-message" class="form-control"
+                          rows="4" maxlength="600"></textarea>
+              </label>
+              <p class="nd-hint">
+                Write <code>{minimum}</code> where the required amount should appear and
+                <code>{deposited}</code> for what they have recharged so far. Set the
+                amount to 0 to switch the lock off.
+              </p>
+              <button class="btn-primary" type="submit">Save</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
       <section id="nd-section-history" class="nd-panel nd-section">
         <div class="nd-panel-head">
           <h3>Processed requests</h3>
@@ -240,6 +291,14 @@
               <input id="ng-ctl-bias" type="range" min="0" max="100" step="1" value="0">
               <small class="ng-hint">Auto mode only. Re-draws this share of winning rounds as
                 losses, which lowers the game's payout rate. 0% leaves the published odds alone.</small>
+            </label>
+
+            <label class="ng-ctl-row">
+              <span class="ng-ctl-label">Max win per round</span>
+              <input id="ng-ctl-maxwin" class="form-control" type="number" min="0" max="10000" step="1">
+              <small class="ng-hint">A multiple of that round's own stake — 10 means a ₹500 spin
+                can return at most ₹5,000. The result is re-drawn until it fits, so the reels
+                on screen always match the payout. 0 removes the cap.</small>
             </label>
 
             <div class="ng-ctl-row ng-limits">
@@ -328,6 +387,26 @@
             <tbody id="admin-referrals-table-body"></tbody>
           </table>
         </div>
+
+        <!-- CHAINED REFERRALS: the table above only shows direct invites.
+             This follows the chain down, so someone who invited one player
+             whose invitee brought three more shows all four. -->
+        <div class="nd-panel-head" style="margin-top:22px">
+          <h3>Referral network <small>who they invited, and who those people invited</small></h3>
+          <input id="nd-network-search" class="nd-search" type="search" placeholder="Search name, phone or code…" autocomplete="off">
+        </div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead>
+              <tr>
+                <th>Referrer</th><th>Direct</th><th>Chained</th><th>Whole network</th>
+                <th>Levels deep</th><th>Network deposits</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="admin-network-table-body"></tbody>
+          </table>
+        </div>
+        <div id="admin-network-chain" class="nd-daily"></div>
       </section>
 
       <section id="nd-section-team" class="nd-panel nd-section">
@@ -432,6 +511,78 @@
         </div>
       </section>
 
+      <section id="nd-section-downloads" class="nd-panel nd-section">
+        <div class="nd-panel-head">
+          <h3>App downloads</h3>
+          <small class="nd-pool-note">Last <b id="nd-dl-days">30</b> days</small>
+        </div>
+
+        <!-- Two different populations: the page funnel is people the tracker
+             saw open /download, the download count is the file actually being
+             fetched. A shared link opened straight from a chat has no page
+             view, so the two do not have to reconcile. -->
+        <div class="nd-stat-grid">
+          <div class="nd-stat">
+            <small>Download page views</small>
+            <strong id="nd-dl-views">0</strong>
+            <span id="nd-dl-visitors">0 visitors</span>
+          </div>
+          <div class="nd-stat">
+            <small>Downloaded the app</small>
+            <strong id="nd-dl-downloads">0</strong>
+            <span id="nd-dl-unique">0 unique</span>
+          </div>
+          <div class="nd-stat">
+            <small>Left without downloading</small>
+            <strong id="nd-dl-left">0</strong>
+            <span>opened the page, did not take it</span>
+          </div>
+          <div class="nd-stat">
+            <small>Conversion</small>
+            <strong id="nd-dl-conversion">0%</strong>
+            <span id="nd-dl-alltime">0 downloads all time</span>
+          </div>
+        </div>
+
+        <div class="nd-controls-grid">
+          <div class="nd-control-card">
+            <h4><i class="bi bi-android2"></i> Android app (APK)</h4>
+            <p class="nd-hint" id="admin-app-status">No app uploaded yet.</p>
+            <form id="admin-app-form" class="nd-settings">
+              <label class="nd-field">
+                <span>Version label (optional)</span>
+                <input id="admin-app-version" class="form-control" type="text" placeholder="e.g. 1.0.0" autocomplete="off">
+              </label>
+              <label class="nd-field">
+                <span>APK file</span>
+                <input id="admin-app-file" class="form-control" type="file" accept=".apk,application/vnd.android.package-archive" required>
+              </label>
+              <div class="nd-app-actions">
+                <button class="btn-primary" type="submit"><i class="bi bi-upload"></i> Upload APK</button>
+                <button id="admin-app-delete" class="btn-ghost" type="button" hidden><i class="bi bi-trash"></i> Remove</button>
+              </div>
+              <div id="admin-app-progress" class="nd-app-progress" hidden><i></i></div>
+            </form>
+            <p class="nd-hint" style="margin-top:12px">
+              Shared link: <a id="nd-dl-link" href="/download" target="_blank" rel="noopener">/download</a>
+            </p>
+          </div>
+
+          <div class="nd-control-card">
+            <h4><i class="bi bi-graph-up"></i> Downloads per day</h4>
+            <div id="nd-dl-daily" class="nd-dl-daily"><p class="nd-hint">No downloads yet.</p></div>
+          </div>
+        </div>
+
+        <div class="nd-panel-head" style="margin-top:18px"><h3>Recent downloads</h3></div>
+        <div class="nd-table-wrap">
+          <table class="nd-table">
+            <thead><tr><th>When</th><th>Player</th><th>Device</th><th>IP</th></tr></thead>
+            <tbody id="nd-dl-recent"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section id="nd-section-controls" class="nd-panel nd-section">
         <!-- DANGER ZONE: deletes real records, so it is visually separated
              from the everyday switches above it. -->
@@ -464,10 +615,72 @@
                 <input id="admin-withdrawals-enabled" type="checkbox">
                 <span>Accept withdrawals</span>
               </label>
-              <label class="nd-field">
-                <span>Minimum withdrawal (₹)</span>
-                <input id="admin-withdrawal-min" class="form-control" type="number" min="1" value="200">
+              <div class="nd-limit-grid">
+                <label class="nd-field">
+                  <span>Min deposit (₹)</span>
+                  <input id="admin-deposit-min" class="form-control" type="number" min="1" value="100">
+                </label>
+                <label class="nd-field">
+                  <span>Max deposit (₹)</span>
+                  <input id="admin-deposit-max" class="form-control" type="number" min="1" value="50000">
+                </label>
+                <label class="nd-field">
+                  <span>Min withdrawal (₹)</span>
+                  <input id="admin-withdrawal-min" class="form-control" type="number" min="1" value="200">
+                </label>
+                <label class="nd-field">
+                  <span>Max withdrawal (₹)</span>
+                  <input id="admin-withdrawal-max" class="form-control" type="number" min="1" value="100000">
+                </label>
+              </div>
+              <p class="nd-hint">A QR may narrow the deposit range further, never widen it.</p>
+              <button class="btn-primary" type="submit">Save</button>
+            </form>
+          </div>
+
+          <div class="nd-control-card">
+            <h4>Signup bonus run</h4>
+            <p class="nd-hint">
+              What a new account is given, and how far it can ride on it. Until a
+              player's wallet reaches the target drawn for them, this share of their
+              single-player rounds — Lucky Reels, Mega Slots, Roulette, Mines,
+              Chicken Road — is won. The target is drawn once per account, somewhere
+              in the band, and the boost never carries anyone past the top of it.
+              Shared-round games are untouched: WinGo, Dice, Fish vs Tiger, Vortex
+              and XAviator deal one result to the whole table.
+            </p>
+            <form id="admin-bonus-run" class="nd-settings">
+              <label class="nd-switch">
+                <input id="admin-luck-enabled" type="checkbox">
+                <span>Boosted win rate is on</span>
               </label>
+              <div class="nd-limit-grid">
+                <label class="nd-field">
+                  <span>Win rate (%)</span>
+                  <input id="admin-luck-rate" class="form-control" type="number"
+                         min="0" max="100" step="1" value="60">
+                </label>
+                <label class="nd-field">
+                  <span>Signup bonus (₹)</span>
+                  <input id="admin-luck-bonus" class="form-control" type="number"
+                         min="0" step="1" value="100">
+                </label>
+                <label class="nd-field">
+                  <span>Run target from (₹)</span>
+                  <input id="admin-luck-min" class="form-control" type="number"
+                         min="0" step="1" value="1700">
+                </label>
+                <label class="nd-field">
+                  <span>Run target to (₹)</span>
+                  <input id="admin-luck-max" class="form-control" type="number"
+                         min="0" step="1" value="3000">
+                </label>
+              </div>
+              <p class="nd-hint">
+                An open run also unlocks the arcade without a recharge — a ₹100 wallet
+                could never clear the deposit threshold on its own. Once the run ends,
+                the usual deposit gate is back.
+              </p>
               <button class="btn-primary" type="submit">Save</button>
             </form>
           </div>
@@ -545,25 +758,6 @@
             <p id="admin-deploy-live-note" class="nd-hint" hidden>Changes go live automatically: push to GitHub and Vercel + Render redeploy on their own. The one-click button above appears when you open this dashboard on your local machine.</p>
           </div>
 
-          <div class="nd-control-card">
-            <h4><i class="bi bi-android2"></i> Android app (APK)</h4>
-            <p class="nd-hint" id="admin-app-status">No app uploaded yet.</p>
-            <form id="admin-app-form" class="nd-settings">
-              <label class="nd-field">
-                <span>Version label (optional)</span>
-                <input id="admin-app-version" class="form-control" type="text" placeholder="e.g. 1.0.0" autocomplete="off">
-              </label>
-              <label class="nd-field">
-                <span>APK file</span>
-                <input id="admin-app-file" class="form-control" type="file" accept=".apk,application/vnd.android.package-archive" required>
-              </label>
-              <div class="nd-app-actions">
-                <button class="btn-primary" type="submit"><i class="bi bi-upload"></i> Upload APK</button>
-                <button id="admin-app-delete" class="btn-ghost" type="button" hidden><i class="bi bi-trash"></i> Remove</button>
-              </div>
-              <div id="admin-app-progress" class="nd-app-progress" hidden><i></i></div>
-            </form>
-          </div>
         </div>
       </section>
 
@@ -571,12 +765,14 @@
 
       <nav class="ad-bar" role="tablist" aria-label="Sections">
         <button type="button" class="nd-tab ad-bar-item active" data-section="users"><i class="bi bi-people-fill"></i><span>Players</span></button>
+        <button type="button" class="nd-tab ad-bar-item" data-section="data"><i class="bi bi-table"></i><span>Data</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="history"><i class="bi bi-clock-history"></i><span>History</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="games"><i class="bi bi-controller"></i><span>Games</span></button>
           <button type="button" class="nd-tab ad-bar-item" data-section="covers"><i class="bi bi-images"></i><span>Cover Arts</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="visitors"><i class="bi bi-people"></i><span>Visitors</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="referrals"><i class="bi bi-people-fill"></i><span>Referrals</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="team"><i class="bi bi-person-badge-fill"></i><span>Team</span></button>
+        <button type="button" class="nd-tab ad-bar-item" data-section="downloads"><i class="bi bi-download"></i><span>Downloads</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="qr"><i class="bi bi-qr-code"></i><span>Payment QR</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="controls"><i class="bi bi-sliders"></i><span>Controls</span></button>
         <button type="button" class="nd-tab ad-bar-item" data-section="security"><i class="bi bi-shield-lock-fill"></i><span>Security</span></button>

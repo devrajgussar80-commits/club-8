@@ -102,7 +102,25 @@ class WithdrawRequest(BaseModel):
 class PlatformSettingsReq(BaseModel):
     deposits_enabled: bool
     withdrawals_enabled: bool
+    deposit_min: float = Field(default=100, ge=1, le=10_000_000)
+    deposit_max: float = Field(default=50_000, ge=1, le=10_000_000)
     withdrawal_min: float = Field(ge=1, le=1_000_000)
+    withdrawal_max: float = Field(default=100_000, ge=1, le=10_000_000)
+    # Approved deposits an account needs before it can withdraw. 0 is off.
+    withdrawal_min_deposit: float = Field(default=500, ge=0, le=10_000_000)
+    # Shown to a player who tries before then. Optional so a dashboard that
+    # does not send it keeps whatever wording is already saved.
+    withdrawal_locked_message: str | None = Field(default=None, max_length=600)
+
+
+class BonusRunSettingsReq(BaseModel):
+    """The signup-bonus run (backend/luck.py), as the dashboard edits it."""
+
+    enabled: bool
+    win_rate: float = Field(default=60, ge=0, le=100)
+    signup_bonus: float = Field(default=100, ge=0, le=1_000_000)
+    target_min: float = Field(default=1_700, ge=0, le=10_000_000)
+    target_max: float = Field(default=3_000, ge=0, le=10_000_000)
 
 
 class PredictionModeReq(BaseModel):

@@ -12,19 +12,36 @@
 const money = n => Number(n || 0).toFixed(1);
 
 export class AppShare {
-  constructor({ apiBaseUrl, toast }) {
+  /**
+   * `referralCode` is a getter, not a value: the code arrives from
+   * /api/auth/me after this object is built, and a link shared before that
+   * lands would otherwise carry no code at all — which is exactly the case
+   * this is meant to cover.
+   */
+  constructor({ apiBaseUrl, toast, referralCode }) {
     this.base = String(apiBaseUrl || '').replace(/\/+$/, '');
     this.toast = toast || (() => {});
+    this.getReferralCode = typeof referralCode === 'function' ? referralCode : () => referralCode;
   }
 
   /** Public page a recipient can open — never the raw .apk, which many
-   *  messengers refuse to forward and some browsers block outright. */
+   *  messengers refuse to forward and some browsers block outright.
+   *
+   *  The sharer's own code rides along in `?ref=`, so whoever opens the link
+   *  is credited to them without anyone having to read a code aloud and type
+   *  it in. Both the download page and the app itself pick it up. */
   get shareUrl() {
-    return `${window.location.origin}/download`;
+    const code = String(this.getReferralCode() || '').trim().toUpperCase();
+    const base = `${window.location.origin}/download`;
+    return code ? `${base}?ref=${encodeURIComponent(code)}` : base;
   }
 
   get shareText() {
-    return 'Play on Club 8 — WinGo, Aviator, Mines aur bahut kuch. App yahan se lo:';
+    const code = String(this.getReferralCode() || '').trim().toUpperCase();
+    const invite = 'Play on Club 8 — WinGo, Aviator, Mines aur bahut kuch. App yahan se lo:';
+    // Still spelled out, so a messenger that strips the query string from the
+    // preview does not take the code with it.
+    return code ? `${invite.slice(0, -1)} (invite code ${code}):` : invite;
   }
 
   init() {

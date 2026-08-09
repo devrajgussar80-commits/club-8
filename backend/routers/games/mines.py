@@ -23,12 +23,16 @@ from math import comb
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+import luck
+from database import get_db_connection
 from deps import get_current_user
+from game_controls import check_playable, get_controls
 from games_core import (
     close_round,
     hold_stake,
     load_round,
     open_round,
+    player_run,
     save_round,
     settle_held,
 )
@@ -42,15 +46,23 @@ MAX_MINES = 24
 RTP = 0.97
 
 
-def _multiplier(mines: int, opened: int) -> float:
-    """Fair multiplier for `opened` safe tiles, scaled by RTP. 0 opened = 1.0."""
+def _multiplier(mines: int, opened: int, cap: float = 0.0) -> float:
+    """Fair multiplier for `opened` safe tiles, scaled by RTP. 0 opened = 1.0.
+
+    `cap` is the game's max_win control, a multiple of the stake, so clamping
+    the multiplier is the cap -- and it clamps the figure on screen with it.
+    Uncapped this curve is unbounded: 24 mines pays 25x on the first tile and
+    a clean 5x5 board at 3 mines pays over 2,000x, which is not a return a
+    small stake should be able to reach.
+    """
     if opened <= 0:
         return 1.0
     safe_tiles = TILES - mines
     if opened > safe_tiles:
         opened = safe_tiles
     fair = comb(TILES, opened) / comb(safe_tiles, opened)
-    return round(fair * RTP, 4)
+    value = round(fair * RTP, 4)
+    return min(value, cap) if cap > 0 else value
 
 
 def _draw_mines(count: int) -> set:
@@ -79,9 +91,20 @@ _lock = threading.RLock()
 # this process's own concurrent requests for the same player.
 
 
+def _cap(rnd: dict) -> float:
+    """The cap this round was opened under. Rounds opened before the control
+    existed carry none, and finish on the curve they started on."""
+    return float(rnd.get("cap") or 0)
+
+
 @router.get("/config")
 def config():
-    return {"tiles": TILES, "min_mines": MIN_MINES, "max_mines": MAX_MINES}
+    conn = get_db_connection()
+    try:
+        cap = get_controls(conn, GAME)["max_win"]
+    finally:
+        conn.close()
+    return {"tiles": TILES, "min_mines": MIN_MINES, "max_mines": MAX_MINES, "max_win": cap}
 
 
 @router.get("/state")
@@ -98,7 +121,7 @@ def state(current_user: dict = Depends(get_current_user)):
     if not rnd:
         return {"active": False}
     opened = sorted(rnd["opened"])
-    multiplier = _multiplier(rnd["mine_count"], len(opened))
+    multiplier = _multiplier(rnd["mine_count"], len(opened), _cap(rnd))
     return {
         "active": True,
         "round_id": rnd["id"],
@@ -113,6 +136,15 @@ def state(current_user: dict = Depends(get_current_user)):
 @router.post("/bet")
 def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
     mines = max(MIN_MINES, min(MAX_MINES, int(req.mines or 3)))
+
+    # The game's own switches: offline, and the per-game stake limits. Checked
+    # before hold_stake, so a refused round never touches the wallet.
+    conn = get_db_connection()
+    try:
+        controls = check_playable(conn, GAME, round(float(req.amount or 0), 2))
+    finally:
+        conn.close()
+
     with _lock:
         if load_round(current_user["id"], GAME):
             raise HTTPException(status_code=400, detail="Finish the current round first.")
@@ -122,7 +154,15 @@ def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
         # lists and turned back into sets on load.
         open_round(
             current_user["id"], GAME, round_id, held["stake"],
-            {"mines": sorted(_draw_mines(mines)), "mine_count": mines, "opened": []},
+            {
+                "mines": sorted(_draw_mines(mines)),
+                "mine_count": mines,
+                "opened": [],
+                # Pinned to the round rather than re-read on every tile: a cap
+                # the admin changes mid-round must not move the curve under a
+                # player who is already several tiles into it.
+                "cap": controls["max_win"],
+            },
         )
     return {
         "status": "success",
@@ -131,6 +171,7 @@ def bet(req: BetRequest, current_user: dict = Depends(get_current_user)):
         "balance": held["balance"],
         "mines": mines,
         "multiplier": 1.0,
+        "max_win": controls["max_win"],
     }
 
 
@@ -154,6 +195,20 @@ def reveal(req: RevealRequest, current_user: dict = Depends(get_current_user)):
         if tile in rnd["opened"]:
             raise HTTPException(status_code=400, detail="Tile already opened.")
 
+        rescued = bool(rnd.get("rescued"))
+        if tile in rnd["mines"] and not rescued:
+            # The player's win rate gets one go at this per round: the mine is
+            # moved to a tile still face down and this one comes up safe. It
+            # is not a win yet -- from here they still have to cash out.
+            free = [
+                t for t in range(TILES)
+                if t != tile and t not in rnd["mines"] and t not in rnd["opened"]
+            ]
+            if free and luck.rescues(player_run(current_user)):
+                rnd["mines"].discard(tile)
+                rnd["mines"].add(free[secrets.randbelow(len(free))])
+                rescued = True
+
         if tile in rnd["mines"]:
             # Boom. Stake already taken; close with a zero payout and reveal the
             # full mine layout so the client can show where they were.
@@ -176,7 +231,7 @@ def reveal(req: RevealRequest, current_user: dict = Depends(get_current_user)):
 
         rnd["opened"].add(tile)
         opened = len(rnd["opened"])
-        multiplier = _multiplier(rnd["mine_count"], opened)
+        multiplier = _multiplier(rnd["mine_count"], opened, _cap(rnd))
         safe_tiles = TILES - rnd["mine_count"]
 
         # Opened every safe tile -> auto cash out at the top.
@@ -206,6 +261,8 @@ def reveal(req: RevealRequest, current_user: dict = Depends(get_current_user)):
                 "mines": sorted(rnd["mines"]),
                 "mine_count": rnd["mine_count"],
                 "opened": sorted(rnd["opened"]),
+                "cap": _cap(rnd),
+                "rescued": rescued,
             },
         )
 
@@ -227,7 +284,7 @@ def cashout(req: RoundRef, current_user: dict = Depends(get_current_user)):
         if opened <= 0:
             raise HTTPException(status_code=400, detail="Open at least one tile before cashing out.")
         stake = rnd["stake"]
-        multiplier = _multiplier(rnd["mine_count"], opened)
+        multiplier = _multiplier(rnd["mine_count"], opened, _cap(rnd))
         layout = sorted(rnd["mines"])
         close_round(current_user["id"], GAME)
 

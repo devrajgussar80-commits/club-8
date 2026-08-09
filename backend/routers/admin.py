@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 import auth as auth_helpers
 import config
+import luck
 import referrals_core
 from database import QR_CODE_COLUMNS, get_db_connection
 from deps import get_admin_user, require_admin
@@ -23,6 +24,7 @@ from schemas import (
     AdminCredentialsRequest,
     AdminKeyRotationRequest,
     AdminLoginRequest,
+    BonusRunSettingsReq,
     LocalPushRequest,
     TeamCreateRequest,
     TeamUpdateRequest,
@@ -34,6 +36,7 @@ from schemas import (
     UserStatusReq,
 )
 from settings_store import (
+    WITHDRAWAL_LOCKED_MESSAGE,
     get_approved_deposit_total,
     get_settings,
     get_wallet_settings,
@@ -56,6 +59,15 @@ USERS_WITH_DEPOSIT_TOTALS = """
            u.referral_code, u.game_access_enabled,
            COALESCE(SUM(CASE WHEN d.status = 'approved' THEN d.amount ELSE 0 END), 0)
                AS approved_deposit_total,
+           COUNT(DISTINCT CASE WHEN d.status = 'approved' THEN d.id END)
+               AS approved_deposit_count,
+           COUNT(DISTINCT CASE WHEN d.status = 'pending' THEN d.id END)
+               AS pending_deposit_count,
+           -- Rounds played across both ledgers: the arcade games write
+           -- game_rounds, WinGo writes bets. Summed here so the Data tab does
+           -- not need a query per player to fill one column.
+           (SELECT COUNT(*) FROM game_rounds gr WHERE gr.user_id = u.id)
+             + (SELECT COUNT(*) FROM bets b WHERE b.user_id = u.id) AS rounds_played,
            (SELECT MAX(vs.last_seen_at) FROM visitor_sessions vs
              WHERE vs.user_id = u.id) AS last_seen_at
     FROM users u
@@ -379,8 +391,17 @@ def get_admin_dashboard(_: bool = Depends(require_admin)):
         "platform_settings": {
             "deposits_enabled": str(settings.get("deposits_enabled", "true")).lower() == "true",
             "withdrawals_enabled": str(settings.get("withdrawals_enabled", "true")).lower() == "true",
+            "deposit_min": float(settings.get("deposit_min", 100)),
+            "deposit_max": float(settings.get("deposit_max", 50000)),
             "withdrawal_min": float(settings.get("withdrawal_min", 200)),
+            "withdrawal_max": float(settings.get("withdrawal_max", 100000)),
+            "withdrawal_min_deposit": float(settings.get("withdrawal_min_deposit", 500)),
+            "withdrawal_locked_message": settings.get(
+                "withdrawal_locked_message", WITHDRAWAL_LOCKED_MESSAGE
+            ),
         },
+        # `settings` above already holds every row, so this needs no query.
+        "bonus_run": luck.from_raw(settings),
         "users": users,
         "deposits": deposits,
         "withdrawals": withdrawals,
@@ -417,16 +438,70 @@ def get_admin_platform_settings(_: bool = Depends(require_admin)):
 @router.put("/platform-settings")
 def update_admin_platform_settings(req: PlatformSettingsReq, _: bool = Depends(require_admin)):
     conn = get_db_connection()
+    if req.deposit_min > req.deposit_max:
+        conn.close()
+        raise HTTPException(
+            status_code=400, detail="Deposit minimum cannot be above the maximum."
+        )
+    if req.withdrawal_min > req.withdrawal_max:
+        conn.close()
+        raise HTTPException(
+            status_code=400, detail="Withdrawal minimum cannot be above the maximum."
+        )
     values = {
         "deposits_enabled": "true" if req.deposits_enabled else "false",
         "withdrawals_enabled": "true" if req.withdrawals_enabled else "false",
+        "deposit_min": str(round(req.deposit_min, 2)),
+        "deposit_max": str(round(req.deposit_max, 2)),
         "withdrawal_min": str(round(req.withdrawal_min, 2)),
+        "withdrawal_max": str(round(req.withdrawal_max, 2)),
+        "withdrawal_min_deposit": str(round(req.withdrawal_min_deposit, 2)),
     }
+    # Blank keeps the wording already saved rather than showing a player
+    # nothing at all when they hit the lock.
+    if (req.withdrawal_locked_message or "").strip():
+        values["withdrawal_locked_message"] = req.withdrawal_locked_message.strip()
     for key, value in values.items():
         set_setting(conn, key, value)
     conn.commit()
     conn.close()
     return {"status": "success", **values}
+
+
+@router.get("/bonus-run")
+def get_bonus_run_settings(_: bool = Depends(require_admin)):
+    """The signup-bonus run: the win rate every normal account plays at, and
+    the band its wallet may climb to before the boost switches off."""
+    conn = get_db_connection()
+    try:
+        return luck.load_settings(conn)
+    finally:
+        conn.close()
+
+
+@router.put("/bonus-run")
+def update_bonus_run_settings(req: BonusRunSettingsReq, _: bool = Depends(require_admin)):
+    if req.target_min > req.target_max:
+        raise HTTPException(
+            status_code=400, detail="The run's minimum cannot be above its maximum."
+        )
+    conn = get_db_connection()
+    try:
+        values = {
+            "luck:enabled": "true" if req.enabled else "false",
+            "luck:win_rate": str(round(req.win_rate, 2)),
+            "luck:signup_bonus": str(round(req.signup_bonus, 2)),
+            "luck:target_min": str(round(req.target_min, 2)),
+            "luck:target_max": str(round(req.target_max, 2)),
+        }
+        for key, value in values.items():
+            set_setting(conn, key, value)
+        conn.commit()
+        # Read back rather than echoing the request: the loader clamps, and an
+        # admin should see the number that is actually in force.
+        return {"status": "success", **luck.load_settings(conn)}
+    finally:
+        conn.close()
 
 
 @router.post("/prediction-mode")
@@ -687,6 +762,37 @@ def list_referrals(_: bool = Depends(require_admin)):
     }
 
 
+@router.get("/referrals/network")
+def referral_network(_: bool = Depends(require_admin)):
+    """Chained referrals: each referrer with their downline, level by level.
+
+    The flat list above only shows who invited whom directly. This follows the
+    chain -- if someone invited one player and that player invited three more,
+    all four count towards the first person's network, split by how many links
+    away they are.
+    """
+    conn = get_db_connection()
+    try:
+        return {
+            "network": referrals_core.network(conn),
+            "max_depth": referrals_core.MAX_DEPTH,
+        }
+    finally:
+        conn.close()
+
+
+@router.get("/referrals/network/{user_id}")
+def referral_chain(user_id: str, _: bool = Depends(require_admin)):
+    """One referrer's downline as a tree, for expanding a network row."""
+    conn = get_db_connection()
+    try:
+        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"user_id": user_id, "chain": referrals_core.chain(conn, user_id)}
+    finally:
+        conn.close()
+
+
 @router.post("/referrals/{referral_id}/approve")
 def approve_referral(referral_id: str, _: bool = Depends(require_admin)):
     """Release the reward: credit the referrer once, close the referral.
@@ -752,6 +858,110 @@ def reject_referral(referral_id: str, _: bool = Depends(require_admin)):
 
 
 # ----------------- ANDROID APP -----------------
+@router.get("/app/stats")
+def app_download_stats(days: int = 30, _: bool = Depends(require_admin)):
+    """How the download page is doing: arrived, took the app, left without it.
+
+    Two different populations, counted separately on purpose:
+
+    * `page_*` comes from the visitor tracker, so it is people who opened
+      /download. Counted by visitor rather than by hit, or a single person
+      reloading would look like an audience.
+    * `downloads` comes from the server-side log of the file actually being
+      fetched. That is the number worth trusting -- a click that never became
+      a download is not a download.
+
+    "Left without downloading" is the difference, and only counts visitors the
+    tracker saw, since a direct hit on the link never had a page view to miss.
+    """
+    days = max(1, min(days, 365))
+    window = f"{days} days"
+
+    conn = get_db_connection(readonly=True)
+    try:
+        row = conn.execute(
+            """
+            WITH viewers AS (
+                SELECT DISTINCT visitor_id FROM visitor_events
+                 WHERE name = 'download_page_view'
+                   AND created_at >= NOW() - ?::interval
+            ),
+            takers AS (
+                SELECT DISTINCT visitor_id FROM app_download_hits
+                 WHERE visitor_id IS NOT NULL
+                   AND created_at >= NOW() - ?::interval
+            )
+            SELECT
+              (SELECT COUNT(*) FROM viewers) AS page_visitors,
+              (SELECT COUNT(*) FROM visitor_events
+                WHERE name = 'download_page_view'
+                  AND created_at >= NOW() - ?::interval) AS page_views,
+              (SELECT COUNT(*) FROM app_download_hits
+                WHERE created_at >= NOW() - ?::interval) AS downloads,
+              (SELECT COUNT(DISTINCT COALESCE(visitor_id, ip))
+                 FROM app_download_hits
+                WHERE created_at >= NOW() - ?::interval) AS unique_downloaders,
+              (SELECT COUNT(DISTINCT user_id) FROM app_download_hits
+                WHERE user_id IS NOT NULL
+                  AND created_at >= NOW() - ?::interval) AS signed_in_downloaders,
+              (SELECT COUNT(*) FROM viewers v
+                WHERE NOT EXISTS (SELECT 1 FROM takers t
+                                   WHERE t.visitor_id = v.visitor_id)) AS left_without_download,
+              (SELECT COUNT(*) FROM app_download_hits) AS downloads_all_time
+            """,
+            (window, window, window, window, window, window),
+        ).fetchone()
+
+        daily = conn.execute(
+            """
+            SELECT DATE(created_at) AS day, COUNT(*) AS downloads
+              FROM app_download_hits
+             WHERE created_at >= NOW() - ?::interval
+             GROUP BY DATE(created_at)
+             ORDER BY day DESC
+             LIMIT 30
+            """,
+            (window,),
+        ).fetchall()
+
+        recent = conn.execute(
+            """
+            SELECT h.created_at, h.ip, h.user_agent, u.username
+              FROM app_download_hits h
+              LEFT JOIN users u ON u.id = h.user_id
+             ORDER BY h.created_at DESC
+             LIMIT 25
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    viewers = int(row["page_visitors"] or 0)
+    takers = viewers - int(row["left_without_download"] or 0)
+    return {
+        "days": days,
+        "page_views": int(row["page_views"] or 0),
+        "page_visitors": viewers,
+        "downloads": int(row["downloads"] or 0),
+        "downloads_all_time": int(row["downloads_all_time"] or 0),
+        "unique_downloaders": int(row["unique_downloaders"] or 0),
+        "signed_in_downloaders": int(row["signed_in_downloaders"] or 0),
+        "left_without_download": int(row["left_without_download"] or 0),
+        # Of the people who opened the page, how many left with the app.
+        "conversion_percent": round(takers / viewers * 100, 1) if viewers else 0.0,
+        "daily": [{"day": str(d["day"]), "downloads": int(d["downloads"])} for d in daily],
+        "recent": [
+            {
+                "at": str(r["created_at"]),
+                "ip": r["ip"],
+                "user_agent": r["user_agent"],
+                "username": r["username"],
+            }
+            for r in recent
+        ],
+    }
+
+
 @router.post("/app/upload")
 async def upload_app(
     version: str = Form(""),

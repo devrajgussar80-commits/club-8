@@ -19,6 +19,9 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool, PoolTimeout
 
+import luck  # both are imported only for their default settings; neither
+import settings_store  # imports this module
+
 # Neon gives two connection strings. Use the POOLED one (host contains
 # "-pooler") so Neon's own pgbouncer sits in front of this pool.
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -370,6 +373,24 @@ CREATE INDEX IF NOT EXISTS idx_dice_bets_user ON dice_bets(user_id, created_at D
 -- Kept in Postgres (not on disk) for the same reason as the QR images: the
 -- host wipes its filesystem on every deploy. A single row, id = 'current',
 -- holds whatever the admin last uploaded.
+-- One row per APK fetch, so the dashboard can say how many people actually
+-- took the app rather than just how many opened the page. Logged server side
+-- in the download route: the file is fetched by a plain navigation, so no
+-- script runs on the client to report it.
+CREATE TABLE IF NOT EXISTS app_download_hits (
+    id BIGSERIAL PRIMARY KEY,
+    -- Both come from the download page when it is the referrer. A direct hit
+    -- on the link -- shared into a chat, say -- has neither, and still counts.
+    visitor_id TEXT,
+    session_id TEXT,
+    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    ip TEXT,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_app_hits_time ON app_download_hits (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_app_hits_visitor ON app_download_hits (visitor_id);
+
 CREATE TABLE IF NOT EXISTS app_downloads (
     id TEXT PRIMARY KEY,
     filename TEXT NOT NULL,
@@ -390,6 +411,18 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by TEXT;
 -- wins. Only single-player games can honour it -- shared-round games (WinGo,
 -- multiplayer Dice) deal one result to everyone.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS team_win_rate DOUBLE PRECISION DEFAULT 0;
+
+-- The signup-bonus run (see backend/luck.py). Every normal account plays its
+-- single-player rounds at the platform win rate until `luck_progress` -- the
+-- signup bonus plus the net profit of those rounds -- first reaches its own
+-- `luck_target`, drawn once from the configured band. NULL means "not drawn
+-- yet"; registration fills both in, and any account older than this feature
+-- gets them on its next round. `luck_done` is one-way on purpose: withdrawing
+-- back down must not re-open a run that has already paid out.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS luck_target DOUBLE PRECISION;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS luck_progress DOUBLE PRECISION;
+-- INTEGER, not BOOLEAN, to match game_access_enabled and its `= 1` reads.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS luck_done INTEGER DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code
     ON users(referral_code) WHERE referral_code IS NOT NULL;
 
@@ -623,6 +656,14 @@ DEFAULT_SETTINGS = {
     "deposits_enabled": "true",
     "withdrawals_enabled": "true",
     "withdrawal_min": "200",
+    # Withdrawals stay locked until an account has recharged this much. The
+    # message is what the player is shown when they try before then; both are
+    # editable from the dashboard's Controls tab.
+    "withdrawal_min_deposit": "500",
+    "withdrawal_locked_message": settings_store.WITHDRAWAL_LOCKED_MESSAGE,
+    # The signup-bonus run. Seeded here so it is on for a fresh install and
+    # editable from the dashboard afterwards; luck.DEFAULTS documents them.
+    **luck.DEFAULTS,
 }
 
 

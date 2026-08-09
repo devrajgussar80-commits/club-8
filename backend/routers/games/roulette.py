@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from database import get_db_connection
 from deps import get_current_user
-from game_controls import apply_bias, check_playable
+from game_controls import apply_bias, check_playable, win_cap
 from games_core import play_round, secure_unit
 
 router = APIRouter(prefix="/api/games/roulette", tags=["games"])
@@ -173,21 +173,37 @@ def spin(req: SpinRequest, current_user: dict = Depends(get_current_user)):
             "bets": results,
         }
 
+    def redraw_loss():
+        # A board covering all 37 pockets has no losing spin to land on.
+        if not losing_pockets:
+            return None
+        return settle(losing_pockets[int(secure_unit() * len(losing_pockets))])
+
     def resolve(stake):
         payout, outcome = settle(pick_pocket())
-
-        def as_loss():
-            if not losing_pockets:
-                return payout, outcome
-            return settle(losing_pockets[int(secure_unit() * len(losing_pockets))])
-
-        biased = apply_bias(controls, payout, as_loss)
+        biased = apply_bias(controls, payout, lambda: redraw_loss() or (payout, outcome))
         return biased if biased is not None else (payout, outcome)
 
     def redraw_win(stake):
-        # A genuine win for a team account: land on a pocket the player covered.
-        if not winning_pockets:
-            return None
-        return settle(winning_pockets[int(secure_unit() * len(winning_pockets))])
+        """Land on a pocket the player covered, at the player's win rate.
 
-    return play_round(current_user, GAME, total_stake, resolve, redraw_win=redraw_win)
+        A cap, if the dashboard sets one, is honoured by choosing a cheaper
+        pocket rather than by trimming the payout -- the number next to a
+        straight-up hit has to be the 36x the table promises. When every
+        covered pocket is dearer than the cap there is no win to hand out, and
+        None keeps the natural spin.
+        """
+        cap = win_cap(controls, stake)
+        pockets = list(winning_pockets)
+        while pockets:
+            index = int(secure_unit() * len(pockets))
+            payout, outcome = settle(pockets[index])
+            if cap <= 0 or payout <= cap:
+                return payout, outcome
+            pockets.pop(index)
+        return None
+
+    return play_round(
+        current_user, GAME, total_stake, resolve,
+        redraw_win=redraw_win, redraw_loss=redraw_loss,
+    )

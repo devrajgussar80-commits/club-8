@@ -88,15 +88,78 @@
     downloads.
   </p>
 
-  <p class="play-link">Prefer the browser? <a href="/">Play on the web →</a></p>
+  <p id="dl-invite" class="note" style="display:none">
+    You were invited with code <b id="dl-invite-code"></b> — it is applied
+    automatically when you sign up.
+  </p>
+
+  <p class="play-link">Prefer the browser? <a id="dl-play" href="/">Play on the web →</a></p>
 
   <script>
     // This page is served statically by Vercel, but the APK lives on the
     // backend (uploaded from the admin dashboard). Point the button there and
     // fill in the real version/size, hiding the button if nothing is published.
     var API = 'https://club-8-et75.onrender.com';
+
+    // Same ids the app's tracker uses, read the same way, so a visitor who
+    // lands here and one who opens the app are recognised as one person. Only
+    // read and reused -- the tracker itself is not loaded on this page, which
+    // is served statically and has no module bundle.
+    function id(store, key) {
+      try {
+        var value = store.getItem(key);
+        if (!value) {
+          value = 'c8' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+          store.setItem(key, value);
+        }
+        return value;
+      } catch (e) {
+        return '';  // Private mode: the visit still counts, just anonymously.
+      }
+    }
+    var visitorId = id(localStorage, 'CLUB8_VISITOR_ID');
+    var sessionId = id(sessionStorage, 'CLUB8_SESSION_ID');
+
+    function track(name) {
+      try {
+        fetch(API + '/api/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            event: name, visitor_id: visitorId, session_id: sessionId, path: '/download'
+          })
+        }).catch(function () {});
+      } catch (e) { /* never let counting break the download */ }
+    }
+    track('session_start');
+    track('download_page_view');
+
+    // Invite code from the sharer's link. This page is where most invites
+    // land, and the visitor's next step is either the APK or the web app --
+    // so the code is carried onto the web link and left in localStorage under
+    // the same key the app reads, which covers the case where they install
+    // the APK and open it in a WebView sharing this origin's storage.
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var invite = (params.get('ref') || params.get('r') || params.get('invite') || '')
+        .trim().toUpperCase().slice(0, 24);
+      if (invite) {
+        try { localStorage.setItem('PREDICT_INVITED_BY', invite); } catch (e) {}
+        document.getElementById('dl-invite-code').textContent = invite;
+        document.getElementById('dl-invite').style.display = 'block';
+        document.getElementById('dl-play').href = '/?ref=' + encodeURIComponent(invite);
+      }
+    } catch (e) { /* a malformed URL must not break the download button */ }
+
     var btn = document.getElementById('dl-btn');
-    btn.href = API + '/api/app/download';
+    // The ids ride on the URL because the APK is fetched by a plain
+    // navigation: there is no header to put them in, and the dashboard needs
+    // to tell an actual download apart from someone who only opened the page.
+    var query = '?v=' + encodeURIComponent(visitorId) + '&s=' + encodeURIComponent(sessionId);
+    btn.href = API + '/api/app/download' + query;
+    btn.addEventListener('click', function () { track('app_download'); });
+
     fetch(API + '/api/app/info').then(function (r) { return r.json(); }).then(function (info) {
       if (!info.available) {
         btn.style.display = 'none';

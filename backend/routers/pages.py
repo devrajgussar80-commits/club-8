@@ -19,6 +19,7 @@ INDEX_HTML = os.path.join(config.FRONTEND_DIR, "index.html")
 # markup was live at once, so player-facing overlays could paint over the
 # console and each side had to keep opting out of the other by pathname.
 ADMIN_HTML = os.path.join(config.FRONTEND_DIR, "admin.html")
+DOWNLOAD_HTML = os.path.join(config.FRONTEND_DIR, "download.html")
 
 
 @router.get("/api/health")
@@ -60,6 +61,18 @@ def serve_login():
 @router.get("/game", response_class=FileResponse)
 def serve_game():
     return FileResponse(INDEX_HTML)
+
+
+@router.get("/download", response_class=FileResponse)
+def serve_download():
+    """The public APK landing page the Share button links to.
+
+    Vercel serves this in production by mapping /download to download.html on
+    its own. The static mount here does not do that -- it looks for a file
+    literally named "download" -- so without this route the page 404s in local
+    development only, and the share link looks broken while testing.
+    """
+    return FileResponse(DOWNLOAD_HTML)
 
 
 @router.get("/admin", response_class=FileResponse)

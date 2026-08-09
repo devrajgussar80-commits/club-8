@@ -6387,6 +6387,11 @@ body[data-club-page="auth"] .mobile-frame { max-width: 360px; min-height: 100dvh
 .auth-field-label { margin: 0 0 8px 2px; display: block; font-size: 14px; font-weight: 500; }
 .auth-field-label:not(:first-child) { margin-top: 24px; }
 .auth-field-label i { margin-right: 7px; color: #ff646b; font-size: 18px; }
+/* Shown only when the visitor arrived through an invite link, so the code
+   that appears in the box above is accounted for rather than mysterious. */
+.auth-referral-note {
+  display: block; margin: 7px 2px 0; font-size: 12px; color: #13a66b;
+}
 .auth-phone-row { display: grid; grid-template-columns: 90px 1fr; gap: 7px; }
 .auth-phone-row > span,.auth-phone-row input,.auth-input-wrap,.auth-code-row {
   height: 43px; border-radius: 11px; border: 0; background: #fff;
@@ -6542,6 +6547,19 @@ body.admin-mode #admin-dashboard-view.nd-root.active {
    pinned so the columns stay readable while scrolling. ~44px per row + header. */
 .nd-scroll-rows { max-height: 484px; overflow-y: auto; }
 .nd-scroll-rows thead th { position: sticky; top: 0; z-index: 1; background: var(--bg-card-hover, #1a1a22); }
+
+/* Chained referrals: the downline under one player, nested by level. The
+   left rule is what makes a two-level chain read as a chain rather than as
+   an indented list. */
+.nd-chain { margin-top: 16px; }
+.nd-chain h4 { margin-bottom: 10px; font-size: 14px; }
+.nd-chain ul { list-style: none; margin: 0; padding: 0; }
+.nd-chain ul ul {
+  margin-left: 10px; padding-left: 14px;
+  border-left: 2px solid var(--border-color);
+}
+.nd-chain li { padding: 7px 0; }
+.nd-chain li .nd-player-name { display: block; }
 
 .nd-daily { display: grid; gap: 16px; }
 .nd-day { border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; }
@@ -9227,3 +9245,26 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
 
 .nd-presence.is-online > i { animation: none; }
 }
+
+
+/* Downloads section: one row per day, bar width relative to the busiest day. */
+.nd-dl-daily { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+.nd-dl-day {
+  display: grid; grid-template-columns: 72px 1fr 34px;
+  align-items: center; gap: 8px;
+  font-size: 11px; color: var(--ad-text-dim, #94a3b8);
+}
+.nd-dl-day .nd-bar {
+  height: 7px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, .07);
+}
+.nd-dl-day .nd-bar > i {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #f65d70, #ff9a5a);
+}
+.nd-dl-day b { text-align: right; color: var(--ad-text, #e2e8f0); font-size: 12px; }
+
+
+/* Four money limits side by side, so min and max read as a pair. */
+.nd-limit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 420px) { .nd-limit-grid { grid-template-columns: 1fr; } }

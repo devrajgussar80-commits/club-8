@@ -16,6 +16,7 @@ import uuid
 from fastapi import HTTPException
 
 import config
+import luck
 from database import get_db_connection
 from settings_store import get_approved_deposit_total
 
@@ -48,11 +49,17 @@ def weighted_pick(weights: dict):
 
 # ------------------------------------------------------------------ eligibility
 
-def require_game_access(user: dict, conn=None) -> None:
-    """Premium arcade gate: admin switch, or enough approved deposits.
+def require_game_access(user: dict, conn=None, settings: dict = None) -> None:
+    """Premium arcade gate: admin switch, signup-bonus run, or enough deposits.
 
     WinGo stays open to everyone; these games do not. Checked server-side so
     flipping a localStorage flag in the browser does not buy entry.
+
+    An account still on its signup-bonus run is let in without a deposit --
+    the bonus is what that run is played with, and a wallet holding ₹100 can
+    never clear a ₹300 deposit threshold on its own. Once the run finishes the
+    deposit gate is back, which is the point at which a player who wants to
+    keep going has to fund the account.
     """
     if user.get("game_access_enabled"):
         return
@@ -63,6 +70,8 @@ def require_game_access(user: dict, conn=None) -> None:
         should_close = True
 
     try:
+        if luck.Run(user, settings or luck.load_settings(conn)).open:
+            return
         approved = get_approved_deposit_total(conn, user["id"])
     finally:
         if should_close:
@@ -92,67 +101,54 @@ def validate_stake(amount) -> float:
 
 # ------------------------------------------------------------------- settlement
 
-def apply_luck(user: dict, payout: float, stake: float, redraw_win):
-    """For a team account, re-draw a losing round as a genuine win.
-
-    The inverse of house bias: if this user has a team_win_rate and the round
-    did not profit, then with that probability `redraw_win()` is asked for a
-    real winning outcome for the game (a winning pocket, a paying reel set),
-    so the wallet and the on-screen result still agree. Returns a replacement
-    `(payout, outcome)` or None to keep the natural result.
-
-    Only single-player games call this. Shared-round games deal one result to
-    everyone, so a per-user win cannot be granted there.
-    """
-    rate = float(user.get("team_win_rate") or 0)
-    if rate <= 0 or payout > stake:
-        return None
-    if secure_unit() * 100 >= rate:
-        return None
-    return redraw_win(stake)
-
-
-def play_round(user: dict, game: str, stake: float, resolve, redraw_win=None):
+def play_round(user: dict, game: str, stake: float, resolve, redraw_win=None, redraw_loss=None):
     """Debit `stake`, run `resolve()`, credit the payout, log the round.
 
     `resolve(stake)` receives the *validated* stake -- never the raw request
     body -- and returns `(payout, outcome_dict)`. It is called after the
     balance check, so a rejected bet never consumes a draw.
 
-    `redraw_win`, if given, produces a genuine winning `(payout, outcome)` for
-    the game; it lets a team account's win rate turn a losing round into a win
-    while keeping the shown result honest.
+    `redraw_win` and `redraw_loss`, if given, produce a genuine winning or
+    losing `(payout, outcome)` for the game. They are what let the player's
+    win rate (see luck.py) hold a round to a result the natural draw did not
+    give, while keeping the reels, the pocket or the lane on screen honest
+    about what the wallet just did.
 
     The user row is held with FOR UPDATE for the whole transaction: two spins
     firing at once queue up instead of both reading the same pre-debit balance
-    and overdrawing the wallet.
+    and overdrawing the wallet. The account's run advances inside that same
+    transaction, so a round can never move the money without booking it.
     """
     stake = validate_stake(stake)
 
     conn = get_db_connection()
-    require_game_access(user, conn=conn)
     cursor = conn.cursor()
     try:
+        settings = luck.load_settings(conn)
+        require_game_access(user, conn=conn, settings=settings)
+
         locked = cursor.execute(
-            "SELECT balance FROM users WHERE id = ? FOR UPDATE", (user["id"],)
+            f"SELECT balance, {luck.COLUMNS} FROM users WHERE id = ? FOR UPDATE",
+            (user["id"],),
         ).fetchone()
         if not locked or float(locked["balance"]) < stake:
             raise HTTPException(status_code=400, detail="Insufficient balance.")
 
-        payout, outcome = resolve(stake)
-        payout = round(max(0.0, float(payout)), 2)
+        run = luck.Run(locked, settings)
+        run.start()
 
-        # Team-account luck: a losing round may be re-drawn as a real win.
-        if redraw_win is not None:
-            lucky = apply_luck(user, payout, stake, redraw_win)
-            if lucky is not None:
-                payout, outcome = lucky
-                payout = round(max(0.0, float(payout)), 2)
+        payout, outcome = resolve(stake)
+        payout, outcome = luck.steer(
+            run, stake, (round(max(0.0, float(payout)), 2), outcome), redraw_win, redraw_loss
+        )
+        payout = round(max(0.0, float(payout)), 2)
+        run.advance(stake, payout)
 
         # One statement, so the row never sits debited-but-not-credited.
         new_balance = cursor.execute(
-            "UPDATE users SET balance = balance - ? + ? WHERE id = ? RETURNING balance",
-            (stake, payout, user["id"]),
+            f"UPDATE users SET balance = balance - ? + ?, {luck.SET_COLUMNS} "
+            "WHERE id = ? RETURNING balance",
+            (stake, payout, *run.row, user["id"]),
         ).fetchone()["balance"]
 
         round_id = f"{game.upper()[:3]}-{uuid.uuid4().hex[:10].upper()}"
@@ -190,6 +186,19 @@ def play_round(user: dict, game: str, stake: float, resolve, redraw_win=None):
 # by two requests racing -- which is exactly the bug these replaced, where the
 # game trusted a client-side balance and let bets ride on money that was not
 # there.
+
+
+def player_run(user: dict) -> luck.Run:
+    """This account's run, for the step games that settle outside play_round.
+
+    They ask only on a bust -- once per round at most -- so this stays off the
+    per-tap path that `load_round` already pays for.
+    """
+    conn = get_db_connection(readonly=True)
+    try:
+        return luck.Run(user, luck.load_settings(conn))
+    finally:
+        conn.close()
 
 
 def hold_stake(user: dict, stake: float) -> dict:
@@ -302,10 +311,23 @@ def settle_held(user_id: str, game: str, stake: float, payout: float, outcome: d
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Step games are single-player, so what they win and lose counts
+        # towards the account's run exactly as a one-shot round does. Read
+        # under the same lock that is about to move the balance.
+        run = None
+        if luck.counts(game):
+            locked = cursor.execute(
+                f"SELECT {luck.COLUMNS} FROM users WHERE id = ? FOR UPDATE", (user_id,)
+            ).fetchone()
+            run = luck.Run(locked, luck.load_settings(conn))
+            run.advance(stake, payout)
+
         # The stake was already taken by hold_stake, so only the payout moves.
         new_balance = cursor.execute(
-            "UPDATE users SET balance = balance + ? WHERE id = ? RETURNING balance",
-            (payout, user_id),
+            "UPDATE users SET balance = balance + ?"
+            + (f", {luck.SET_COLUMNS}" if run else "")
+            + " WHERE id = ? RETURNING balance",
+            (payout, *(run.row if run else ()), user_id),
         ).fetchone()["balance"]
         cursor.execute(
             """
