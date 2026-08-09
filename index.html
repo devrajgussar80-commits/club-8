@@ -1697,6 +1697,17 @@
       document.getElementById('auth-subheading').innerHTML = tab === 'login'
         ? 'Please log in with your phone number<br>If you forget your password, please contact customer service'
         : 'Please register by phone number<br>Get ₹100 signup bonus instantly';
+      // The two forms are two routes. Done here because this is the one place
+      // that knows which of them is on screen; file:// has no real paths, and
+      // rewriting one there throws.
+      if (window.location.protocol !== 'file:') {
+        var route = tab === 'register' ? '/register' : '/login';
+        if (window.location.pathname !== route) {
+          try {
+            history.replaceState(null, '', route + window.location.search + window.location.hash);
+          } catch (e) { /* app served from a sub-directory: leave the address alone */ }
+        }
+      }
       window.scrollTo({ top: 0, behavior: 'auto' });
     };
   </script>

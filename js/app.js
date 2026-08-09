@@ -954,18 +954,52 @@ class App {
 
     if (path.startsWith('/admin') || search.includes('view=admin')) {
       state.viewMode = 'admin';
-    } else if (path.startsWith('/login') || !this.authToken) {
+    } else if (path.startsWith('/login') || path.startsWith('/register') || !this.authToken) {
       state.viewMode = 'user';
       this.switchSubPage('auth');
+      // An invite link lands on /register, and anyone who arrived through one
+      // came to make an account -- so open the signup form rather than the
+      // login form they would otherwise have to find the tab for. The code
+      // itself is already in the field by now; applyInviteCode runs first.
+      window.switchAuthTab?.(
+        path.startsWith('/register') || this.invitedByCode ? 'register' : 'login'
+      );
     } else if (path.startsWith('/game')) {
       state.viewMode = 'user';
       this.switchSubPage('game', { record: false });
     } else {
+      // '/', '/home', and anything else signed in: the platform itself.
       state.viewMode = 'user';
       this.switchSubPage('home', { record: false });
     }
 
     appState.saveState();
+  }
+
+  /**
+   * Point the address bar at one of the three real routes.
+   *
+   * The app shows one sub-page at a time out of a single document and has
+   * never touched the URL, so every screen read as "/". These three are the
+   * ones worth naming: they are what people paste to each other and what a
+   * reload has to come back to. Everything deeper still rides on whichever of
+   * the three it was reached from.
+   *
+   * replaceState, not pushState: this is correcting the address for the
+   * screen already on show, and pushing would put a phantom entry between the
+   * user and the Back button.
+   */
+  setRoute(route) {
+    // file:// has no meaningful paths, and rewriting one throws there.
+    if (window.location.protocol === 'file:') return;
+    if (window.location.pathname === route) return;
+    try {
+      history.replaceState(null, '', route + window.location.search + window.location.hash);
+    } catch (error) {
+      // A host that serves the app from a sub-directory will reject a rewrite
+      // to an absolute path. The screen is already correct; only the address
+      // bar misses out.
+    }
   }
 
   // WinGo ('game') stays open to everyone. One admin switch unlocks all the
@@ -1110,7 +1144,9 @@ class App {
       if (codeEl) codeEl.textContent = code;
       if (data.referral_code) this.referralCode = data.referral_code;
       const linkEl = document.getElementById('agency-invite-link');
-      if (linkEl) linkEl.textContent = code === '—' ? '—' : this.appShare?.shareUrl || '—';
+      if (linkEl) {
+        linkEl.textContent = code === '—' ? '—' : this.appShare?.linkFor('invite') || '—';
+      }
 
       const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
       set('promo-reward-each', money(data.reward_per_referral));
@@ -3973,8 +4009,9 @@ class App {
         return this.showToast('Referral code load ho raha hai, ek pal ruko.', 'error');
       }
       // Straight to the share sheet, which already builds the link with the
-      // code on it and knows which apps this audience uses.
-      this.appShare?.openSheet();
+      // code on it and knows which apps this audience uses. 'invite' points
+      // it at the signup form rather than the APK download page.
+      this.appShare?.openSheet('invite');
     });
 
     const depositMethodNames = ['Phonepe_QR', 'Innate UPI-QR', 'Expert Paytm-QR', 'UPI-QR PAY', 'USDT', 'ARPay'];
@@ -4598,10 +4635,24 @@ class App {
     document.querySelectorAll('.sub-page').forEach(p => p.classList.remove('active'));
     target.classList.add('active');
 
-    // This app never changes URL, so every screen change has to be reported
-    // by hand -- otherwise "kis page tak aaya" would always read "/".
+    // Only the three named routes move the address bar; the rest of the app
+    // is one document showing one sub-page, so every screen change still has
+    // to be reported by hand -- otherwise "kis page tak aaya" would read
+    // "/home" for all of them.
     this.tracker?.pageView(pageId);
-    if (pageId === 'auth') this.tracker?.event('auth_view');
+    if (pageId === 'auth') {
+      this.tracker?.event('auth_view');
+      // Everything that lands here unasked -- logging out, an expired token,
+      // the "please log in first" guards -- means the login form. Reset to it
+      // rather than leaving whichever form was last on screen, which used to
+      // show a logged-out player the signup form. handleRouting calls
+      // switchAuthTab('register') straight after when the URL or an invite
+      // asks for it, so the deliberate case still wins. This also sets the
+      // route, since switchAuthTab owns /login vs /register.
+      window.switchAuthTab?.('login');
+    } else if (pageId === 'home') {
+      this.setRoute('/home');
+    }
 
     // The deposit and withdraw pages carry a short history of their own now,
     // so they need the same sync the full history pages do.

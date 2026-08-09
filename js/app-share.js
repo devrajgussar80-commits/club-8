@@ -22,6 +22,11 @@ export class AppShare {
     this.base = String(apiBaseUrl || '').replace(/\/+$/, '');
     this.toast = toast || (() => {});
     this.getReferralCode = typeof referralCode === 'function' ? referralCode : () => referralCode;
+    // Which page the shared link opens. 'app' is the APK landing page, for
+    // the download card; 'invite' is the signup form, for the referral
+    // section — someone being invited wants to make an account, and sending
+    // them to a download page first is a step that loses most of them.
+    this.destination = 'app';
   }
 
   /** Public page a recipient can open — never the raw .apk, which many
@@ -29,16 +34,24 @@ export class AppShare {
    *
    *  The sharer's own code rides along in `?ref=`, so whoever opens the link
    *  is credited to them without anyone having to read a code aloud and type
-   *  it in. Both the download page and the app itself pick it up. */
+   *  it in. Every landing page picks it up. */
   get shareUrl() {
+    return this.linkFor(this.destination);
+  }
+
+  /** The link for a given destination, whatever the sheet is currently set to.
+   *  The referral screen prints its invite link before the sheet is opened. */
+  linkFor(destination) {
     const code = String(this.getReferralCode() || '').trim().toUpperCase();
-    const base = `${window.location.origin}/download`;
+    const base = `${window.location.origin}${destination === 'invite' ? '/register' : '/download'}`;
     return code ? `${base}?ref=${encodeURIComponent(code)}` : base;
   }
 
   get shareText() {
     const code = String(this.getReferralCode() || '').trim().toUpperCase();
-    const invite = 'Play on Club 8 — WinGo, Aviator, Mines aur bahut kuch. App yahan se lo:';
+    const invite = this.destination === 'invite'
+      ? 'Join me on Club 8 — WinGo, Aviator, Mines aur bahut kuch. ₹100 signup bonus:'
+      : 'Play on Club 8 — WinGo, Aviator, Mines aur bahut kuch. App yahan se lo:';
     // Still spelled out, so a messenger that strips the query string from the
     // preview does not take the code with it.
     return code ? `${invite.slice(0, -1)} (invite code ${code}):` : invite;
@@ -80,7 +93,9 @@ export class AppShare {
     }
   }
 
-  openSheet() {
+  /** `destination` picks what the shared link opens — see the constructor. */
+  openSheet(destination = 'app') {
+    this.destination = destination === 'invite' ? 'invite' : 'app';
     const sheet = document.getElementById('app-share-sheet');
     if (sheet) sheet.hidden = false;
   }

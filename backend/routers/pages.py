@@ -58,6 +58,25 @@ def serve_login():
     return FileResponse(INDEX_HTML)
 
 
+@router.get("/register", response_class=FileResponse)
+def serve_register():
+    """Where an invite link lands. Same document as everything else -- the app
+    reads the path and opens the signup form rather than the login one."""
+    return FileResponse(INDEX_HTML)
+
+
+@router.get("/home", response_class=FileResponse)
+def serve_home():
+    """The platform itself, once someone is signed in.
+
+    Every one of these serves the same index.html -- the app is a single
+    document that shows one sub-page at a time. What the path buys is a URL
+    worth sharing and reloading: /login, /register and /home each come back
+    to the screen they name instead of everything landing on the lobby.
+    """
+    return FileResponse(INDEX_HTML)
+
+
 @router.get("/game", response_class=FileResponse)
 def serve_game():
     return FileResponse(INDEX_HTML)

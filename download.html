@@ -148,7 +148,9 @@
         try { localStorage.setItem('PREDICT_INVITED_BY', invite); } catch (e) {}
         document.getElementById('dl-invite-code').textContent = invite;
         document.getElementById('dl-invite').style.display = 'block';
-        document.getElementById('dl-play').href = '/?ref=' + encodeURIComponent(invite);
+        // Straight to the signup form, not the home page: someone who opened
+        // an invite link is here to make an account.
+        document.getElementById('dl-play').href = '/register?ref=' + encodeURIComponent(invite);
       }
     } catch (e) { /* a malformed URL must not break the download button */ }
 

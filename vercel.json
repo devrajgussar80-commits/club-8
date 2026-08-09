@@ -3,6 +3,8 @@
   "trailingSlash": false,
   "rewrites": [
     { "source": "/login", "destination": "/" },
+    { "source": "/register", "destination": "/" },
+    { "source": "/home", "destination": "/" },
     { "source": "/game", "destination": "/" },
     { "source": "/admin", "destination": "/admin.html" }
   ],
