@@ -50,6 +50,9 @@ class TeamCreateRequest(BaseModel):
     password: str = Field(min_length=6, max_length=128)
     # Target win rate 0-100 for single-player games.
     win_rate: float = Field(default=80, ge=0, le=100)
+    # Optional group to drop them into at creation, so an admin does not have
+    # to make the account and then go and assign it as a second step.
+    group_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class TeamUpdateRequest(BaseModel):
@@ -57,6 +60,16 @@ class TeamUpdateRequest(BaseModel):
     # Portal access, independent of the win rate. None leaves it as it is, so
     # a dashboard that only sends a win rate cannot revoke someone's login.
     is_employee: Optional[bool] = Field(default=None)
+    # Which group they belong to. None leaves it alone; "" clears it. The two
+    # have to be distinguishable, which is why unassigning is not just None.
+    group_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class GroupRequest(BaseModel):
+    """Create or rename a staff group."""
+
+    name: str = Field(min_length=1, max_length=64)
+    note: Optional[str] = Field(default=None, max_length=200)
 
 
 class EmployeeLoginRequest(BaseModel):

@@ -9336,7 +9336,6 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
 
 .emp-tabs { margin-bottom: 16px; }
 .emp-panel { margin-bottom: 18px; }
-.emp-filter { margin-left: auto; }
 
 .emp-yes { color: #4ade80; font-weight: 600; }
 .emp-no { color: #94a3b8; }
@@ -9387,13 +9386,87 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
 
 .emp-status { margin-top: 18px; font-size: .76rem; opacity: .45; text-align: center; }
 
-/* The admin Team tab's photo control. */
-.nd-photo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* Third line on a KPI tile. .ng-kpi styles <small> as the label and <b> as
+   the number; the hint is the portal's own addition, so it needs its own
+   rule -- <i> is only a hook here, hence the explicit font-style. */
+.emp-kpi-hint {
+  display: block; margin-top: 4px; font-style: normal;
+  font-size: 10.5px; line-height: 1.35; opacity: .5;
+}
+
+/* The filter group sits in a .nd-panel-head, which is a flex row that would
+   otherwise let four buttons squash the heading. */
+.emp-filter { margin-left: auto; flex: 0 0 auto; }
+
+/* The portal's segmented buttons are .nd-seg-btn, styled by the admin shell.
+   Only the wrapping behaviour differs: four filters plus a heading do not fit
+   a narrow panel head, and they should wrap rather than overflow. */
+.emp-tabs { flex-wrap: wrap; }
+
+/* The admin Team tab's photo control. It sits inside .nd-form-row with the
+   other fields, so it has to behave like one: fixed width, no growing, and
+   the same height as an input rather than a block of its own below. */
 .nd-photo-preview {
-  width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
   display: grid; place-items: center;
   background: #1c2540 center/cover no-repeat; border: 1px solid var(--nd-line, #223052);
 }
+.nd-photo-pick {
+  display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto;
+  padding: 5px 12px 5px 5px; cursor: pointer;
+  border: 1px dashed var(--nd-line, #223052); border-radius: 999px;
+  background: rgba(0, 0, 0, .18); color: var(--text-secondary, #8b97ad);
+  font-size: 12px; font-weight: 600;
+}
+.nd-photo-pick:hover { border-color: rgba(240, 180, 41, .5); color: var(--text-primary, #eef2f8); }
+/* Once a file is chosen the dashes go: a solid ring reads as "set", and the
+   word Photo stops being an instruction. */
+.nd-photo-pick.has-photo { border-style: solid; border-color: rgba(240, 180, 41, .55); }
+.nd-photo-pick.has-photo .nd-photo-pick-label { color: #f0b429; }
+
+/* Groups, in the Team tab rather than a tab of their own. */
+.nd-group-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.nd-group-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; border-radius: 11px;
+  background: var(--nd-card, #131a2b); border: 1px solid var(--nd-line, #223052);
+}
+.nd-group-who { flex: 1; min-width: 140px; }
+.nd-group-who strong { display: block; font-size: .95rem; }
+.nd-group-who small { display: block; font-size: .76rem; opacity: .55; }
+.nd-group-nums { font-size: .78rem; opacity: .75; }
+.nd-group-nums b { font-family: Outfit, sans-serif; opacity: 1; }
+.nd-group-tag {
+  padding: 2px 8px; border-radius: 999px; font-size: .68rem; font-weight: 700;
+  background: rgba(240, 180, 41, .16); color: #f0b429;
+}
+.nd-mini.danger { border-color: rgba(241, 109, 120, .45); color: #f16d78; }
+
+/* Ranking bar under a number in the performance tables: width is the row's
+   share of the best row, so the order reads without comparing digits. */
+.nd-bar {
+  display: block; height: 3px; margin-top: 5px; border-radius: 2px;
+  background: rgba(255, 255, 255, .07); overflow: hidden;
+}
+.nd-bar i { display: block; height: 100%; background: #f0b429; }
+
+/* The employee portal's own group panel. */
+.emp-group {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+  padding: 14px 16px; margin-bottom: 14px; border-radius: 13px;
+  background: var(--nd-card, #131a2b); border: 1px solid rgba(240, 180, 41, .3);
+}
+.emp-group-name { font-family: Outfit, sans-serif; font-size: 1.15rem; font-weight: 700; }
+.emp-group-name small { display: block; font-size: .74rem; font-weight: 500; opacity: .6; }
+.emp-group-nums { display: flex; flex-wrap: wrap; gap: 16px; margin-left: auto; font-size: .8rem; }
+.emp-group-nums b { display: block; font-family: Outfit, sans-serif; font-size: 1.05rem; }
+.emp-group-nums span { opacity: .6; font-size: .72rem; }
+.emp-colleague.is-group { border-color: rgba(240, 180, 41, .28); }
+.emp-group-heading {
+  margin: 18px 0 8px; font-size: .74rem; text-transform: uppercase;
+  letter-spacing: .08em; opacity: .55;
+}
+.emp-group-heading:first-child { margin-top: 0; }
 
 @media (max-width: 640px) {
   .emp-invite { flex-direction: column; align-items: stretch; }

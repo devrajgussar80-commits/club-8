@@ -32,9 +32,10 @@ SESSION_DAYS = 7
 REWARD = referrals_core.REWARD_AMOUNT
 
 
-def _profile(row: dict) -> dict:
+def _profile(row: dict, group: dict = None) -> dict:
     """The employee's own record, minus anything the portal has no use for."""
     return {
+        "group": group,
         "id": row["id"],
         "name": row["username"],
         "phone": row["phone"],
@@ -137,6 +138,36 @@ def employee_me(me: dict = Depends(get_employee_user)):
             """,
             (me["id"],),
         ).fetchone()
+
+        # The group they belong to, with what the whole group has brought in.
+        # None when they are not in one, which the portal renders as a hint to
+        # ask their admin rather than as an empty panel.
+        group = None
+        if me.get("group_id"):
+            row = conn.execute(
+                """
+                SELECT g.id, g.name, g.note,
+                       COUNT(DISTINCT u.id) AS members,
+                       COUNT(r.id) AS invited,
+                       COUNT(r.id) FILTER (WHERE r.status = 'approved') AS paid,
+                       COALESCE(SUM(r.reward) FILTER (WHERE r.status = 'approved'), 0) AS earned
+                FROM employee_groups g
+                LEFT JOIN users u ON u.group_id = g.id AND u.is_employee = 1
+                LEFT JOIN referrals r ON r.referrer_id = u.id
+                WHERE g.id = ?
+                GROUP BY g.id, g.name, g.note
+                """,
+                (me["group_id"],),
+            ).fetchone()
+            if row:
+                g = dict(row)
+                group = {
+                    "id": g["id"], "name": g["name"], "note": g["note"] or "",
+                    "members": int(g["members"] or 0),
+                    "invited": int(g["invited"] or 0),
+                    "paid": int(g["paid"] or 0),
+                    "earned": round(float(g["earned"] or 0), 2),
+                }
     finally:
         conn.close()
 
@@ -144,7 +175,7 @@ def employee_me(me: dict = Depends(get_employee_user)):
     invited = int(t["invited"] or 0)
     deposited = int(t["deposited"] or 0)
     return {
-        "employee": _profile(me),
+        "employee": _profile(me, group),
         "stats": {
             "invited": invited,
             "deposited": deposited,
@@ -281,13 +312,16 @@ def employee_colleagues(me: dict = Depends(get_employee_user)):
         rows = conn.execute(
             """
             SELECT u.id, u.username, u.created_at, u.photo IS NOT NULL AS has_photo,
+                   u.group_id, g.name AS group_name,
                    COUNT(r.id) AS invited,
                    COUNT(r.id) FILTER (WHERE r.status = 'approved') AS paid,
                    COALESCE(SUM(r.reward) FILTER (WHERE r.status = 'approved'), 0) AS earned
             FROM users u
+            LEFT JOIN employee_groups g ON g.id = u.group_id
             LEFT JOIN referrals r ON r.referrer_id = u.id
             WHERE u.is_employee = 1 AND u.status <> 'disabled'
-            GROUP BY u.id, u.username, u.created_at, (u.photo IS NOT NULL)
+            GROUP BY u.id, u.username, u.created_at, (u.photo IS NOT NULL),
+                     u.group_id, g.name
             ORDER BY paid DESC, invited DESC, u.created_at
             """
         ).fetchall()
@@ -300,6 +334,9 @@ def employee_colleagues(me: dict = Depends(get_employee_user)):
             "name": r["username"],
             "is_me": r["id"] == me["id"],
             "has_photo": bool(r["has_photo"]),
+            "group_id": r["group_id"],
+            "group_name": r["group_name"],
+            "same_group": bool(r["group_id"]) and r["group_id"] == me.get("group_id"),
             "invited": int(r["invited"] or 0),
             "paid": int(r["paid"] or 0),
             "earned": round(float(r["earned"] or 0), 2),

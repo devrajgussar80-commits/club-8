@@ -204,11 +204,13 @@ class EmployeePortal {
       ['Waiting', money(s.pending), 'deposited, reward not released'],
       ['They deposited', money(s.deposits_brought), 'total paid in by your invites']
     ];
+    // <small> then <b> is what .ng-kpi styles, the same shape the dashboard's
+    // own tiles use. The third line is the portal's addition.
     $('emp-kpis').innerHTML = tiles.map(([label, value, hint]) => `
       <div class="ng-kpi">
-        <span class="ng-kpi-label">${this.esc(label)}</span>
-        <strong class="ng-kpi-value">${this.esc(String(value))}</strong>
-        <small class="ng-kpi-hint">${this.esc(hint)}</small>
+        <small>${this.esc(label)}</small>
+        <b>${this.esc(String(value))}</b>
+        <i class="emp-kpi-hint">${this.esc(hint)}</i>
       </div>`).join('');
   }
 
@@ -306,8 +308,29 @@ class EmployeePortal {
 
   renderColleagues() {
     const list = this.data.colleagues;
-    $('emp-colleagues').innerHTML = list.length ? list.map((c, i) => `
-      <div class="emp-colleague${c.is_me ? ' is-me' : ''}">
+    const group = this.data.me?.employee?.group;
+    const money = n => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+    // The group panel first: an employee's own group is what they are part of,
+    // and the whole-staff list below is context for it.
+    $('emp-group').innerHTML = group ? `
+      <div class="emp-group">
+        <div class="emp-group-name">
+          ${this.esc(group.name)}
+          ${group.note ? `<small>${this.esc(group.note)}</small>` : ''}
+        </div>
+        <div class="emp-group-nums">
+          <div><b>${group.members}</b><span>in the group</span></div>
+          <div><b>${group.invited}</b><span>invited</span></div>
+          <div><b>${group.paid}</b><span>paid out</span></div>
+          <div><b>${money(group.earned)}</b><span>earned</span></div>
+        </div>
+      </div>` : `<p class="nd-hint">You are not in a group yet — your admin can add you to one.</p>`;
+
+    const mine = list.filter(c => c.same_group);
+    const rest = list.filter(c => !c.same_group);
+    const card = (c, i) => `
+      <div class="emp-colleague${c.is_me ? ' is-me' : ''}${c.same_group ? ' is-group' : ''}">
         <span class="emp-rank">${i + 1}</span>
         <div class="emp-avatar emp-avatar-sm" data-photo-for="${this.esc(c.id)}">
           <i class="bi bi-person-fill"></i>
@@ -321,7 +344,12 @@ class EmployeePortal {
           <span><b>${c.paid}</b> paid</span>
           <span><b>₹${Number(c.earned).toLocaleString('en-IN')}</b> earned</span>
         </div>
-      </div>`).join('') : '<p class="nd-empty">No other staff yet.</p>';
+      </div>`;
+
+    $('emp-colleagues').innerHTML = list.length ? `
+      ${mine.length ? `<p class="emp-group-heading">Your group</p>${mine.map(card).join('')}` : ''}
+      ${rest.length ? `<p class="emp-group-heading">${mine.length ? 'Everyone else' : 'All staff'}</p>${rest.map(card).join('')}` : ''}
+    ` : '<p class="nd-empty">No other staff yet.</p>';
 
     list.filter(c => c.has_photo).forEach(c => {
       const el = document.querySelector(`[data-photo-for="${CSS.escape(c.id)}"]`);

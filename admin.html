@@ -447,23 +447,59 @@
           <h4><i class="bi bi-person-plus-fill"></i> Create employee account</h4>
           <p class="nd-hint">These accounts sign in at <code>/employee</code>, where they can see their own referrals, chain and earnings — nothing else. Win rate applies to single-player games (Slots, Mega Slots, Roulette); shared-round games (WinGo, Dice) deal one result to everyone and cannot be tilted per player. Leave it at 0 for a recruiter who never plays.</p>
           <form id="admin-team-form" class="nd-form-row">
+            <!-- The photo sits with the other fields, not below the button:
+                 it is part of creating the account, and a picker stranded
+                 under the form reads as a separate, later step. -->
+            <label id="team-photo-pick" class="nd-photo-pick" title="Add a photo">
+              <span id="team-photo-preview" class="nd-photo-preview"><i class="bi bi-person-fill"></i></span>
+              <span class="nd-photo-pick-label">Photo</span>
+              <input id="team-photo" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            </label>
             <input id="team-username" class="form-control" placeholder="Name" required>
             <input id="team-phone" class="form-control" placeholder="Mobile number" required>
             <input id="team-password" class="form-control" type="text" placeholder="Password (min 6)" required>
             <input id="team-winrate" class="form-control" type="number" min="0" max="100" value="80" placeholder="Win %">
+            <select id="team-group" class="form-control"><option value="">— no group —</option></select>
             <button class="btn-primary" type="submit"><i class="bi bi-plus-lg"></i> Create</button>
           </form>
-          <div class="nd-photo-row" style="margin-top:14px">
-            <div id="team-photo-preview" class="nd-photo-preview"><i class="bi bi-person-fill"></i></div>
-            <div>
-              <input id="team-photo" class="form-control" type="file" accept="image/png,image/jpeg,image/webp">
-              <p class="nd-hint" style="margin:6px 0 0">
-                Optional. PNG, JPG or WEBP up to 2 MB — uploaded straight after the
-                account is created, and shown to the whole team in their portal.
-              </p>
-            </div>
-          </div>
+          <p class="nd-hint" style="margin:8px 0 0">
+            Photo is optional — PNG, JPG or WEBP up to 2 MB. It appears next to
+            their name in the employee portal, for them and their group.
+          </p>
         </div>
+        <div class="nd-control-card" style="margin-bottom:16px">
+          <h4><i class="bi bi-diagram-3-fill"></i> Groups</h4>
+          <p class="nd-hint">
+            Organise staff into groups — a shift, a city, a campaign. Each
+            employee sees their own group in the portal, and the totals below
+            let you compare one against another. Deleting a group does not
+            delete anyone in it; they go back to ungrouped.
+          </p>
+          <form id="admin-group-form" class="nd-form-row">
+            <input id="group-name" class="form-control" placeholder="Group name" maxlength="64" required>
+            <input id="group-note" class="form-control" placeholder="What it is for (optional)" maxlength="200">
+            <button class="btn-primary" type="submit"><i class="bi bi-plus-lg"></i> Create group</button>
+          </form>
+          <div id="admin-group-list" class="nd-group-list"></div>
+        </div>
+
+        <div class="nd-control-card" style="margin-bottom:16px">
+          <h4><i class="bi bi-bar-chart-line-fill"></i> Performance</h4>
+          <p class="nd-hint">
+            Ranked by approved deposits their referrals actually paid in — not
+            by how many people they signed up. Thirty signups who never deposit
+            are not beating three who do. Groups are totalled from the same
+            numbers, with a per-head column so a big group is not automatically
+            the best one.
+          </p>
+          <div class="nd-seg" role="tablist" style="margin-bottom:12px">
+            <button type="button" class="nd-seg-btn active" data-perf="employees">By employee</button>
+            <button type="button" class="nd-seg-btn" data-perf="groups">By group</button>
+          </div>
+          <div id="admin-perf-totals" class="ng-kpis"></div>
+          <div id="admin-perf" class="nd-table-wrap" style="margin-top:12px"></div>
+        </div>
+
         <div id="admin-team-list" class="nd-daily"></div>
       </section>
 

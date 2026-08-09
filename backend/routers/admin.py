@@ -30,6 +30,7 @@ from schemas import (
     TeamUpdateRequest,
     ForceResultReq,
     GrantAdminRequest,
+    GroupRequest,
     PlatformSettingsReq,
     PredictionModeReq,
     UserGameAccessReq,
@@ -1050,6 +1051,12 @@ def team_create(req: TeamCreateRequest, _: bool = Depends(require_admin)):
         if cursor.execute("SELECT id FROM users WHERE phone = ?", (req.phone,)).fetchone():
             raise HTTPException(status_code=400, detail="Phone number is already registered.")
 
+        group_id = (req.group_id or "").strip() or None
+        if group_id and not cursor.execute(
+            "SELECT id FROM employee_groups WHERE id = ?", (group_id,)
+        ).fetchone():
+            raise HTTPException(status_code=404, detail="Group not found")
+
         user_id = f"USR{uuid.uuid4().hex[:10].upper()}"
         own_code = referrals_core.new_user_code(conn)
         # is_employee is set here, not derived from the win rate: an operator
@@ -1058,8 +1065,9 @@ def team_create(req: TeamCreateRequest, _: bool = Depends(require_admin)):
             """
             INSERT INTO users
                 (id, phone, username, password_hash, balance, status,
-                 referral_code, game_access_enabled, team_win_rate, is_employee)
-            VALUES (?, ?, ?, ?, 0, 'active', ?, 1, ?, 1)
+                 referral_code, game_access_enabled, team_win_rate, is_employee,
+                 group_id)
+            VALUES (?, ?, ?, ?, 0, 'active', ?, 1, ?, 1, ?)
             """,
             (
                 user_id,
@@ -1068,6 +1076,7 @@ def team_create(req: TeamCreateRequest, _: bool = Depends(require_admin)):
                 auth_helpers.hash_password(req.password),
                 own_code,
                 float(req.win_rate),
+                group_id,
             ),
         )
         conn.commit()
@@ -1080,6 +1089,7 @@ def team_create(req: TeamCreateRequest, _: bool = Depends(require_admin)):
         "username": req.username,
         "referral_code": own_code,
         "win_rate": float(req.win_rate),
+        "group_id": group_id,
     }
 
 
@@ -1094,14 +1104,15 @@ def team_list(_: bool = Depends(require_admin)):
             SELECT u.id, u.phone, u.username, u.balance, u.status,
                    u.referral_code, u.team_win_rate, u.created_at,
                    u.is_employee, u.photo IS NOT NULL AS has_photo,
-                   u.photo_updated_at,
+                   u.photo_updated_at, u.group_id, g.name AS group_name,
                    COALESCE(dep.total, 0) AS own_deposits
             FROM users u
+            LEFT JOIN employee_groups g ON g.id = u.group_id
             LEFT JOIN (
                 SELECT user_id, SUM(amount) AS total
                 FROM upi_deposits WHERE status = 'approved' GROUP BY user_id
             ) dep ON dep.user_id = u.id
-            WHERE u.team_win_rate > 0
+            WHERE u.team_win_rate > 0 OR u.is_employee = 1
             ORDER BY u.created_at DESC
             """
         ).fetchall()
@@ -1146,6 +1157,8 @@ def team_list(_: bool = Depends(require_admin)):
                 "referral_code": m["referral_code"],
                 "win_rate": float(m["team_win_rate"] or 0),
                 "is_employee": bool(m["is_employee"]),
+                "group_id": m["group_id"],
+                "group_name": m["group_name"],
                 "has_photo": bool(m["has_photo"]),
                 # Cache buster for the dashboard's <img>: the photo lives at a
                 # URL keyed only by user id, so without this a replacement
@@ -1180,10 +1193,253 @@ def team_update(user_id: str, req: TeamUpdateRequest, _: bool = Depends(require_
                 "UPDATE users SET is_employee = ? WHERE id = ?",
                 (1 if req.is_employee else 0, user_id),
             )
+        # "" means "take them out of their group"; absent means "leave it".
+        # Without that distinction, saving a win rate would unassign everyone.
+        if req.group_id is not None:
+            target = req.group_id.strip() or None
+            if target and not conn.execute(
+                "SELECT id FROM employee_groups WHERE id = ?", (target,)
+            ).fetchone():
+                raise HTTPException(status_code=404, detail="Group not found")
+            conn.execute("UPDATE users SET group_id = ? WHERE id = ?", (target, user_id))
         conn.commit()
     finally:
         conn.close()
     return {"status": "success", "id": user_id, "win_rate": float(req.win_rate)}
+
+
+# ----------------- STAFF GROUPS -----------------
+@router.get("/groups")
+def group_list(_: bool = Depends(require_admin)):
+    """Every group with its headcount and what its members have brought in.
+
+    The totals are the reason groups exist -- comparing a shift or a city
+    against another is the question, and doing it by eye over a flat staff
+    list stops working at about six people.
+    """
+    conn = get_db_connection(readonly=True)
+    try:
+        rows = conn.execute(
+            """
+            SELECT g.id, g.name, g.note, g.created_at,
+                   COUNT(DISTINCT u.id) AS members,
+                   COUNT(r.id) AS invited,
+                   COUNT(r.id) FILTER (WHERE r.status = 'approved') AS paid,
+                   COALESCE(SUM(r.reward) FILTER (WHERE r.status = 'approved'), 0) AS earned
+            FROM employee_groups g
+            LEFT JOIN users u ON u.group_id = g.id AND u.is_employee = 1
+            LEFT JOIN referrals r ON r.referrer_id = u.id
+            GROUP BY g.id, g.name, g.note, g.created_at
+            ORDER BY g.name
+            """
+        ).fetchall()
+        # Staff who are in no group at all, so the dashboard can say so rather
+        # than leaving them out of every total without explanation.
+        loose = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE is_employee = 1 AND group_id IS NULL"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    return {
+        "groups": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "note": r["note"] or "",
+                "members": int(r["members"] or 0),
+                "invited": int(r["invited"] or 0),
+                "paid": int(r["paid"] or 0),
+                "earned": round(float(r["earned"] or 0), 2),
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in map(dict, rows)
+        ],
+        "ungrouped": int(dict(loose)["n"] or 0),
+    }
+
+
+@router.post("/groups")
+def group_create(req: GroupRequest, _: bool = Depends(require_admin)):
+    conn = get_db_connection()
+    try:
+        clash = conn.execute(
+            "SELECT id FROM employee_groups WHERE LOWER(name) = LOWER(?)", (req.name.strip(),)
+        ).fetchone()
+        if clash:
+            raise HTTPException(status_code=400, detail="A group with that name already exists.")
+        group_id = f"GRP{uuid.uuid4().hex[:8].upper()}"
+        conn.execute(
+            "INSERT INTO employee_groups (id, name, note) VALUES (?, ?, ?)",
+            (group_id, req.name.strip(), (req.note or "").strip() or None),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": group_id, "name": req.name.strip()}
+
+
+@router.put("/groups/{group_id}")
+def group_update(group_id: str, req: GroupRequest, _: bool = Depends(require_admin)):
+    conn = get_db_connection()
+    try:
+        if not conn.execute(
+            "SELECT id FROM employee_groups WHERE id = ?", (group_id,)
+        ).fetchone():
+            raise HTTPException(status_code=404, detail="Group not found")
+        clash = conn.execute(
+            "SELECT id FROM employee_groups WHERE LOWER(name) = LOWER(?) AND id <> ?",
+            (req.name.strip(), group_id),
+        ).fetchone()
+        if clash:
+            raise HTTPException(status_code=400, detail="A group with that name already exists.")
+        conn.execute(
+            "UPDATE employee_groups SET name = ?, note = ? WHERE id = ?",
+            (req.name.strip(), (req.note or "").strip() or None, group_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": group_id, "name": req.name.strip()}
+
+
+@router.delete("/groups/{group_id}")
+def group_delete(group_id: str, _: bool = Depends(require_admin)):
+    """Members are not deleted with it -- the column is ON DELETE SET NULL, so
+    they land back in ungrouped."""
+    conn = get_db_connection()
+    try:
+        freed = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE group_id = ?", (group_id,)
+        ).fetchone()
+        conn.execute("DELETE FROM employee_groups WHERE id = ?", (group_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": group_id, "ungrouped": int(dict(freed)["n"] or 0)}
+
+
+@router.get("/team/performance")
+def team_performance(_: bool = Depends(require_admin)):
+    """Who is actually bringing players in, per employee and per group.
+
+    Two rankings from one set of numbers: the groups are rolled up here from
+    the employee rows rather than queried separately, so the two tables can
+    never disagree about a total the way two similar SQL statements eventually
+    do.
+
+    Ranked by approved deposits brought in, not by headcount. Someone who
+    signs up thirty people who never pay in is not outperforming someone who
+    signs up three who do, and sorting by `invited` says they are.
+    """
+    conn = get_db_connection(readonly=True)
+    try:
+        rows = conn.execute(
+            """
+            SELECT u.id, u.username, u.referral_code, u.created_at,
+                   u.group_id, g.name AS group_name,
+                   u.photo IS NOT NULL AS has_photo,
+                   COUNT(r.id) AS invited,
+                   COUNT(r.id) FILTER (WHERE r.status IN ('deposited', 'approved'))
+                       AS deposited,
+                   COUNT(r.id) FILTER (WHERE r.status = 'approved') AS paid,
+                   COALESCE(SUM(r.reward) FILTER (WHERE r.status = 'approved'), 0)
+                       AS earned
+            FROM users u
+            LEFT JOIN employee_groups g ON g.id = u.group_id
+            LEFT JOIN referrals r ON r.referrer_id = u.id
+            WHERE u.is_employee = 1
+            GROUP BY u.id, u.username, u.referral_code, u.created_at,
+                     u.group_id, g.name, (u.photo IS NOT NULL)
+            """
+        ).fetchall()
+
+        # Kept as its own query rather than another join above: joining an
+        # aggregate onto the referrals join fans the rows out and quietly
+        # multiplies every count in the statement.
+        brought = {
+            r["referrer_id"]: float(r["total"] or 0)
+            for r in map(dict, conn.execute(
+                """
+                SELECT r.referrer_id, SUM(d.amount) AS total
+                FROM referrals r
+                JOIN upi_deposits d ON d.user_id = r.referred_id
+                WHERE d.status = 'approved'
+                GROUP BY r.referrer_id
+                """
+            ).fetchall())
+        }
+    finally:
+        conn.close()
+
+    employees = []
+    for raw in map(dict, rows):
+        invited = int(raw["invited"] or 0)
+        deposited = int(raw["deposited"] or 0)
+        employees.append({
+            "id": raw["id"],
+            "name": raw["username"],
+            "referral_code": raw["referral_code"],
+            "group_id": raw["group_id"],
+            "group_name": raw["group_name"],
+            "has_photo": bool(raw["has_photo"]),
+            "invited": invited,
+            "deposited": deposited,
+            "not_deposited": invited - deposited,
+            # The number that says whether someone is inviting people who play
+            # or people who look once.
+            "conversion": round(deposited / invited * 100, 1) if invited else 0.0,
+            "paid": int(raw["paid"] or 0),
+            "earned": round(float(raw["earned"] or 0), 2),
+            "deposits_brought": round(brought.get(raw["id"], 0.0), 2),
+            "joined": raw["created_at"].isoformat() if raw["created_at"] else None,
+        })
+
+    employees.sort(key=lambda e: (-e["deposits_brought"], -e["deposited"], -e["invited"]))
+
+    groups = {}
+    for e in employees:
+        # Everyone without a group is pooled under one bucket rather than
+        # dropped, so the group totals still add up to the staff totals.
+        key = e["group_id"] or ""
+        bucket = groups.setdefault(key, {
+            "id": e["group_id"],
+            "name": e["group_name"] or "Ungrouped",
+            "members": 0, "invited": 0, "deposited": 0, "paid": 0,
+            "earned": 0.0, "deposits_brought": 0.0,
+        })
+        bucket["members"] += 1
+        for field in ("invited", "deposited", "paid", "earned", "deposits_brought"):
+            bucket[field] += e[field]
+
+    ranked_groups = []
+    for bucket in groups.values():
+        invited = bucket["invited"]
+        bucket["conversion"] = (
+            round(bucket["deposited"] / invited * 100, 1) if invited else 0.0
+        )
+        # Per head, so a group of ten is not automatically "better" than a
+        # group of two -- which is the comparison an operator actually wants.
+        bucket["per_member"] = round(
+            bucket["deposits_brought"] / bucket["members"], 2
+        ) if bucket["members"] else 0.0
+        bucket["earned"] = round(bucket["earned"], 2)
+        bucket["deposits_brought"] = round(bucket["deposits_brought"], 2)
+        ranked_groups.append(bucket)
+
+    ranked_groups.sort(key=lambda g: (-g["deposits_brought"], -g["deposited"]))
+
+    return {
+        "employees": employees,
+        "groups": ranked_groups,
+        "totals": {
+            "staff": len(employees),
+            "invited": sum(e["invited"] for e in employees),
+            "deposited": sum(e["deposited"] for e in employees),
+            "earned": round(sum(e["earned"] for e in employees), 2),
+            "deposits_brought": round(sum(e["deposits_brought"] for e in employees), 2),
+        },
+    }
 
 
 @router.post("/team/{user_id}/photo")

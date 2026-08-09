@@ -58,10 +58,10 @@
         </div>
       </div>
       <div class="emp-header-actions">
-        <button id="emp-refresh" class="nd-ghost" type="button" title="Refresh">
+        <button id="emp-refresh" class="nd-icon-btn" type="button" title="Refresh">
           <i class="bi bi-arrow-clockwise"></i>
         </button>
-        <button id="emp-logout" class="nd-ghost" type="button">Sign out</button>
+        <button id="emp-logout" class="btn-ghost" type="button">Sign out</button>
       </div>
     </header>
 
@@ -76,7 +76,7 @@
         <button id="emp-copy" class="btn-primary" type="button">
           <i class="bi bi-clipboard"></i> Copy link
         </button>
-        <button id="emp-share" class="nd-ghost" type="button">
+        <button id="emp-share" class="btn-ghost" type="button">
           <i class="bi bi-share-fill"></i> Share
         </button>
       </div>
@@ -85,20 +85,20 @@
     <div id="emp-kpis" class="ng-kpis"></div>
 
     <nav class="nd-seg emp-tabs" role="tablist">
-      <button class="active" data-emp-tab="referrals" type="button">My referrals</button>
-      <button data-emp-tab="chain" type="button">Referral chain</button>
-      <button data-emp-tab="earnings" type="button">Earnings</button>
-      <button data-emp-tab="team" type="button">Team</button>
+      <button class="nd-seg-btn active" data-emp-tab="referrals" type="button">My referrals</button>
+      <button class="nd-seg-btn" data-emp-tab="chain" type="button">Referral chain</button>
+      <button class="nd-seg-btn" data-emp-tab="earnings" type="button">Earnings</button>
+      <button class="nd-seg-btn" data-emp-tab="team" type="button">Team</button>
     </nav>
 
     <section id="emp-panel-referrals" class="nd-panel emp-panel">
       <div class="nd-panel-head">
         <h3>People you invited <small id="emp-ref-count"></small></h3>
         <div class="nd-seg emp-filter" role="tablist">
-          <button class="active" data-emp-filter="all" type="button">All</button>
-          <button data-emp-filter="earned" type="button">Earned</button>
-          <button data-emp-filter="waiting" type="button">Waiting</button>
-          <button data-emp-filter="none" type="button">No deposit</button>
+          <button class="nd-seg-btn active" data-emp-filter="all" type="button">All</button>
+          <button class="nd-seg-btn" data-emp-filter="earned" type="button">Earned</button>
+          <button class="nd-seg-btn" data-emp-filter="waiting" type="button">Waiting</button>
+          <button class="nd-seg-btn" data-emp-filter="none" type="button">No deposit</button>
         </div>
       </div>
       <div class="nd-table-wrap">
@@ -137,6 +137,7 @@
       <div class="nd-panel-head">
         <h3>Team <small>ranked by referrals paid out</small></h3>
       </div>
+      <div id="emp-group"></div>
       <p class="nd-hint">
         Names and totals only — nobody's phone numbers, wallets or referral
         lists, including yours.

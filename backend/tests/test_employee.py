@@ -9,6 +9,9 @@ ones asserting what a second employee does *not* get back.
 import io
 import uuid
 
+# The deposit flow is several calls long and test_admin.py already models it.
+from test_admin import submit_deposit
+
 
 def make_employee(client, admin_headers, *, username="Recruiter", win_rate=80):
     phone = f"98{uuid.uuid4().int % 100000000:08d}"
@@ -276,3 +279,150 @@ def test_deleting_a_photo_clears_it(client, admin_headers):
 
     headers = sign_in(client, employee)
     assert client.get(f"/api/employee/photo/{employee['id']}", headers=headers).status_code == 404
+
+
+# ----------------- GROUPS -----------------
+def make_group(client, admin_headers, name="Delhi", note=""):
+    response = client.post(
+        "/api/admin/groups", json={"name": name, "note": note}, headers=admin_headers
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_groups_need_admin(client):
+    assert client.get("/api/admin/groups").status_code == 401
+
+
+def test_a_group_name_cannot_be_reused(client, admin_headers):
+    make_group(client, admin_headers, "Delhi")
+    # Case-insensitively: "delhi" and "Delhi" are the same group to a human.
+    response = client.post(
+        "/api/admin/groups", json={"name": "delhi"}, headers=admin_headers
+    )
+    assert response.status_code == 400
+
+
+def test_an_employee_can_be_created_straight_into_a_group(client, admin_headers):
+    group = make_group(client, admin_headers, "Night shift")
+    employee = make_employee(client, admin_headers)
+    client.put(
+        f"/api/admin/team/{employee['id']}",
+        json={"win_rate": 80, "group_id": group["id"]},
+        headers=admin_headers,
+    )
+    row = next(m for m in client.get("/api/admin/team", headers=admin_headers).json()["team"]
+               if m["id"] == employee["id"])
+    assert row["group_name"] == "Night shift"
+
+    # And the portal tells them which group they are in.
+    headers = sign_in(client, employee)
+    shown = client.get("/api/employee/me", headers=headers).json()["employee"]["group"]
+    assert shown["name"] == "Night shift"
+    assert shown["members"] == 1
+
+
+def test_saving_a_win_rate_does_not_empty_the_group(client, admin_headers):
+    """group_id absent means "leave it"; only "" clears it."""
+    group = make_group(client, admin_headers, "Mumbai")
+    employee = make_employee(client, admin_headers)
+    client.put(f"/api/admin/team/{employee['id']}",
+               json={"win_rate": 80, "group_id": group["id"]}, headers=admin_headers)
+
+    client.put(f"/api/admin/team/{employee['id']}",
+               json={"win_rate": 55}, headers=admin_headers)
+    row = next(m for m in client.get("/api/admin/team", headers=admin_headers).json()["team"]
+               if m["id"] == employee["id"])
+    assert row["group_id"] == group["id"], "a win-rate save emptied the group"
+
+    client.put(f"/api/admin/team/{employee['id']}",
+               json={"win_rate": 55, "group_id": ""}, headers=admin_headers)
+    row = next(m for m in client.get("/api/admin/team", headers=admin_headers).json()["team"]
+               if m["id"] == employee["id"])
+    assert row["group_id"] is None
+
+
+def test_deleting_a_group_keeps_its_people(client, admin_headers):
+    group = make_group(client, admin_headers, "Temporary")
+    employee = make_employee(client, admin_headers)
+    client.put(f"/api/admin/team/{employee['id']}",
+               json={"win_rate": 80, "group_id": group["id"]}, headers=admin_headers)
+
+    response = client.delete(f"/api/admin/groups/{group['id']}", headers=admin_headers)
+    assert response.status_code == 200
+    assert response.json()["ungrouped"] == 1
+
+    # Still an employee, still able to sign in -- just no group.
+    headers = sign_in(client, employee)
+    assert client.get("/api/employee/me", headers=headers).json()["employee"]["group"] is None
+
+
+def test_an_unknown_group_is_refused(client, admin_headers):
+    employee = make_employee(client, admin_headers)
+    response = client.put(
+        f"/api/admin/team/{employee['id']}",
+        json={"win_rate": 80, "group_id": "GRPNOPE"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 404
+
+
+# ----------------- PERFORMANCE -----------------
+def test_performance_ranks_by_deposits_not_headcount(client, admin_headers):
+    """The whole point: volume of signups is not performance."""
+    quality = make_employee(client, admin_headers, username="Quality")
+    volume = make_employee(client, admin_headers, username="Volume")
+
+    # Volume signs up three who never pay in.
+    for _ in range(3):
+        client.post("/api/auth/register", json={
+            "phone": f"96{uuid.uuid4().int % 100000000:08d}",
+            "username": "Tyre kicker", "password": "secret123",
+            "referral_code": volume["referral_code"]})
+
+    # Quality signs up one who deposits, approved by an admin.
+    joined = client.post("/api/auth/register", json={
+        "phone": f"95{uuid.uuid4().int % 100000000:08d}",
+        "username": "Real player", "password": "secret123",
+        "referral_code": quality["referral_code"]}).json()
+    headers = {"Authorization": f"Bearer {joined['token']}"}
+    deposit_id = submit_deposit(client, headers, 5000)
+    client.post(f"/api/admin/deposits/{deposit_id}/approve", headers=admin_headers)
+
+    body = client.get("/api/admin/team/performance", headers=admin_headers).json()
+    ranked = [e["name"] for e in body["employees"]]
+    assert ranked.index("Quality") < ranked.index("Volume"), ranked
+
+    q = next(e for e in body["employees"] if e["name"] == "Quality")
+    v = next(e for e in body["employees"] if e["name"] == "Volume")
+    assert q["deposits_brought"] == 5000
+    assert v["deposits_brought"] == 0
+    assert v["invited"] == 3 and v["deposited"] == 0 and v["not_deposited"] == 3
+    assert v["conversion"] == 0.0
+
+
+def test_group_totals_add_up_to_the_employee_rows(client, admin_headers):
+    group = make_group(client, admin_headers, "Delhi")
+    for name in ("One", "Two"):
+        employee = make_employee(client, admin_headers, username=name)
+        client.put(f"/api/admin/team/{employee['id']}",
+                   json={"win_rate": 80, "group_id": group["id"]}, headers=admin_headers)
+        client.post("/api/auth/register", json={
+            "phone": f"94{uuid.uuid4().int % 100000000:08d}",
+            "username": "Invited", "password": "secret123",
+            "referral_code": employee["referral_code"]})
+
+    body = client.get("/api/admin/team/performance", headers=admin_headers).json()
+    delhi = next(g for g in body["groups"] if g["name"] == "Delhi")
+    assert delhi["members"] == 2
+    assert delhi["invited"] == 2
+    # Rolled up from the same rows, so the two views cannot disagree.
+    assert delhi["invited"] == sum(
+        e["invited"] for e in body["employees"] if e["group_name"] == "Delhi")
+
+
+def test_staff_with_no_group_are_pooled_not_dropped(client, admin_headers):
+    make_employee(client, admin_headers, username="Loner")
+    body = client.get("/api/admin/team/performance", headers=admin_headers).json()
+    assert any(g["name"] == "Ungrouped" for g in body["groups"])
+    assert sum(g["members"] for g in body["groups"]) == body["totals"]["staff"]

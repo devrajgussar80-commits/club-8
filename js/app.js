@@ -2775,7 +2775,8 @@ class App {
     if (password.length < 6) return this.showToast('Password kam se kam 6 characters ka ho.', 'error');
     try {
       const res = await this.adminApi('/api/admin/team/create', 'POST', {
-        username, phone, password, win_rate: winRate
+        username, phone, password, win_rate: winRate,
+        group_id: document.getElementById('team-group')?.value || null
       });
       // The photo is a second request on purpose: it is optional, and a
       // failed upload must not cost the account that was just created.
@@ -2790,13 +2791,24 @@ class App {
       this.showToast(`Employee account bana: ${res.username} (${res.win_rate}% win). Code ${res.referral_code}. Portal: /employee`, 'success');
       document.getElementById('admin-team-form')?.reset();
       const wr = document.getElementById('team-winrate'); if (wr) wr.value = '80';
-      const preview = document.getElementById('team-photo-preview');
-      if (preview) { preview.style.backgroundImage = ''; preview.innerHTML = '<i class="bi bi-person-fill"></i>'; }
-      const picker = document.getElementById('team-photo'); if (picker) picker.value = '';
+      this.resetTeamPhotoPicker();
+      await this.loadGroups();
       this.loadTeam();
+      void this.loadTeamPerformance();
     } catch (error) {
       this.showToast(error.message, 'error');
     }
+  }
+
+  resetTeamPhotoPicker() {
+    const preview = document.getElementById('team-photo-preview');
+    if (preview) {
+      preview.style.backgroundImage = '';
+      preview.innerHTML = '<i class="bi bi-person-fill"></i>';
+    }
+    document.getElementById('team-photo-pick')?.classList.remove('has-photo');
+    const picker = document.getElementById('team-photo');
+    if (picker) picker.value = '';
   }
 
   /** multipart, so it cannot go through adminApi's JSON path. */
@@ -2831,6 +2843,200 @@ class App {
     } catch (_) { /* the placeholder icon stays */ }
   }
 
+  async loadGroups() {
+    const host = document.getElementById('admin-group-list');
+    if (!host) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/groups');
+    } catch (error) {
+      host.innerHTML = `<p class="nd-empty">${this.escapeHtml(error.message)}</p>`;
+      return;
+    }
+    // Kept for the pickers on the team rows, which render from the same list.
+    this.groups = data.groups || [];
+
+    // The create form's picker. Rebuilt here rather than in loadTeam so a
+    // group created a moment ago is selectable without a page reload.
+    const picker = document.getElementById('team-group');
+    if (picker) {
+      const chosen = picker.value;
+      picker.innerHTML = '<option value="">— no group —</option>'
+        + this.groups.map(g =>
+            `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`).join('');
+      if (chosen) picker.value = chosen;
+    }
+
+    const money = v => `₹${Number(v || 0).toFixed(2)}`;
+    host.innerHTML = `
+      ${this.groups.length ? this.groups.map(g => `
+        <div class="nd-group-row">
+          <div class="nd-group-who">
+            <strong>${this.escapeHtml(g.name)}</strong>
+            ${g.note ? `<small>${this.escapeHtml(g.note)}</small>` : ''}
+          </div>
+          <span class="nd-group-nums">
+            <b>${g.members}</b> staff · <b>${g.invited}</b> invited ·
+            <b>${g.paid}</b> paid · <b>${money(g.earned)}</b> earned
+          </span>
+          <button type="button" class="nd-mini" data-group-rename="${g.id}">Rename</button>
+          <button type="button" class="nd-mini danger" data-group-delete="${g.id}">Delete</button>
+        </div>`).join('') : '<p class="nd-empty">No groups yet. Create one above.</p>'}
+      ${data.ungrouped
+        ? `<p class="nd-hint">${data.ungrouped} employee${data.ungrouped === 1 ? '' : 's'} not in any group.</p>`
+        : ''}`;
+
+    host.querySelectorAll('[data-group-rename]').forEach(button =>
+      button.addEventListener('click', () => {
+        const group = this.groups.find(g => g.id === button.dataset.groupRename);
+        const name = prompt('New name for this group:', group?.name || '');
+        if (name === null) return;
+        void this.saveGroup(button.dataset.groupRename, name, group?.note || '');
+      }));
+
+    host.querySelectorAll('[data-group-delete]').forEach(button =>
+      button.addEventListener('click', () => {
+        const group = this.groups.find(g => g.id === button.dataset.groupDelete);
+        // Worth a confirm: the group goes, and everyone in it lands back in
+        // ungrouped, which is not obvious from a button labelled Delete.
+        const members = group?.members || 0;
+        if (!confirm(members
+          ? `Delete "${group.name}"? Its ${members} member${members === 1 ? '' : 's'} `
+            + 'will become ungrouped. Nobody is deleted.'
+          : `Delete "${group?.name}"?`)) return;
+        void this.deleteGroup(button.dataset.groupDelete);
+      }));
+  }
+
+  async createGroup() {
+    const name = document.getElementById('group-name')?.value.trim();
+    const note = document.getElementById('group-note')?.value.trim();
+    if (!name) return this.showToast('Group ka naam zaroori hai.', 'error');
+    try {
+      await this.adminApi('/api/admin/groups', 'POST', { name, note });
+      this.showToast(`Group "${name}" bana.`, 'success');
+      document.getElementById('admin-group-form')?.reset();
+      await this.loadGroups();
+      this.loadTeam();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async saveGroup(groupId, name, note) {
+    if (!String(name || '').trim()) return this.showToast('Naam khaali nahi ho sakta.', 'error');
+    try {
+      await this.adminApi(`/api/admin/groups/${groupId}`, 'PUT', { name: name.trim(), note });
+      this.showToast('Group updated.', 'success');
+      await this.loadGroups();
+      this.loadTeam();
+      void this.loadTeamPerformance();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async deleteGroup(groupId) {
+    try {
+      const res = await this.adminApi(`/api/admin/groups/${groupId}`, 'DELETE');
+      this.showToast(res.ungrouped
+        ? `Group deleted. ${res.ungrouped} member(s) are now ungrouped.`
+        : 'Group deleted.', 'success');
+      await this.loadGroups();
+      this.loadTeam();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async loadTeamPerformance() {
+    const host = document.getElementById('admin-perf');
+    if (!host) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/team/performance');
+    } catch (error) {
+      host.innerHTML = `<p class="nd-empty">${this.escapeHtml(error.message)}</p>`;
+      return;
+    }
+    this.performance = data;
+    this.renderTeamPerformance();
+  }
+
+  renderTeamPerformance() {
+    const host = document.getElementById('admin-perf');
+    const data = this.performance;
+    if (!host || !data) return;
+    const money = v => `\u20b9${Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    const view = this.perfView || 'employees';
+
+    const totals = document.getElementById('admin-perf-totals');
+    if (totals) {
+      totals.innerHTML = [
+        ['Staff', data.totals.staff],
+        ['Invited', data.totals.invited],
+        ['Deposited', data.totals.deposited],
+        ['Rewards paid', money(data.totals.earned)],
+        ['They deposited', money(data.totals.deposits_brought)]
+      ].map(([label, value]) =>
+        `<div class="ng-kpi"><small>${label}</small><b>${this.escapeHtml(String(value))}</b></div>`
+      ).join('');
+    }
+
+    // A bar as wide as this row's share of the best row, so the ranking reads
+    // at a glance instead of by comparing numbers down a column.
+    const rows = view === 'groups' ? data.groups : data.employees;
+    const best = Math.max(1, ...rows.map(r => r.deposits_brought));
+    const bar = value =>
+      `<span class="nd-bar"><i style="width:${Math.round((value / best) * 100)}%"></i></span>`;
+
+    if (!rows.length) {
+      host.innerHTML = '<p class="nd-empty">No employees yet. Create one above.</p>';
+      return;
+    }
+
+    host.innerHTML = view === 'groups' ? `
+      <table class="nd-table">
+        <thead><tr>
+          <th>#</th><th>Group</th><th>Staff</th><th>Invited</th><th>Deposited</th>
+          <th>Conversion</th><th>Rewards</th><th>They deposited</th><th>Per head</th>
+        </tr></thead>
+        <tbody>${rows.map((g, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${this.escapeHtml(g.name)}</strong></td>
+            <td>${g.members}</td>
+            <td>${g.invited}</td>
+            <td>${g.deposited}</td>
+            <td>${g.conversion}%</td>
+            <td>${money(g.earned)}</td>
+            <td>${money(g.deposits_brought)}${bar(g.deposits_brought)}</td>
+            <td>${money(g.per_member)}</td>
+          </tr>`).join('')}</tbody>
+      </table>` : `
+      <table class="nd-table">
+        <thead><tr>
+          <th>#</th><th>Employee</th><th>Group</th><th>Invited</th><th>Deposited</th>
+          <th>No deposit</th><th>Conversion</th><th>Rewards</th><th>They deposited</th>
+        </tr></thead>
+        <tbody>${rows.map((e, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${this.escapeHtml(e.name)}</strong><br>
+                <small>${this.escapeHtml(e.referral_code || '')}</small></td>
+            <td>${e.group_name
+                  ? `<small class="nd-group-tag">${this.escapeHtml(e.group_name)}</small>`
+                  : '<small class="ref-no">\u2014</small>'}</td>
+            <td>${e.invited}</td>
+            <td>${e.deposited}</td>
+            <td>${e.not_deposited ? `<span class="ref-no">${e.not_deposited}</span>` : '0'}</td>
+            <td>${e.conversion}%</td>
+            <td>${money(e.earned)}</td>
+            <td>${money(e.deposits_brought)}${bar(e.deposits_brought)}</td>
+          </tr>`).join('')}</tbody>
+      </table>`;
+  }
+
   async loadTeam() {
     const host = document.getElementById('admin-team-list');
     if (!host) return;
@@ -2856,6 +3062,7 @@ class App {
             </span>
             ${this.escapeHtml(m.username)} <small style="color:#8a93ab">${this.escapeHtml(m.phone)}</small>
             ${m.is_employee ? '<small class="ref-yes">portal</small>' : '<small class="ref-no">no portal</small>'}
+            ${m.group_name ? `<small class="nd-group-tag">${this.escapeHtml(m.group_name)}</small>` : ''}
           </h4>
           <span class="nd-day-sum">
             win ${Math.round(m.win_rate)}% · bal ${money(m.balance)} · code ${this.escapeHtml(m.referral_code || '—')} · ${m.referral_count} referrals · their deposits ${money(m.referred_deposit_total)}
@@ -2869,6 +3076,15 @@ class App {
           <label class="nd-hint" style="display:flex; align-items:center; gap:6px">
             <input type="checkbox" data-team-portal="${m.id}"${m.is_employee ? ' checked' : ''}>
             Portal access
+          </label>
+          <label class="nd-hint" style="display:flex; align-items:center; gap:6px">
+            Group
+            <select data-team-group="${m.id}" class="form-control" style="width:auto">
+              <option value=""${m.group_id ? '' : ' selected'}>— none —</option>
+              ${(this.groups || []).map(g =>
+                `<option value="${g.id}"${g.id === m.group_id ? ' selected' : ''}>${this.escapeHtml(g.name)}</option>`
+              ).join('')}
+            </select>
           </label>
           <button type="button" class="nd-mini ok" data-team-save="${m.id}">Save</button>
           <label class="nd-mini" style="cursor:pointer">
@@ -2898,7 +3114,8 @@ class App {
         const id = button.dataset.teamSave;
         const input = host.querySelector(`[data-team-rate="${id}"]`);
         const portal = host.querySelector(`[data-team-portal="${id}"]`);
-        this.updateTeamRate(id, Number(input?.value || 0), portal?.checked);
+        const group = host.querySelector(`[data-team-group="${id}"]`);
+        this.updateTeamRate(id, Number(input?.value || 0), portal?.checked, group?.value);
       }));
 
     host.querySelectorAll('[data-team-photo-input]').forEach(input =>
@@ -2920,13 +3137,15 @@ class App {
     });
   }
 
-  async updateTeamRate(userId, winRate, isEmployee) {
+  async updateTeamRate(userId, winRate, isEmployee, groupId) {
     try {
-      // is_employee is only sent when the caller actually read a checkbox.
-      // The server leaves the flag alone when it is absent, so an older call
-      // site that passes a rate on its own cannot revoke a portal login.
+      // is_employee and group_id are only sent when the caller actually read
+      // the controls. The server leaves each alone when absent, so an older
+      // call site passing a rate on its own cannot revoke a portal login or
+      // empty somebody's group as a side effect.
       const body = { win_rate: winRate };
       if (typeof isEmployee === 'boolean') body.is_employee = isEmployee;
+      if (typeof groupId === 'string') body.group_id = groupId;
       await this.adminApi(`/api/admin/team/${userId}`, 'PUT', body);
       this.showToast(
         `Win rate updated to ${Math.round(winRate)}%${
@@ -3675,7 +3894,10 @@ class App {
         // Referrals are their own endpoint, not part of the dashboard payload,
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
-        if (tab.dataset.section === 'team') void this.loadTeam();
+        if (tab.dataset.section === 'team') {
+          void this.loadGroups().then(() => this.loadTeam());
+          void this.loadTeamPerformance();
+        }
         // The APK card moved to Downloads, so its metadata loads with that tab.
         if (tab.dataset.section === 'downloads') {
           void this.loadAppInfo();
@@ -3720,19 +3942,31 @@ class App {
       void this.createTeamUser();
     });
 
+    document.getElementById('admin-group-form')?.addEventListener('submit', e => {
+      e.preventDefault();
+      void this.createGroup();
+    });
+
+    document.querySelectorAll('[data-perf]').forEach(button =>
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-perf]').forEach(b => b.classList.remove('active'));
+        button.classList.add('active');
+        this.perfView = button.dataset.perf;
+        // Re-rendered from what is already loaded; switching view is not a
+        // reason to go back to the server.
+        this.renderTeamPerformance();
+      }));
+
     // Preview the chosen photo before the account exists, so a wrong file is
     // caught here rather than after it is attached to a real employee.
     document.getElementById('team-photo')?.addEventListener('change', event => {
       const file = event.target.files?.[0];
+      if (!file) return this.resetTeamPhotoPicker();
       const preview = document.getElementById('team-photo-preview');
       if (!preview) return;
-      if (!file) {
-        preview.style.backgroundImage = '';
-        preview.innerHTML = '<i class="bi bi-person-fill"></i>';
-        return;
-      }
       preview.style.backgroundImage = `url(${URL.createObjectURL(file)})`;
       preview.innerHTML = '';
+      document.getElementById('team-photo-pick')?.classList.add('has-photo');
     });
 
     // The queue filter and the games range share the .nd-seg-btn look, so each

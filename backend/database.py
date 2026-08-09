@@ -452,6 +452,24 @@ UPDATE users SET is_employee = 1 WHERE team_win_rate > 0 AND COALESCE(is_employe
 ALTER TABLE users ADD COLUMN IF NOT EXISTS photo BYTEA;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_type TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_updated_at TIMESTAMPTZ;
+
+-- Groups staff are organised into -- a shift, a city, a campaign. Its own
+-- table rather than a text column on users so renaming a group renames it
+-- everywhere at once, and so a group can exist before anyone is in it.
+CREATE TABLE IF NOT EXISTS employee_groups (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    -- Free text shown under the name in both consoles: what this group is for.
+    note TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_groups_name ON employee_groups (LOWER(name));
+
+-- SET NULL, never CASCADE: deleting a group must not delete the people in it.
+-- They fall back to ungrouped, which is where they started.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id TEXT
+    REFERENCES employee_groups(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_users_group ON users(group_id) WHERE group_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code
     ON users(referral_code) WHERE referral_code IS NOT NULL;
 

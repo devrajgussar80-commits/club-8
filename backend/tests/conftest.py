@@ -26,27 +26,27 @@ ADMIN_KEY = "test-admin-access-key-0123456789"
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
 
-APP_MODULES = (
-    "main",
-    "routers",
-    "routers.admin",
-    "routers.auth",
-    "routers.game",
-    "routers.pages",
-    "routers.wallet",
-    "deps",
-    "settings_store",
-    "schemas",
-    "game_engine",
-    "database",
-    "auth",
-    "config",
-)
-
-
 def _forget_app_modules():
-    for name in APP_MODULES:
-        sys.modules.pop(name, None)
+    """Drop every module that lives under backend/ so the next test re-imports.
+
+    This has to be all of them, not a list. Each test runs in its own schema,
+    and `database` is re-imported per test to pick up DB_SCHEMA and build a
+    fresh pool. A module that is *not* forgotten keeps its `from database
+    import get_db_connection` bound to the previous test's module object --
+    whose pool is closed and whose search_path names a schema that has since
+    been dropped. Every query through it then fails with "relation ... does
+    not exist", far from the line that caused it.
+
+    This was a hand-written tuple, and adding a router without adding it to
+    that tuple is exactly how the failure appears -- so it is computed now.
+    Modules are identified by file location rather than by name: `main`,
+    `deps` and `routers.*` have no shared prefix to match on, and matching by
+    name would put site-packages at risk.
+    """
+    for name, module in list(sys.modules.items()):
+        path = getattr(module, "__file__", None) or ""
+        if path.startswith(BACKEND_DIR + os.sep) and "tests" not in name:
+            sys.modules.pop(name, None)
 
 
 @pytest.fixture()
