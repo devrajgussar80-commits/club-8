@@ -102,7 +102,7 @@ class WithdrawRequest(BaseModel):
 class PlatformSettingsReq(BaseModel):
     deposits_enabled: bool
     withdrawals_enabled: bool
-    deposit_min: float = Field(default=100, ge=1, le=10_000_000)
+    deposit_min: float = Field(default=500, ge=1, le=10_000_000)
     deposit_max: float = Field(default=50_000, ge=1, le=10_000_000)
     withdrawal_min: float = Field(ge=1, le=1_000_000)
     withdrawal_max: float = Field(default=100_000, ge=1, le=10_000_000)
@@ -111,6 +111,9 @@ class PlatformSettingsReq(BaseModel):
     # Shown to a player who tries before then. Optional so a dashboard that
     # does not send it keeps whatever wording is already saved.
     withdrawal_locked_message: str | None = Field(default=None, max_length=600)
+    # Shown to a player whose wallet is below withdrawal_min. Optional for the
+    # same reason.
+    withdrawal_min_message: str | None = Field(default=None, max_length=600)
 
 
 class BonusRunSettingsReq(BaseModel):

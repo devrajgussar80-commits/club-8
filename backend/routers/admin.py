@@ -37,6 +37,7 @@ from schemas import (
 )
 from settings_store import (
     WITHDRAWAL_LOCKED_MESSAGE,
+    WITHDRAWAL_MIN_MESSAGE,
     get_approved_deposit_total,
     get_settings,
     get_wallet_settings,
@@ -391,13 +392,16 @@ def get_admin_dashboard(_: bool = Depends(require_admin)):
         "platform_settings": {
             "deposits_enabled": str(settings.get("deposits_enabled", "true")).lower() == "true",
             "withdrawals_enabled": str(settings.get("withdrawals_enabled", "true")).lower() == "true",
-            "deposit_min": float(settings.get("deposit_min", 100)),
+            "deposit_min": float(settings.get("deposit_min", 500)),
             "deposit_max": float(settings.get("deposit_max", 50000)),
-            "withdrawal_min": float(settings.get("withdrawal_min", 200)),
+            "withdrawal_min": float(settings.get("withdrawal_min", 1000)),
             "withdrawal_max": float(settings.get("withdrawal_max", 100000)),
             "withdrawal_min_deposit": float(settings.get("withdrawal_min_deposit", 500)),
             "withdrawal_locked_message": settings.get(
                 "withdrawal_locked_message", WITHDRAWAL_LOCKED_MESSAGE
+            ),
+            "withdrawal_min_message": settings.get(
+                "withdrawal_min_message", WITHDRAWAL_MIN_MESSAGE
             ),
         },
         # `settings` above already holds every row, so this needs no query.
@@ -461,6 +465,8 @@ def update_admin_platform_settings(req: PlatformSettingsReq, _: bool = Depends(r
     # nothing at all when they hit the lock.
     if (req.withdrawal_locked_message or "").strip():
         values["withdrawal_locked_message"] = req.withdrawal_locked_message.strip()
+    if (req.withdrawal_min_message or "").strip():
+        values["withdrawal_min_message"] = req.withdrawal_min_message.strip()
     for key, value in values.items():
         set_setting(conn, key, value)
     conn.commit()

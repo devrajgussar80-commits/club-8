@@ -1055,6 +1055,46 @@ class App {
       || `Recharge at least ₹${minimum.toFixed(0)} to unlock withdrawals.`;
   }
 
+  /**
+   * Why the wallet itself cannot fund a withdrawal yet, or null.
+   *
+   * Checked before the recharge lock, because the two are different problems
+   * with different answers: a wallet under the minimum needs more playing, an
+   * account that has never recharged needs a deposit. Showing the recharge
+   * pop-up to someone holding ₹40 sends them to buy credit they cannot
+   * withdraw either way.
+   *
+   * Returns null when the balance has not synced yet -- the server refuses on
+   * its own copy under a row lock, and guessing here would block a withdrawal
+   * the account can afford.
+   */
+  withdrawBalanceReason() {
+    const minimum = Number(this.withdrawMin || 1000);
+    const balance = this.currentBalance();
+    if (balance === null || balance >= minimum) return null;
+    const template = String(this.walletSettings?.withdrawal_min_message || '')
+      || 'Minimum withdrawal is ₹{minimum}. Your wallet has ₹{balance}.';
+    return template
+      .replace(/\{minimum\}/g, minimum.toFixed(0))
+      .replace(/\{balance\}/g, balance.toFixed(2));
+  }
+
+  showWithdrawMinModal(message) {
+    const text = document.getElementById('withdraw-min-text');
+    if (text) text.textContent = message;
+    const modal = document.getElementById('withdraw-min-modal');
+    modal?.classList.add('active');
+    modal?.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+
+  closeWithdrawMinModal() {
+    const modal = document.getElementById('withdraw-min-modal');
+    modal?.classList.remove('active');
+    modal?.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
   showWithdrawLockedModal(message) {
     const text = document.getElementById('withdraw-locked-text');
     if (text) text.textContent = message;
@@ -1369,7 +1409,7 @@ class App {
         depositButton.disabled = !settings.deposits_enabled || amount < minimum || amount > maximum;
         depositButton.textContent = settings.deposits_enabled ? 'Deposit' : 'Deposits paused';
       }
-      this.withdrawMin = Number(settings.withdrawal_min || 200);
+      this.withdrawMin = Number(settings.withdrawal_min || 1000);
       this.withdrawalsEnabled = Boolean(settings.withdrawals_enabled);
       const withdrawInput = document.getElementById('withdraw-amount-input');
       if (withdrawInput) {
@@ -1420,7 +1460,7 @@ class App {
       return;
     }
 
-    const minimum = Number(this.withdrawMin || 200);
+    const minimum = Number(this.withdrawMin || 1000);
     const balance = this.currentBalance();
     const typed = Number(document.getElementById('withdraw-amount-input')?.value || 0);
 
@@ -1447,7 +1487,7 @@ class App {
    * yet blocked a withdrawal the account could well afford.
    */
   withdrawBlockReason(amount) {
-    const minimum = Number(this.withdrawMin || 200);
+    const minimum = Number(this.withdrawMin || 1000);
     if (!amount || !Number.isFinite(amount)) return 'Enter an amount to withdraw.';
     if (amount < minimum) return `Minimum withdrawal is ₹${minimum.toFixed(0)}.`;
     return null;
@@ -3307,12 +3347,14 @@ class App {
     // Skipped while focused, so a refresh mid-refresh does not overwrite what
     // the admin is in the middle of typing.
     const limits = {
-      'admin-deposit-min': settings.deposit_min ?? 100,
+      'admin-deposit-min': settings.deposit_min ?? 500,
       'admin-deposit-max': settings.deposit_max ?? 50000,
-      'admin-withdrawal-min': settings.withdrawal_min ?? 200,
+      'admin-withdrawal-min': settings.withdrawal_min ?? 1000,
+      'admin-withdraw-min-amount': settings.withdrawal_min ?? 1000,
       'admin-withdrawal-max': settings.withdrawal_max ?? 100000,
       'admin-withdraw-min-deposit': settings.withdrawal_min_deposit ?? 500,
-      'admin-withdraw-locked-message': settings.withdrawal_locked_message ?? ''
+      'admin-withdraw-locked-message': settings.withdrawal_locked_message ?? '',
+      'admin-withdraw-min-message': settings.withdrawal_min_message ?? ''
     };
     Object.entries(limits).forEach(([id, value]) => {
       const field = document.getElementById(id);
@@ -3722,53 +3764,57 @@ class App {
       }
     });
 
-    document.getElementById('admin-payment-settings')?.addEventListener('submit', async event => {
-      event.preventDefault();
-      const button = event.currentTarget.querySelector('button[type="submit"]');
-      button.disabled = true;
-      try {
-        await this.adminApi('/api/admin/platform-settings', 'PUT', {
-          deposits_enabled: document.getElementById('admin-deposits-enabled')?.checked,
-          withdrawals_enabled: document.getElementById('admin-withdrawals-enabled')?.checked,
-          deposit_min: Number(document.getElementById('admin-deposit-min')?.value || 100),
-          deposit_max: Number(document.getElementById('admin-deposit-max')?.value || 50000),
-          withdrawal_min: Number(document.getElementById('admin-withdrawal-min')?.value || 200),
-          withdrawal_max: Number(document.getElementById('admin-withdrawal-max')?.value || 100000)
-        });
-        this.showToast('Payment settings saved.', 'success');
-      } catch (error) {
-        this.showToast(error.message, 'error');
-      } finally {
-        button.disabled = false;
-      }
-    });
+    // Three forms across two tabs edit these settings, and the endpoint
+    // replaces every key it is sent -- so each one has to send the lot or
+    // saving the pop-up wording would reset the deposit range. Built in one
+    // place so a field added to a card cannot be forgotten by the others.
+    const platformSettingsPayload = () => {
+      const num = (id, fallback) =>
+        Number(document.getElementById(id)?.value || fallback);
+      return {
+        deposits_enabled: document.getElementById('admin-deposits-enabled')?.checked,
+        withdrawals_enabled: document.getElementById('admin-withdrawals-enabled')?.checked,
+        deposit_min: num('admin-deposit-min', 500),
+        deposit_max: num('admin-deposit-max', 50000),
+        withdrawal_min: num('admin-withdrawal-min', 1000),
+        withdrawal_max: num('admin-withdrawal-max', 100000),
+        withdrawal_min_deposit: num('admin-withdraw-min-deposit', 0),
+        withdrawal_locked_message:
+          document.getElementById('admin-withdraw-locked-message')?.value || '',
+        withdrawal_min_message:
+          document.getElementById('admin-withdraw-min-message')?.value || ''
+      };
+    };
 
-    // The withdrawal lock rides on the same endpoint as the payment settings,
-    // which replaces every key it is sent. Re-send the payment fields with it
-    // or saving the lock would reset the deposit range to the form defaults.
-    document.getElementById('admin-withdraw-lock')?.addEventListener('submit', async event => {
-      event.preventDefault();
-      const button = event.currentTarget.querySelector('button[type="submit"]');
-      button.disabled = true;
-      try {
-        await this.adminApi('/api/admin/platform-settings', 'PUT', {
-          deposits_enabled: document.getElementById('admin-deposits-enabled')?.checked,
-          withdrawals_enabled: document.getElementById('admin-withdrawals-enabled')?.checked,
-          deposit_min: Number(document.getElementById('admin-deposit-min')?.value || 100),
-          deposit_max: Number(document.getElementById('admin-deposit-max')?.value || 50000),
-          withdrawal_min: Number(document.getElementById('admin-withdrawal-min')?.value || 200),
-          withdrawal_max: Number(document.getElementById('admin-withdrawal-max')?.value || 100000),
-          withdrawal_min_deposit:
-            Number(document.getElementById('admin-withdraw-min-deposit')?.value || 0),
-          withdrawal_locked_message:
-            document.getElementById('admin-withdraw-locked-message')?.value || ''
-        });
-        this.showToast('Withdrawal lock saved.', 'success');
-      } catch (error) {
-        this.showToast(error.message, 'error');
-      } finally {
-        button.disabled = false;
-      }
+    const savePlatformSettings = (formId, done) =>
+      document.getElementById(formId)?.addEventListener('submit', async event => {
+        event.preventDefault();
+        const button = event.currentTarget.querySelector('button[type="submit"]');
+        button.disabled = true;
+        try {
+          await this.adminApi('/api/admin/platform-settings', 'PUT', platformSettingsPayload());
+          this.showToast(done, 'success');
+        } catch (error) {
+          this.showToast(error.message, 'error');
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+    savePlatformSettings('admin-payment-settings', 'Payment settings saved.');
+    savePlatformSettings('admin-withdraw-lock', 'Deposit pop-up saved.');
+    savePlatformSettings('admin-withdraw-min-popup', 'Withdrawal pop-up saved.');
+
+    // The smallest withdrawal has an input on the Payments tab and another in
+    // the Data tab's pop-up card. One setting, so keep the two in step as
+    // they are typed -- otherwise whichever card was saved last would quietly
+    // overwrite the other's number.
+    [['admin-withdrawal-min', 'admin-withdraw-min-amount'],
+     ['admin-withdraw-min-amount', 'admin-withdrawal-min']].forEach(([from, to]) => {
+      document.getElementById(from)?.addEventListener('input', event => {
+        const twin = document.getElementById(to);
+        if (twin) twin.value = event.target.value;
+      });
     });
 
     document.getElementById('admin-bonus-run')?.addEventListener('submit', async event => {
@@ -4246,6 +4292,17 @@ class App {
       this.switchSubPage('recharge');
     });
 
+    document.getElementById('cancel-withdraw-min')
+      ?.addEventListener('click', () => this.closeWithdrawMinModal());
+    document.querySelector('#withdraw-min-modal .game-access-backdrop')
+      ?.addEventListener('click', () => this.closeWithdrawMinModal());
+    // Straight to the lobby, not the recharge screen: what this player needs
+    // is a bigger balance, and the games are where that comes from.
+    document.getElementById('confirm-withdraw-min')?.addEventListener('click', () => {
+      this.closeWithdrawMinModal();
+      this.switchSubPage('home');
+    });
+
     // Login Form Submit
     document.getElementById('form-login')?.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -4445,8 +4502,17 @@ class App {
         }
       }
 
-      // The recharge lock gets a dialog rather than a toast: it is a rule the
-      // player has to act on, not a typo they can correct in the field.
+      // Two dialogs rather than toasts: these are rules the player has to act
+      // on, not typos they can correct in the field. Balance first -- someone
+      // holding less than the minimum has nothing to withdraw whether or not
+      // they have ever recharged, and telling them to recharge would be
+      // answering a question they did not ask.
+      const short = this.withdrawBalanceReason();
+      if (short) {
+        this.showWithdrawMinModal(short);
+        return;
+      }
+
       const locked = this.withdrawLockReason();
       if (locked) {
         this.showWithdrawLockedModal(locked);

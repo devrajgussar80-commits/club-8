@@ -182,11 +182,41 @@
 
         <div class="nd-controls-grid" style="margin-top:22px">
           <div class="nd-control-card">
+            <h4>Withdrawal pop-up</h4>
+            <p class="nd-hint">
+              The first pop-up on the withdrawal screen. Shown when a player's
+              wallet is below the smallest withdrawal you will process — they
+              need a bigger balance, not a recharge, so its button sends them
+              to the games rather than the deposit screen.
+            </p>
+            <form id="admin-withdraw-min-popup" class="nd-settings">
+              <label class="nd-field">
+                <span>Minimum withdrawal (₹)</span>
+                <input id="admin-withdraw-min-amount" class="form-control"
+                       type="number" min="1" step="1" value="1000">
+              </label>
+              <label class="nd-field">
+                <span>Pop-up message</span>
+                <textarea id="admin-withdraw-min-message" class="form-control"
+                          rows="4" maxlength="600"></textarea>
+              </label>
+              <p class="nd-hint">
+                Write <code>{minimum}</code> where the smallest withdrawal should appear
+                and <code>{balance}</code> for what the player currently holds. This is
+                the same figure as “Minimum withdrawal” on the Payments tab —
+                changing it in either place changes both.
+              </p>
+              <button class="btn-primary" type="submit">Save</button>
+            </form>
+          </div>
+
+          <div class="nd-control-card">
             <h4>Deposit pop-up</h4>
             <p class="nd-hint">
-              Players cannot withdraw until their approved recharges reach this
-              total. Anyone who tries before then is shown the message below in
-              a pop-up, with a button that takes them to the recharge screen.
+              The second pop-up, shown only once a player's wallet has cleared
+              the minimum above. They cannot withdraw until their approved
+              recharges reach this total; anyone who tries is shown the message
+              below, with a button that takes them to the recharge screen.
             </p>
             <form id="admin-withdraw-lock" class="nd-settings">
               <label class="nd-field">

@@ -586,15 +586,10 @@
           <form id="form-deposit" class="deposit-amount-card">
             <h3><i class="bi bi-wallet2"></i> Deposit amount</h3>
             <div class="amount-chips">
-              <button class="chip chip-amount" type="button" data-amount="100"><span>₹</span>100</button>
-              <button class="chip chip-amount" type="button" data-amount="200"><span>₹</span>200</button>
-              <button class="chip chip-amount" type="button" data-amount="300"><span>₹</span>300</button>
-              <button class="chip chip-amount" type="button" data-amount="400"><span>₹</span>400</button>
               <button class="chip chip-amount" type="button" data-amount="500"><span>₹</span>500</button>
-              <button class="chip chip-amount" type="button" data-amount="1000"><span>₹</span>1K</button>
-              <button class="chip chip-amount" type="button" data-amount="2000"><span>₹</span>2K</button>
-              <button class="chip chip-amount" type="button" data-amount="3000"><span>₹</span>3K</button>
-              <button class="chip chip-amount" type="button" data-amount="5000"><span>₹</span>5K</button>
+              <button class="chip chip-amount" type="button" data-amount="1000"><span>₹</span>1000</button>
+              <button class="chip chip-amount" type="button" data-amount="1500"><span>₹</span>1500</button>
+              <button class="chip chip-amount" type="button" data-amount="2000"><span>₹</span>2000</button>
             </div>
             <!-- The typed amount box is gone; the chips above are the only way
                  to choose. The field itself stays as a hidden input because the
@@ -1638,6 +1633,19 @@
        approved. Same classes as the game-access dialog above, so it inherits
        that styling rather than growing a second look-alike in the stylesheet.
        The wording comes from the dashboard, so it is filled in at runtime. -->
+  <!-- First of the two withdrawal pop-ups: the wallet is below the smallest
+       amount the platform will send. Nothing to do but keep playing, so this
+       one has no Recharge button -- the money is not the problem. -->
+  <div id="withdraw-min-modal" class="game-access-modal" aria-hidden="true">
+    <div class="game-access-backdrop"></div>
+    <div class="game-access-dialog" role="dialog" aria-modal="true" aria-labelledby="withdraw-min-title">
+      <h3 id="withdraw-min-title">Balance too low</h3>
+      <p id="withdraw-min-text">Minimum withdrawal is ₹1000.</p>
+      <div><button id="cancel-withdraw-min" type="button">Close</button><button id="confirm-withdraw-min" type="button">Play now</button></div>
+    </div>
+  </div>
+
+  <!-- Second: the wallet is big enough, but the account has never recharged. -->
   <div id="withdraw-locked-modal" class="game-access-modal" aria-hidden="true">
     <div class="game-access-backdrop"></div>
     <div class="game-access-dialog" role="dialog" aria-modal="true" aria-labelledby="withdraw-locked-title">

@@ -47,6 +47,16 @@ WITHDRAWAL_LOCKED_MESSAGE = (
     "first recharge is approved."
 )
 
+# Shown to a player whose wallet has not yet reached the smallest withdrawal
+# the platform will process. This is the first of the two pop-ups on the
+# withdrawal screen: too little in the wallet is a different problem from
+# never having recharged, and telling someone to recharge when what they
+# actually need is to keep playing sends them to the wrong screen.
+WITHDRAWAL_MIN_MESSAGE = (
+    "Minimum withdrawal is ₹{minimum}. Your wallet has ₹{balance}. "
+    "Keep playing to reach ₹{minimum}, then withdraw."
+)
+
 
 def get_wallet_settings(conn) -> dict:
     return {
@@ -56,10 +66,15 @@ def get_wallet_settings(conn) -> dict:
         # only set it while uploading one -- so there was no way to change the
         # minimum afterwards short of deleting the QR and adding it again.
         # These are the platform-wide bounds; a QR may narrow them further.
-        "deposit_min": float(get_setting(conn, "deposit_min", "100")),
+        "deposit_min": float(get_setting(conn, "deposit_min", "500")),
         "deposit_max": float(get_setting(conn, "deposit_max", "50000")),
-        "withdrawal_min": float(get_setting(conn, "withdrawal_min", "200")),
+        "withdrawal_min": float(get_setting(conn, "withdrawal_min", "1000")),
         "withdrawal_max": float(get_setting(conn, "withdrawal_max", "100000")),
+        # Wording for the too-little-in-the-wallet pop-up, the operator's to
+        # choose the same way the recharge one is.
+        "withdrawal_min_message": get_setting(
+            conn, "withdrawal_min_message", WITHDRAWAL_MIN_MESSAGE
+        ),
         # Approved deposits an account needs before it may withdraw anything.
         # 0 turns the requirement off.
         "withdrawal_min_deposit": float(get_setting(conn, "withdrawal_min_deposit", "500")),
