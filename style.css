@@ -9450,6 +9450,24 @@ body.admin-mode .nd-status i { font-size: 7px; color: var(--ad-good); }
 }
 .nd-bar i { display: block; height: 100%; background: #f0b429; }
 
+/* Signup queue: the count on the card heading, and a rejected row dimmed so
+   the ones still needing a decision stand out from the ones already made. */
+.nd-badge {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px;
+  padding: 0 6px; margin-left: 6px; border-radius: 999px;
+  background: #f16d78; color: #10131c; font-size: 11px; font-weight: 800;
+}
+.nd-group-row.is-rejected { opacity: .55; }
+.nd-req-note { display: block; font-style: italic; opacity: .75; }
+
+/* Confirmation on the portal's application form. Green rather than the red
+   the error box uses -- it is the one message there that is good news. */
+.emp-gate-done {
+  margin: 0 0 12px; padding: 9px 12px; border-radius: 10px; font-size: .84rem;
+  background: rgba(74, 222, 128, .13); border: 1px solid rgba(74, 222, 128, .4);
+  color: #86efac;
+}
+
 /* The employee portal's own group panel. */
 .emp-group {
   display: flex; flex-wrap: wrap; align-items: center; gap: 14px;

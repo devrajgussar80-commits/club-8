@@ -470,6 +470,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_groups_name ON employee_groups (L
 ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id TEXT
     REFERENCES employee_groups(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_users_group ON users(group_id) WHERE group_id IS NOT NULL;
+
+-- Where a self-signup from /employee sits until an admin rules on it.
+--   pending  : applied, waiting in the dashboard's queue. is_employee stays 0.
+--   approved : admin said yes; is_employee flipped to 1 at the same moment.
+--   rejected : admin said no. The row is kept, not deleted, so the same phone
+--              cannot quietly re-apply every hour and so the decision is on
+--              record with its reason.
+-- NULL means the account never came through the request queue at all -- every
+-- employee the dashboard created directly. `is_employee` stays the one gate
+-- on signing in; this column only records how the account got there.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_status TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_requested_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_reviewed_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS employee_note TEXT;
+CREATE INDEX IF NOT EXISTS idx_users_employee_status ON users(employee_status)
+    WHERE employee_status IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code
     ON users(referral_code) WHERE referral_code IS NOT NULL;
 

@@ -10,6 +10,7 @@ staff, not an operator -- none of these routes can change a balance, approve a
 withdrawal, or read another employee's downline.
 """
 
+import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -18,7 +19,7 @@ import auth as auth_helpers
 import referrals_core
 from database import get_db_connection
 from deps import get_employee_user
-from schemas import EmployeeLoginRequest
+from schemas import EmployeeLoginRequest, EmployeeRegisterRequest
 
 router = APIRouter(prefix="/api/employee", tags=["employee"])
 
@@ -73,6 +74,22 @@ def employee_login(req: EmployeeLoginRequest):
 
     user = dict(row)
     if not user.get("is_employee"):
+        # Someone whose application is still in the queue typed the right
+        # password and deserves to know that, rather than being told their
+        # account is a player account when it is not one yet.
+        state = user.get("employee_status")
+        if state == "pending":
+            raise HTTPException(
+                status_code=403,
+                detail="Your account is waiting for admin approval. "
+                       "You will be able to sign in once it is approved.",
+            )
+        if state == "rejected":
+            raise HTTPException(
+                status_code=403,
+                detail=(user.get("employee_note") or "").strip()
+                       or "Your application was not approved. Contact your admin.",
+            )
         raise HTTPException(
             status_code=403,
             detail="This is a player account. Sign in through the app instead.",
@@ -85,6 +102,82 @@ def employee_login(req: EmployeeLoginRequest):
         expires_delta=timedelta(days=SESSION_DAYS),
     )
     return {"status": "success", "token": token, "employee": _profile(user)}
+
+
+@router.post("/register")
+def employee_register(req: EmployeeRegisterRequest):
+    """Apply for a staff account from the portal's sign-in page.
+
+    This grants nothing. The row is written with `is_employee = 0` and
+    `employee_status = 'pending'`, which is the same state as a player as far
+    as every other route is concerned -- the account cannot sign in here, and
+    it carries no referral rewards, until an admin approves it in the Team
+    tab. Making self-signup write `is_employee = 1` and relying on the admin
+    to notice would be an open door to the staff portal.
+    """
+    phone = "".join(ch for ch in req.phone if ch.isdigit())[-10:]
+    if len(phone) != 10:
+        raise HTTPException(status_code=400, detail="Enter a 10-digit mobile number.")
+
+    conn = get_db_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id, is_employee, employee_status FROM users "
+            "WHERE phone IN (?, ?, ?)",
+            (phone, f"+91{phone}", f"91{phone}"),
+        ).fetchone()
+        if existing:
+            row = dict(existing)
+            state = row.get("employee_status")
+            if row.get("is_employee"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="That number already has a staff account. Sign in instead.",
+                )
+            if state == "pending":
+                raise HTTPException(
+                    status_code=400,
+                    detail="An application for that number is already waiting for approval.",
+                )
+            if state == "rejected":
+                raise HTTPException(
+                    status_code=400,
+                    detail="An application for that number was already reviewed. "
+                           "Contact your admin.",
+                )
+            raise HTTPException(
+                status_code=400,
+                detail="That number is already registered as a player.",
+            )
+
+        user_id = f"USR{uuid.uuid4().hex[:10].upper()}"
+        conn.execute(
+            """
+            INSERT INTO users
+                (id, phone, username, password_hash, balance, status,
+                 referral_code, game_access_enabled, is_employee,
+                 employee_status, employee_requested_at, employee_note,
+                 luck_done)
+            VALUES (?, ?, ?, ?, 0, 'active', ?, 0, 0, 'pending', NOW(), ?, 1)
+            """,
+            (
+                user_id, phone, req.username.strip(),
+                auth_helpers.hash_password(req.password),
+                # A code is issued now so approval is a single flag flip and
+                # the invite link works the moment they first sign in.
+                referrals_core.new_user_code(conn),
+                (req.note or "").strip() or None,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {
+        "status": "pending",
+        "id": user_id,
+        "message": "Application sent. Your admin will review it shortly.",
+    }
 
 
 @router.get("/me")

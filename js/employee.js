@@ -67,6 +67,13 @@ class EmployeePortal {
   showGate(message = '') {
     $('emp-app').hidden = true;
     $('emp-gate').style.display = 'flex';
+    // Always back to sign-in: everything that lands here -- signing out, an
+    // expired session, a refused request -- means the login card, not
+    // whichever of the two happened to be open last.
+    const login = $('emp-login-form');
+    const register = $('emp-register-form');
+    if (login) login.hidden = false;
+    if (register) register.hidden = true;
     const box = $('emp-gate-error');
     box.textContent = message;
     box.hidden = !message;
@@ -90,6 +97,51 @@ class EmployeePortal {
   // ------------------------------------------------------------ sign in
 
   wireGate() {
+    // The two cards share one gate; only one is on screen at a time.
+    const swap = toRegister => {
+      $('emp-login-form').hidden = toRegister;
+      $('emp-register-form').hidden = !toRegister;
+      $('emp-gate-error').hidden = true;
+      $('emp-reg-error').hidden = true;
+    };
+    $('emp-show-register')?.addEventListener('click', e => { e.preventDefault(); swap(true); });
+    $('emp-show-login')?.addEventListener('click', e => { e.preventDefault(); swap(false); });
+
+    $('emp-register-form')?.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button[type="submit"]');
+      const error = $('emp-reg-error');
+      const done = $('emp-reg-done');
+      const body = {
+        username: $('emp-reg-name').value.trim(),
+        phone: ($('emp-reg-phone').value || '').replace(/\D/g, '').slice(-10),
+        password: $('emp-reg-password').value || '',
+        note: $('emp-reg-note').value.trim()
+      };
+      error.hidden = true;
+      done.hidden = true;
+      if (!body.username || body.phone.length !== 10 || body.password.length < 6) {
+        error.textContent = 'Name, a 10-digit number and a password of at least 6 characters.';
+        error.hidden = false;
+        return;
+      }
+      button.disabled = true;
+      try {
+        const result = await this.api('/register', { method: 'POST', body });
+        // Deliberately no token and no redirect: applying grants nothing
+        // until an admin approves it, and dropping them at a login they
+        // cannot pass would read as the form having failed.
+        done.textContent = result.message || 'Application sent.';
+        done.hidden = false;
+        $('emp-register-form').reset();
+      } catch (err) {
+        error.textContent = err.message;
+        error.hidden = false;
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     $('emp-login-form')?.addEventListener('submit', async event => {
       event.preventDefault();
       const button = event.currentTarget.querySelector('button[type="submit"]');

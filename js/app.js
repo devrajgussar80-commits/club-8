@@ -2843,6 +2843,158 @@ class App {
     } catch (_) { /* the placeholder icon stays */ }
   }
 
+  // ------------------------------------------------------- signup requests
+
+  async loadTeamRequests() {
+    const host = document.getElementById('admin-requests');
+    if (!host) return;
+    let data;
+    try {
+      data = await this.adminApi('/api/admin/team/requests');
+    } catch (error) {
+      host.innerHTML = `<p class="nd-empty">${this.escapeHtml(error.message)}</p>`;
+      return;
+    }
+
+    const badge = document.getElementById('admin-requests-badge');
+    if (badge) {
+      badge.textContent = String(data.pending || 0);
+      badge.hidden = !data.pending;
+    }
+
+    const when = value => value ? new Date(value).toLocaleString() : '\u2014';
+    host.innerHTML = data.requests.length ? data.requests.map(r => `
+      <div class="nd-group-row${r.status === 'rejected' ? ' is-rejected' : ''}">
+        <div class="nd-group-who">
+          <strong>${this.escapeHtml(r.username)}</strong>
+          <small>${this.escapeHtml(r.phone)} \u00b7 applied ${when(r.requested_at)}</small>
+          ${r.note ? `<small class="nd-req-note">\u201c${this.escapeHtml(r.note)}\u201d</small>` : ''}
+        </div>
+        ${r.status === 'pending' ? `
+          <label class="nd-hint" style="display:flex; align-items:center; gap:6px">
+            Win %
+            <input type="number" min="0" max="100" value="80"
+                   data-req-rate="${r.id}" class="form-control" style="width:72px">
+          </label>
+          <select data-req-group="${r.id}" class="form-control" style="width:auto">
+            <option value="">\u2014 no group \u2014</option>
+            ${(this.groups || []).map(g =>
+              `<option value="${g.id}">${this.escapeHtml(g.name)}</option>`).join('')}
+          </select>
+          <button type="button" class="nd-mini ok" data-req-approve="${r.id}">Approve</button>
+          <button type="button" class="nd-mini danger" data-req-reject="${r.id}">Reject</button>`
+        : `<span class="nd-group-nums">
+             Rejected ${when(r.reviewed_at)}${r.note ? ` \u2014 ${this.escapeHtml(r.note)}` : ''}
+           </span>`}
+      </div>`).join('') : '<p class="nd-empty">No applications waiting.</p>';
+
+    host.querySelectorAll('[data-req-approve]').forEach(button =>
+      button.addEventListener('click', () => {
+        const id = button.dataset.reqApprove;
+        void this.reviewTeamRequest(id, 'approve', {
+          win_rate: Number(host.querySelector(`[data-req-rate="${id}"]`)?.value || 80),
+          group_id: host.querySelector(`[data-req-group="${id}"]`)?.value || null
+        });
+      }));
+
+    host.querySelectorAll('[data-req-reject]').forEach(button =>
+      button.addEventListener('click', () => {
+        // The note is what the applicant sees on their next sign-in attempt,
+        // so it is worth asking for rather than rejecting silently.
+        const note = prompt('Reason (shown to the applicant when they try to sign in):', '');
+        if (note === null) return;
+        void this.reviewTeamRequest(button.dataset.reqReject, 'reject', { note });
+      }));
+  }
+
+  async reviewTeamRequest(userId, decision, body) {
+    try {
+      await this.adminApi(`/api/admin/team/requests/${userId}/${decision}`, 'POST', body);
+      this.showToast(decision === 'approve'
+        ? 'Approved. They can sign in at /employee now.'
+        : 'Application rejected.', 'success');
+      await this.loadTeamRequests();
+      this.loadTeam();
+      void this.loadTeamPerformance();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  // ------------------------------------------------------ account controls
+
+  async saveTeamDetails(userId, username, phone) {
+    try {
+      const res = await this.adminApi(`/api/admin/team/${userId}/details`, 'PUT',
+        { username, phone });
+      this.showToast(`Saved: ${res.username} (${res.phone}).`, 'success');
+      this.loadTeam();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async setTeamPassword(userId, name) {
+    const password = prompt(
+      `New password for ${name}.\n\n`
+      + 'The existing one cannot be shown -- passwords are stored as one-way '
+      + 'hashes. Whatever you type here is what it becomes, and it is repeated '
+      + 'back once so you can pass it on.', '');
+    if (password === null) return;
+    if (password.length < 6) return this.showToast('At least 6 characters.', 'error');
+    try {
+      await this.adminApi(`/api/admin/team/${userId}/password`, 'POST', { password });
+      // Shown once, in the clear, because the admin has to be able to tell
+      // the employee what it is -- and this is the only moment it exists in
+      // readable form anywhere.
+      this.showToast(`Password for ${name} is now: ${password}`, 'success');
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async setTeamStatus(userId, status) {
+    try {
+      await this.adminApi(`/api/admin/team/${userId}/status`, 'POST', { status });
+      this.showToast(status === 'disabled'
+        ? 'Account disabled. They cannot sign in until it is enabled again.'
+        : 'Account enabled.', 'success');
+      this.loadTeam();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
+  async deleteTeamUser(userId, name) {
+    let impact;
+    try {
+      impact = await this.adminApi(`/api/admin/team/${userId}/deletion-impact`);
+    } catch (error) {
+      return this.showToast(error.message, 'error');
+    }
+    // Deleting cascades to their referral rows, so the confirm says what goes
+    // with the account rather than asking "are you sure" about a number the
+    // admin cannot see.
+    const loses = impact.referrals
+      ? `\n\nThis also deletes ${impact.referrals} referral record(s)`
+        + (impact.unpaid_rewards
+            ? `, including ${impact.unpaid_rewards} with a reward not yet paid out`
+            : '')
+        + '. That cannot be undone.\n\nDisable the account instead if you only '
+        + 'want to stop them signing in.'
+      : '';
+    if (!confirm(`Delete ${name} permanently?${loses}`)) return;
+    try {
+      await this.adminApi(`/api/admin/team/${userId}`, 'DELETE');
+      this.showToast(`${name} deleted.`, 'success');
+      await this.loadGroups();
+      this.loadTeam();
+      void this.loadTeamPerformance();
+    } catch (error) {
+      this.showToast(error.message, 'error');
+    }
+  }
+
   async loadGroups() {
     const host = document.getElementById('admin-group-list');
     if (!host) return;
@@ -3063,6 +3215,7 @@ class App {
             ${this.escapeHtml(m.username)} <small style="color:#8a93ab">${this.escapeHtml(m.phone)}</small>
             ${m.is_employee ? '<small class="ref-yes">portal</small>' : '<small class="ref-no">no portal</small>'}
             ${m.group_name ? `<small class="nd-group-tag">${this.escapeHtml(m.group_name)}</small>` : ''}
+            ${m.status === 'disabled' ? '<small class="ref-no">disabled</small>' : ''}
           </h4>
           <span class="nd-day-sum">
             win ${Math.round(m.win_rate)}% · bal ${money(m.balance)} · code ${this.escapeHtml(m.referral_code || '—')} · ${m.referral_count} referrals · their deposits ${money(m.referred_deposit_total)}
@@ -3087,6 +3240,12 @@ class App {
             </select>
           </label>
           <button type="button" class="nd-mini ok" data-team-save="${m.id}">Save</button>
+          <button type="button" class="nd-mini" data-team-edit="${m.id}">Edit details</button>
+          <button type="button" class="nd-mini" data-team-pass="${m.id}">Set password</button>
+          <button type="button" class="nd-mini" data-team-toggle="${m.id}">
+            ${m.status === 'disabled' ? 'Enable' : 'Disable'}
+          </button>
+          <button type="button" class="nd-mini danger" data-team-delete="${m.id}">Delete</button>
           <label class="nd-mini" style="cursor:pointer">
             ${m.has_photo ? 'Replace photo' : 'Add photo'}
             <input type="file" accept="image/png,image/jpeg,image/webp" hidden data-team-photo-input="${m.id}">
@@ -3129,6 +3288,35 @@ class App {
         } catch (error) {
           this.showToast(error.message, 'error');
         }
+      }));
+
+    host.querySelectorAll('[data-team-edit]').forEach(button =>
+      button.addEventListener('click', () => {
+        const member = team.find(m => m.id === button.dataset.teamEdit);
+        const username = prompt('Name:', member?.username || '');
+        if (username === null) return;
+        const phone = prompt('Login number (10 digits):', member?.phone || '');
+        if (phone === null) return;
+        void this.saveTeamDetails(button.dataset.teamEdit, username, phone);
+      }));
+
+    host.querySelectorAll('[data-team-pass]').forEach(button =>
+      button.addEventListener('click', () => {
+        const member = team.find(m => m.id === button.dataset.teamPass);
+        void this.setTeamPassword(button.dataset.teamPass, member?.username || 'this account');
+      }));
+
+    host.querySelectorAll('[data-team-toggle]').forEach(button =>
+      button.addEventListener('click', () => {
+        const member = team.find(m => m.id === button.dataset.teamToggle);
+        void this.setTeamStatus(button.dataset.teamToggle,
+          member?.status === 'disabled' ? 'active' : 'disabled');
+      }));
+
+    host.querySelectorAll('[data-team-delete]').forEach(button =>
+      button.addEventListener('click', () => {
+        const member = team.find(m => m.id === button.dataset.teamDelete);
+        void this.deleteTeamUser(button.dataset.teamDelete, member?.username || 'this account');
       }));
 
     team.filter(m => m.has_photo).forEach(m => {
@@ -3895,7 +4083,12 @@ class App {
         // so they load when the tab is opened rather than on every refresh.
         if (tab.dataset.section === 'referrals') void this.loadAdminReferrals();
         if (tab.dataset.section === 'team') {
-          void this.loadGroups().then(() => this.loadTeam());
+          void this.loadGroups().then(() => {
+            this.loadTeam();
+            // After groups: the approve rows offer a group picker built from
+            // this.groups, which is empty until loadGroups has answered.
+            void this.loadTeamRequests();
+          });
           void this.loadTeamPerformance();
         }
         // The APK card moved to Downloads, so its metadata loads with that tab.

@@ -33,6 +33,10 @@ from schemas import (
     GroupRequest,
     PlatformSettingsReq,
     PredictionModeReq,
+    TeamDetailsRequest,
+    TeamPasswordRequest,
+    TeamReviewRequest,
+    TeamStatusRequest,
     UserGameAccessReq,
     UserStatusReq,
 )
@@ -1105,6 +1109,7 @@ def team_list(_: bool = Depends(require_admin)):
                    u.referral_code, u.team_win_rate, u.created_at,
                    u.is_employee, u.photo IS NOT NULL AS has_photo,
                    u.photo_updated_at, u.group_id, g.name AS group_name,
+                   u.employee_status,
                    COALESCE(dep.total, 0) AS own_deposits
             FROM users u
             LEFT JOIN employee_groups g ON g.id = u.group_id
@@ -1157,6 +1162,7 @@ def team_list(_: bool = Depends(require_admin)):
                 "referral_code": m["referral_code"],
                 "win_rate": float(m["team_win_rate"] or 0),
                 "is_employee": bool(m["is_employee"]),
+                "employee_status": m["employee_status"],
                 "group_id": m["group_id"],
                 "group_name": m["group_name"],
                 "has_photo": bool(m["has_photo"]),
@@ -1440,6 +1446,259 @@ def team_performance(_: bool = Depends(require_admin)):
             "deposits_brought": round(sum(e["deposits_brought"] for e in employees), 2),
         },
     }
+
+
+# ----------------- STAFF SIGNUP QUEUE -----------------
+@router.get("/team/requests")
+def team_requests(_: bool = Depends(require_admin)):
+    """Self-signups from /employee waiting on a decision.
+
+    Rejected ones are returned too, most recent first, so a decision can be
+    seen and reversed rather than vanishing the moment it is made.
+    """
+    conn = get_db_connection(readonly=True)
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, phone, username, employee_status, employee_note,
+                   employee_requested_at, employee_reviewed_at
+            FROM users
+            WHERE employee_status IN ('pending', 'rejected') AND is_employee = 0
+            ORDER BY employee_status = 'rejected', employee_requested_at DESC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    def when(value):
+        return value.isoformat() if value else None
+
+    out = [
+        {
+            "id": r["id"],
+            "phone": r["phone"],
+            "username": r["username"],
+            "status": r["employee_status"],
+            "note": r["employee_note"] or "",
+            "requested_at": when(r["employee_requested_at"]),
+            "reviewed_at": when(r["employee_reviewed_at"]),
+        }
+        for r in map(dict, rows)
+    ]
+    return {"requests": out, "pending": sum(1 for r in out if r["status"] == "pending")}
+
+
+@router.post("/team/requests/{user_id}/approve")
+def team_request_approve(
+    user_id: str, req: TeamReviewRequest, _: bool = Depends(require_admin)
+):
+    """Turn a pending application into a working staff account.
+
+    The win rate and group come in with the decision so the account arrives
+    configured, rather than needing a second edit straight afterwards.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, employee_status FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such application")
+        if dict(row)["employee_status"] != "pending":
+            raise HTTPException(status_code=400, detail="That application is not pending.")
+
+        group_id = (req.group_id or "").strip() or None
+        if group_id and not conn.execute(
+            "SELECT id FROM employee_groups WHERE id = ?", (group_id,)
+        ).fetchone():
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        conn.execute(
+            """
+            UPDATE users
+               SET is_employee = 1, employee_status = 'approved',
+                   employee_reviewed_at = NOW(), employee_note = ?,
+                   team_win_rate = ?, group_id = ?, game_access_enabled = 1,
+                   status = 'active'
+             WHERE id = ?
+            """,
+            ((req.note or "").strip() or None, float(req.win_rate), group_id, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id, "employee_status": "approved"}
+
+
+@router.post("/team/requests/{user_id}/reject")
+def team_request_reject(
+    user_id: str, req: TeamReviewRequest, _: bool = Depends(require_admin)
+):
+    """Decline an application. The note is what the applicant is shown when
+    they next try to sign in, so it is worth writing."""
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, employee_status FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such application")
+        if dict(row)["employee_status"] != "pending":
+            raise HTTPException(status_code=400, detail="That application is not pending.")
+        conn.execute(
+            "UPDATE users SET employee_status = 'rejected', is_employee = 0, "
+            "employee_reviewed_at = NOW(), employee_note = ? WHERE id = ?",
+            ((req.note or "").strip() or None, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id, "employee_status": "rejected"}
+
+
+# ----------------- STAFF ACCOUNT CONTROLS -----------------
+@router.put("/team/{user_id}/details")
+def team_details(user_id: str, req: TeamDetailsRequest, _: bool = Depends(require_admin)):
+    """Change an employee's display name and login number.
+
+    The number is stored as ten plain digits, matching what the login routes
+    look up. A row saved in any other shape can never be found by someone
+    typing their own number, and the error they get says the password is
+    wrong, which sends everyone hunting in the wrong place.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, phone, username FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        current = dict(row)
+
+        phone = current["phone"]
+        if req.phone is not None:
+            phone = "".join(ch for ch in req.phone if ch.isdigit())[-10:]
+            if len(phone) != 10:
+                raise HTTPException(status_code=400, detail="Enter a 10-digit mobile number.")
+            clash = conn.execute(
+                "SELECT id FROM users WHERE phone IN (?, ?, ?) AND id <> ?",
+                (phone, f"+91{phone}", f"91{phone}", user_id),
+            ).fetchone()
+            if clash:
+                raise HTTPException(status_code=400, detail="That number is already in use.")
+
+        username = (req.username or "").strip() or current["username"]
+        conn.execute(
+            "UPDATE users SET username = ?, phone = ? WHERE id = ?",
+            (username, phone, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id, "username": username, "phone": phone}
+
+
+@router.post("/team/{user_id}/password")
+def team_password(user_id: str, req: TeamPasswordRequest, _: bool = Depends(require_admin)):
+    """Set an employee's password to something the admin has chosen.
+
+    There is deliberately no route that reads the existing one. Passwords are
+    stored as PBKDF2 hashes with a per-hash salt, which cannot be reversed --
+    and the only way to make one readable would be to keep the plaintext,
+    which on a platform holding real money is not a trade worth making. The
+    dashboard shows what it just set instead, once, so it can be passed on.
+    """
+    conn = get_db_connection()
+    try:
+        if not conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (auth_helpers.hash_password(req.password), user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id}
+
+
+@router.post("/team/{user_id}/status")
+def team_status(user_id: str, req: TeamStatusRequest, _: bool = Depends(require_admin)):
+    """Suspend or restore an account. Everything it has done is kept."""
+    conn = get_db_connection()
+    try:
+        if not conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute("UPDATE users SET status = ? WHERE id = ?", (req.status, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id, "account_status": req.status}
+
+
+@router.get("/team/{user_id}/deletion-impact")
+def team_deletion_impact(user_id: str, _: bool = Depends(require_admin)):
+    """What deleting this account would destroy, so the confirm can say so.
+
+    `referrals.referrer_id` is ON DELETE CASCADE, so removing an employee
+    takes their referral rows with it -- the record of who introduced those
+    players, and any reward still unpaid. That is not recoverable, and it is
+    not what "delete" looks like it does from a button.
+    """
+    conn = get_db_connection(readonly=True)
+    try:
+        row = conn.execute(
+            """
+            SELECT u.username, u.is_admin,
+                   COUNT(r.id) AS referrals,
+                   COUNT(r.id) FILTER (WHERE r.status = 'deposited') AS unpaid_rewards
+            FROM users u
+            LEFT JOIN referrals r ON r.referrer_id = u.id
+            WHERE u.id = ?
+            GROUP BY u.id, u.username, u.is_admin
+            """,
+            (user_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    r = dict(row)
+    return {
+        "id": user_id,
+        "username": r["username"],
+        "is_admin": bool(r["is_admin"]),
+        "referrals": int(r["referrals"] or 0),
+        "unpaid_rewards": int(r["unpaid_rewards"] or 0),
+    }
+
+
+@router.delete("/team/{user_id}")
+def team_delete(user_id: str, _: bool = Depends(require_admin)):
+    """Delete a staff account for good.
+
+    Refused for an admin account: the recovery path for a deleted admin is a
+    shell on the box running make_admin.py, and doing that by accident from a
+    row of buttons is not a mistake worth leaving available.
+    """
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, is_admin, username FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        found = dict(row)
+        if found["is_admin"]:
+            raise HTTPException(
+                status_code=400,
+                detail="That is an admin account. Remove admin rights first.",
+            )
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"status": "success", "id": user_id, "username": found["username"]}
 
 
 @router.post("/team/{user_id}/photo")

@@ -426,3 +426,182 @@ def test_staff_with_no_group_are_pooled_not_dropped(client, admin_headers):
     body = client.get("/api/admin/team/performance", headers=admin_headers).json()
     assert any(g["name"] == "Ungrouped" for g in body["groups"])
     assert sum(g["members"] for g in body["groups"]) == body["totals"]["staff"]
+
+
+# ----------------- SELF-SIGNUP AND APPROVAL -----------------
+def apply_for_access(client, name="Applicant", note=""):
+    phone = f"93{uuid.uuid4().int % 100000000:08d}"
+    response = client.post("/api/employee/register", json={
+        "username": name, "phone": phone, "password": "applied123", "note": note})
+    assert response.status_code == 200, response.text
+    return {**response.json(), "phone": phone, "password": "applied123"}
+
+
+def test_applying_grants_no_access_at_all(client, admin_headers):
+    """The whole risk of self-signup: it must not create a working account."""
+    applicant = apply_for_access(client)
+
+    response = client.post("/api/employee/login", json={
+        "phone": applicant["phone"], "password": applicant["password"]})
+    assert response.status_code == 403
+    assert "approval" in response.json()["detail"].lower()
+
+    # And it is not counted as staff anywhere until approved.
+    assert not any(c["name"] == "Applicant" for c in
+                   client.get("/api/admin/team/performance",
+                              headers=admin_headers).json()["employees"])
+
+
+def test_an_application_shows_up_for_the_admin(client, admin_headers):
+    applicant = apply_for_access(client, name="Hopeful", note="Night shift please")
+    body = client.get("/api/admin/team/requests", headers=admin_headers).json()
+    assert body["pending"] == 1
+    request = body["requests"][0]
+    assert request["username"] == "Hopeful"
+    assert request["note"] == "Night shift please"
+    assert request["status"] == "pending"
+    assert request["id"] == applicant["id"]
+
+
+def test_approval_turns_it_into_a_working_account(client, admin_headers):
+    group = make_group(client, admin_headers, "Evenings")
+    applicant = apply_for_access(client)
+
+    response = client.post(
+        f"/api/admin/team/requests/{applicant['id']}/approve",
+        json={"win_rate": 65, "group_id": group["id"]}, headers=admin_headers)
+    assert response.status_code == 200, response.text
+
+    headers = sign_in(client, applicant)
+    me = client.get("/api/employee/me", headers=headers).json()
+    assert me["employee"]["group"]["name"] == "Evenings"
+
+    row = next(m for m in client.get("/api/admin/team", headers=admin_headers).json()["team"]
+               if m["id"] == applicant["id"])
+    assert row["is_employee"] is True
+    assert row["win_rate"] == 65
+
+
+def test_rejection_tells_the_applicant_why(client, admin_headers):
+    applicant = apply_for_access(client)
+    client.post(f"/api/admin/team/requests/{applicant['id']}/reject",
+                json={"note": "Not hiring this month."}, headers=admin_headers)
+
+    response = client.post("/api/employee/login", json={
+        "phone": applicant["phone"], "password": applicant["password"]})
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Not hiring this month."
+
+
+def test_a_decision_cannot_be_made_twice(client, admin_headers):
+    applicant = apply_for_access(client)
+    client.post(f"/api/admin/team/requests/{applicant['id']}/approve",
+                json={}, headers=admin_headers)
+    again = client.post(f"/api/admin/team/requests/{applicant['id']}/reject",
+                        json={"note": "changed my mind"}, headers=admin_headers)
+    assert again.status_code == 400
+
+
+def test_the_same_number_cannot_apply_twice(client, admin_headers):
+    applicant = apply_for_access(client)
+    response = client.post("/api/employee/register", json={
+        "username": "Again", "phone": applicant["phone"], "password": "applied123"})
+    assert response.status_code == 400
+    assert "already waiting" in response.json()["detail"].lower()
+
+
+def test_a_player_number_cannot_apply(client, register):
+    _, player = register()
+    response = client.post("/api/employee/register", json={
+        "username": "Sneaky", "phone": player["phone"], "password": "applied123"})
+    assert response.status_code == 400
+
+
+def test_the_signup_queue_needs_admin(client):
+    assert client.get("/api/admin/team/requests").status_code == 401
+
+
+# ----------------- ACCOUNT CONTROLS -----------------
+def test_editing_name_and_number_and_signing_in_with_the_new_one(client, admin_headers):
+    employee = make_employee(client, admin_headers)
+    new_phone = f"92{uuid.uuid4().int % 100000000:08d}"
+    response = client.put(f"/api/admin/team/{employee['id']}/details",
+                          json={"username": "Renamed", "phone": new_phone},
+                          headers=admin_headers)
+    assert response.status_code == 200
+
+    assert client.post("/api/employee/login", json={
+        "phone": new_phone, "password": employee["password"]}).status_code == 200
+    # The old number stops working, which is the point of changing it.
+    assert client.post("/api/employee/login", json={
+        "phone": employee["phone"], "password": employee["password"]}).status_code == 400
+
+
+def test_a_number_already_in_use_is_refused(client, admin_headers):
+    first = make_employee(client, admin_headers)
+    second = make_employee(client, admin_headers)
+    response = client.put(f"/api/admin/team/{second['id']}/details",
+                          json={"phone": first["phone"]}, headers=admin_headers)
+    assert response.status_code == 400
+
+
+def test_setting_a_password_replaces_the_old_one(client, admin_headers):
+    employee = make_employee(client, admin_headers)
+    assert client.post(f"/api/admin/team/{employee['id']}/password",
+                       json={"password": "brand-new-pass"},
+                       headers=admin_headers).status_code == 200
+
+    assert client.post("/api/employee/login", json={
+        "phone": employee["phone"], "password": "brand-new-pass"}).status_code == 200
+    assert client.post("/api/employee/login", json={
+        "phone": employee["phone"], "password": employee["password"]}).status_code == 400
+
+
+def test_disabling_an_account_stops_it_signing_in(client, admin_headers):
+    employee = make_employee(client, admin_headers)
+    headers = sign_in(client, employee)
+
+    client.post(f"/api/admin/team/{employee['id']}/status",
+                json={"status": "disabled"}, headers=admin_headers)
+    # Both a fresh sign-in and an existing session.
+    assert client.post("/api/employee/login", json={
+        "phone": employee["phone"], "password": employee["password"]}).status_code == 403
+    assert client.get("/api/employee/me", headers=headers).status_code == 403
+
+    client.post(f"/api/admin/team/{employee['id']}/status",
+                json={"status": "active"}, headers=admin_headers)
+    assert client.post("/api/employee/login", json={
+        "phone": employee["phone"], "password": employee["password"]}).status_code == 200
+
+
+def test_deletion_impact_counts_what_would_be_lost(client, admin_headers):
+    employee = make_employee(client, admin_headers)
+    client.post("/api/auth/register", json={
+        "phone": f"91{uuid.uuid4().int % 100000000:08d}",
+        "username": "Theirs", "password": "secret123",
+        "referral_code": employee["referral_code"]})
+
+    impact = client.get(f"/api/admin/team/{employee['id']}/deletion-impact",
+                        headers=admin_headers).json()
+    assert impact["referrals"] == 1
+    assert impact["is_admin"] is False
+
+
+def test_deleting_an_account_removes_it(client, admin_headers):
+    employee = make_employee(client, admin_headers)
+    assert client.delete(f"/api/admin/team/{employee['id']}",
+                         headers=admin_headers).status_code == 200
+    assert client.post("/api/employee/login", json={
+        "phone": employee["phone"], "password": employee["password"]}).status_code == 400
+
+
+def test_an_admin_account_cannot_be_deleted_from_the_team_tab(client, admin_headers, db):
+    employee = make_employee(client, admin_headers)
+    conn = db()
+    conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (employee["id"],))
+    conn.commit()
+    conn.close()
+
+    response = client.delete(f"/api/admin/team/{employee['id']}", headers=admin_headers)
+    assert response.status_code == 400
+    assert "admin" in response.json()["detail"].lower()

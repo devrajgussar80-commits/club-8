@@ -77,6 +77,48 @@ class EmployeeLoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class EmployeeRegisterRequest(BaseModel):
+    """A self-signup from the portal. Grants nothing until an admin approves."""
+
+    phone: str = Field(min_length=4, max_length=32)
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6, max_length=128)
+    # Free text the applicant can leave for whoever reviews the queue.
+    note: Optional[str] = Field(default=None, max_length=200)
+
+
+class TeamReviewRequest(BaseModel):
+    """An admin's decision on a pending signup."""
+
+    note: Optional[str] = Field(default=None, max_length=200)
+    # Applied on approval only, so the account arrives configured rather than
+    # needing a second edit straight afterwards.
+    win_rate: float = Field(default=80, ge=0, le=100)
+    group_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class TeamDetailsRequest(BaseModel):
+    """Edit an employee's name and login number."""
+
+    username: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    phone: Optional[str] = Field(default=None, min_length=4, max_length=32)
+
+
+class TeamPasswordRequest(BaseModel):
+    """Set an employee's password.
+
+    There is no "read the current one" counterpart and there cannot be: they
+    are stored as PBKDF2 hashes, which are one-way by design. The dashboard
+    shows what it just set instead, once, so an admin can pass it on.
+    """
+
+    password: str = Field(min_length=6, max_length=128)
+
+
+class TeamStatusRequest(BaseModel):
+    status: str = Field(pattern="^(active|disabled)$")
+
+
 class AdminCredentialsRequest(BaseModel):
     # The current password gates every change, so a hijacked session token
     # alone cannot lock the real admin out.

@@ -42,7 +42,48 @@
       <p id="emp-gate-error" class="emp-gate-error" hidden></p>
       <button class="btn-primary" type="submit">Sign in</button>
       <p class="nd-hint" style="margin-top:14px">
+        No account yet?
+        <a href="#" id="emp-show-register">Apply for one</a>.<br>
         Player account? <a href="/login">Sign in to the app instead</a>.
+      </p>
+    </form>
+
+    <!-- Applying grants nothing on its own: the account is created dormant
+         and cannot sign in until an admin approves it in the Team tab. -->
+    <form id="emp-register-form" class="emp-gate-card" hidden>
+      <div class="emp-brand"><span>8</span> CLUB 8</div>
+      <h1>Apply for access</h1>
+      <p class="emp-gate-sub">
+        Your admin reviews every application. You will be able to sign in once
+        it is approved.
+      </p>
+
+      <label class="nd-field">
+        <span>Your name</span>
+        <input id="emp-reg-name" class="form-control" maxlength="64"
+               autocomplete="name" placeholder="Full name" required>
+      </label>
+      <label class="nd-field">
+        <span>Mobile number</span>
+        <input id="emp-reg-phone" class="form-control" inputmode="numeric"
+               autocomplete="username" placeholder="10-digit number" required>
+      </label>
+      <label class="nd-field">
+        <span>Choose a password</span>
+        <input id="emp-reg-password" class="form-control" type="password"
+               autocomplete="new-password" placeholder="At least 6 characters" required>
+      </label>
+      <label class="nd-field">
+        <span>Anything your admin should know <small>(optional)</small></span>
+        <input id="emp-reg-note" class="form-control" maxlength="200"
+               placeholder="Which team, who referred you…">
+      </label>
+
+      <p id="emp-reg-error" class="emp-gate-error" hidden></p>
+      <p id="emp-reg-done" class="emp-gate-done" hidden></p>
+      <button class="btn-primary" type="submit">Send application</button>
+      <p class="nd-hint" style="margin-top:14px">
+        Already approved? <a href="#" id="emp-show-login">Sign in</a>.
       </p>
     </form>
   </div>
